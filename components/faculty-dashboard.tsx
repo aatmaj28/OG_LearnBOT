@@ -11,9 +11,15 @@ import { AnalyticsTab } from "@/components/analytics-tab"
 
 export function FacultyDashboard() {
   const [userName, setUserName] = useState("")
+  const [activeTab, setActiveTab] = useState("chat")
 
   useEffect(() => {
     loadUserData()
+    // Load the last active tab from localStorage
+    const savedTab = localStorage.getItem("facultyActiveTab")
+    if (savedTab && ["chat", "classes", "students", "analytics"].includes(savedTab)) {
+      setActiveTab(savedTab)
+    }
   }, [])
 
   const loadUserData = async () => {
@@ -36,6 +42,11 @@ export function FacultyDashboard() {
     }
   }
 
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    localStorage.setItem("facultyActiveTab", value)
+  }
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
@@ -56,7 +67,7 @@ export function FacultyDashboard() {
 
       {/* Main Content */}
       <div className="flex-1 overflow-hidden">
-        <Tabs defaultValue="chat" className="h-full flex flex-col">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="h-full flex flex-col">
           <div className="border-b bg-card px-4">
             <TabsList className="h-12">
               <TabsTrigger value="chat" className="gap-2">
@@ -78,7 +89,7 @@ export function FacultyDashboard() {
             </TabsList>
           </div>
 
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
             <TabsContent value="chat" className="h-full m-0">
               <FacultyChatTab />
             </TabsContent>

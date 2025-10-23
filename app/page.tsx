@@ -8,9 +8,9 @@ export default function HomePage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800 p-4">
       <div className="w-full max-w-4xl">
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-balance mb-4">Educational Chatbot Platform</h1>
+          <h1 className="text-4xl font-bold text-balance mb-4">LearnBOT v1.0</h1>
           <p className="text-lg text-muted-foreground text-balance">
-            AI-powered learning assistant for students and faculty
+            AI-powered teaching assistant for students and faculty @Northeastern University
           </p>
         </div>
 

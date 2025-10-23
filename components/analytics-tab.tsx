@@ -79,32 +79,41 @@ export function AnalyticsTab() {
   }
 
   const SENTIMENT_COLORS = {
-    Positive: "hsl(var(--chart-1))",
-    Neutral: "hsl(var(--chart-2))",
-    Negative: "hsl(var(--chart-3))",
+    Positive: "#10b981", // Green
+    Neutral: "#f59e0b",  // Amber
+    Negative: "#ef4444", // Red
   }
 
-  if (!analytics) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading analytics...</p>
-        </div>
-      </div>
-    )
+  const CHART_COLORS = {
+    primary: "#3b82f6",    // Blue
+    secondary: "#8b5cf6",  // Purple
+    accent: "#06b6d4",     // Cyan
+    success: "#10b981",    // Green
+    warning: "#f59e0b",    // Amber
+    error: "#ef4444",      // Red
+    info: "#06b6d4",       // Cyan
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full flex flex-col p-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold mb-2">Analytics Dashboard</h2>
         <p className="text-muted-foreground">Comprehensive insights into student engagement and learning patterns</p>
       </div>
 
       {classes.length === 0 ? (
-        <div className="flex items-center justify-center py-12">
-          <p className="text-muted-foreground">No classes found. Create a class to view analytics.</p>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <p className="text-muted-foreground mb-2">No classes found</p>
+            <p className="text-sm text-muted-foreground">Create a class to view class analytics</p>
+          </div>
+        </div>
+      ) : !analytics ? (
+        <div className="flex items-center justify-center py-30">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading analytics...</p>
+          </div>
         </div>
       ) : (
         <>
@@ -125,45 +134,57 @@ export function AnalyticsTab() {
 
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <Card>
+            <Card className="border-l-4 border-l-blue-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Total Students</CardTitle>
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
+                <BookOpen className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{analytics.totalStudents}</div>
+                <div className="text-2xl font-bold text-blue-600">{analytics.totalStudents}</div>
                 <p className="text-xs text-muted-foreground mt-1">Active learners</p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-l-4 border-l-green-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Total Chat Time</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
+                <Clock className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{analytics.totalChatTime} min</div>
+                <div className="text-2xl font-bold text-green-600">{analytics.totalChatTime} min</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {Math.round(analytics.totalChatTime / 60)} hours of learning
                 </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-l-4 border-l-purple-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Total Sessions</CardTitle>
-                <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                <MessageSquare className="h-4 w-4 text-purple-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{analytics.totalSessions}</div>
+                <div className="text-2xl font-bold text-purple-600">{analytics.totalSessions}</div>
                 <p className="text-xs text-muted-foreground mt-1">Conversations started</p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={`border-l-4 ${
+              analytics.averageSentiment > 0.3 
+                ? 'border-l-green-500' 
+                : analytics.averageSentiment < -0.3 
+                ? 'border-l-red-500' 
+                : 'border-l-yellow-500'
+            }`}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Average Sentiment</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                <TrendingUp className={`h-4 w-4 ${
+                  analytics.averageSentiment > 0.3 
+                    ? 'text-green-500' 
+                    : analytics.averageSentiment < -0.3 
+                    ? 'text-red-500' 
+                    : 'text-yellow-500'
+                }`} />
               </CardHeader>
               <CardContent>
                 <div
@@ -240,18 +261,33 @@ export function AnalyticsTab() {
                   config={{
                     count: {
                       label: "Mentions",
-                      color: "hsl(var(--chart-2))",
+                      color: CHART_COLORS.accent,
                     },
                   }}
                   className="h-[300px]"
                 >
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={analytics.topicDistribution}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="topic" />
-                      <YAxis />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="count" fill="var(--color-count)" />
+                    <BarChart data={analytics.topicDistribution} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="topic" 
+                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <ChartTooltip 
+                        content={<ChartTooltipContent 
+                          formatter={(value) => [`${value} mentions`, '']}
+                        />} 
+                      />
+                      <Bar 
+                        dataKey="count" 
+                        fill={CHART_COLORS.accent}
+                        radius={[4, 4, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
@@ -259,73 +295,124 @@ export function AnalyticsTab() {
             </Card>
           </div>
 
-          {/* Activity Over Time */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Activity Over Time</CardTitle>
-              <CardDescription>Student engagement trends</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer
-                config={{
-                  sessions: {
-                    label: "Sessions",
-                    color: "hsl(var(--chart-1))",
-                  },
-                  minutes: {
-                    label: "Minutes",
-                    color: "hsl(var(--chart-2))",
-                  },
-                }}
-                className="h-[300px]"
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={analytics.activityOverTime}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Line type="monotone" dataKey="sessions" stroke="var(--color-sessions)" name="Sessions" />
-                    <Line type="monotone" dataKey="minutes" stroke="var(--color-minutes)" name="Minutes" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </CardContent>
-          </Card>
+          {/* Activity Over Time and Student Engagement */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Activity Over Time */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Activity Over Time</CardTitle>
+                <CardDescription>Daily student engagement (last 7 days)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer
+                  config={{
+                    sessions: {
+                      label: "Sessions",
+                      color: CHART_COLORS.primary,
+                    },
+                    minutes: {
+                      label: "Minutes",
+                      color: CHART_COLORS.secondary,
+                    },
+                  }}
+                  className="h-[350px]"
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analytics.activityOverTime} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="date" 
+                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <ChartTooltip 
+                        content={<ChartTooltipContent 
+                          formatter={(value, name) => [
+                            name === 'sessions' ? `${value} sessions` : `${value} min`,
+                            name === 'sessions' ? 'Sessions' : ''
+                          ]}
+                        />} 
+                      />
+                      <Bar 
+                        dataKey="sessions" 
+                        fill={CHART_COLORS.primary}
+                        name="Sessions"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar 
+                        dataKey="minutes" 
+                        fill={CHART_COLORS.secondary}
+                        name="Minutes"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
 
-          {/* Student Engagement */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Student Engagement</CardTitle>
-              <CardDescription>Individual student activity levels</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer
-                config={{
-                  sessions: {
-                    label: "Sessions",
-                    color: "hsl(var(--chart-1))",
-                  },
-                  minutes: {
-                    label: "Minutes",
-                    color: "hsl(var(--chart-2))",
-                  },
-                }}
-                className="h-[400px]"
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analytics.studentEngagement}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="sessions" fill="var(--color-sessions)" name="Sessions" />
-                    <Bar dataKey="minutes" fill="var(--color-minutes)" name="Minutes" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </CardContent>
-          </Card>
+            {/* Student Engagement */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Student Engagement</CardTitle>
+                <CardDescription>Individual student activity levels</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer
+                  config={{
+                    sessions: {
+                      label: "Sessions",
+                      color: CHART_COLORS.success,
+                    },
+                    minutes: {
+                      label: "Minutes",
+                      color: CHART_COLORS.warning,
+                    },
+                  }}
+                  className="h-[350px]"
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analytics.studentEngagement} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="name" 
+                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <ChartTooltip 
+                        content={<ChartTooltipContent 
+                          formatter={(value, name) => [
+                            name === 'sessions' ? `${value} sessions` : `${value} min`,
+                            name === 'sessions' ? 'Sessions' : ''
+                          ]}
+                        />} 
+                      />
+                      <Bar 
+                        dataKey="sessions" 
+                        fill={CHART_COLORS.success}
+                        name="Sessions"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar 
+                        dataKey="minutes" 
+                        fill={CHART_COLORS.warning}
+                        name="Minutes"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          </div>
         </>
       )}
     </div>

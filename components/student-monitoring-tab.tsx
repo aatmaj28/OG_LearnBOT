@@ -76,13 +76,24 @@ export function StudentMonitoringTab() {
     setSelectedStudent(student)
 
     try {
-      const response = await fetch(`/api/chat/sessions?userId=${student.id}`)
+      // Use the new conversations API instead of sessions
+      const response = await fetch(`/api/chat/conversations?userId=${student.id}`)
       if (response.ok) {
         const data = await response.json()
-        setStudentSessions(data.sessions)
+        // Convert RAGConversations to ChatSessions for compatibility
+        const sessions = data.conversations.map((conv: any) => ({
+          id: conv.id,
+          userId: conv.userId,
+          title: conv.title,
+          createdAt: conv.createdAt,
+          updatedAt: conv.updatedAt,
+          status: conv.status,
+          messageCount: conv.messageHistory?.length || 0
+        }))
+        setStudentSessions(sessions)
       }
     } catch (error) {
-      console.error("[v0] Failed to load student sessions:", error)
+      console.error("[v0] Failed to load student conversations:", error)
     }
   }
 
@@ -90,14 +101,24 @@ export function StudentMonitoringTab() {
     setSelectedSession(session)
 
     try {
-      const response = await fetch(`/api/chat/messages?sessionId=${session.id}`)
+      // Use the conversations API to get the full conversation with messages
+      const response = await fetch(`/api/chat/conversations/${session.id}`)
       if (response.ok) {
         const data = await response.json()
-        setSessionMessages(data.messages)
+        // Convert RAGConversation messageHistory to ChatMessage format
+        const messages = data.conversation?.messageHistory?.map((msg: any) => ({
+          id: `${session.id}-${msg.timestamp}`,
+          sessionId: session.id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: new Date(msg.timestamp),
+          metadata: msg.metadata || {}
+        })) || []
+        setSessionMessages(messages)
         setShowChatDialog(true)
       }
     } catch (error) {
-      console.error("[v0] Failed to load session messages:", error)
+      console.error("[v0] Failed to load conversation messages:", error)
     }
   }
 
@@ -123,7 +144,8 @@ export function StudentMonitoringTab() {
       {classes.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
-            <p className="text-muted-foreground">No classes found. Create a class to monitor students.</p>
+          <p className="text-muted-foreground mb-2">No classes found</p>
+          <p className="text-sm text-muted-foreground">Create a class to monitor students</p>
           </div>
         </div>
       ) : (
@@ -205,7 +227,7 @@ export function StudentMonitoringTab() {
             {/* Student Chat History */}
             <div className="flex-1">
               {!selectedStudent ? (
-                <div className="h-full flex items-center justify-center">
+                <div className="h-full flex items-start justify-center pt-16">
                   <div className="text-center max-w-md">
                     <div className="p-4 bg-indigo-100 dark:bg-indigo-900 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center">
                       <Eye className="h-10 w-10 text-indigo-600 dark:text-indigo-400" />
@@ -260,14 +282,17 @@ export function StudentMonitoringTab() {
 
       {/* Chat Messages Dialog */}
       <Dialog open={showChatDialog} onOpenChange={setShowChatDialog}>
-        <DialogContent className="max-w-3xl max-h-[80vh]">
+        <DialogContent 
+          className="!max-w-6xl max-h-[90vh] w-[90vw] sm:!max-w-6xl"
+          style={{ maxWidth: '90vw', width: '90vw', maxHeight: '90vh' }}
+        >
           <DialogHeader>
             <DialogTitle>{selectedSession?.title}</DialogTitle>
             <DialogDescription>
               {selectedStudent?.name} • {new Date(selectedSession?.updatedAt || "").toLocaleString()}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="h-[500px] pr-4">
+          <ScrollArea className="h-[70vh] pr-4">
             <div className="space-y-4">
               {sessionMessages.map((message) => (
                 <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>

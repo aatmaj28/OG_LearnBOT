@@ -8,6 +8,9 @@ export interface User {
   password: string // In production, this would be hashed
   name: string
   role: UserRole
+  nuid?: string // Student ID number
+  degree?: string // Degree program
+  major?: string // Major field of study
   createdAt: Date
 }
 
@@ -17,6 +20,7 @@ export interface Class {
   description: string
   facultyId: string
   studentIds: string[]
+  vectorStoreFolder?: string
   createdAt: Date
 }
 
@@ -32,10 +36,12 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string
   userId: string
+  classId?: string
   title: string
   createdAt: Date
   updatedAt: Date
   messageCount: number
+  status?: 'active' | 'archived'
 }
 
 export interface ChatAnalytics {
@@ -55,4 +61,36 @@ export interface StudentActivity {
   averageSentiment: number // -1 to 1
   topTopics: { topic: string; count: number }[]
   lastActive: Date
+}
+
+// RAG Conversation Management Types
+export interface RAGConversation {
+  id: string
+  userId: string
+  classId?: string // New field for class-specific conversations
+  title: string
+  createdAt: Date
+  updatedAt: Date
+  status: 'active' | 'archived'
+  currentTopic?: string
+  checkpointState: {
+    checkpoint_1_passed: boolean
+    checkpoint_2_passed: boolean
+    checkpoint_3_passed: boolean
+    understanding_level: number
+    awaiting_student_response: boolean
+  }
+  messageHistory: Array<{
+    role: 'user' | 'assistant'
+    content: string
+    timestamp: Date
+    metadata?: any
+  }>
+  studentProblemData: {
+    numbers: string[]
+    problem_type?: string
+    chapter?: string
+  }
+  cachedContext?: any
+  lastRetrievalTopic?: string
 }

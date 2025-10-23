@@ -1,5 +1,5 @@
 // Authentication utilities
-import { getUserByEmail, type User } from "./mock-db"
+import { getUserByEmail, type User } from "./db-service"
 
 export interface AuthSession {
   user: User
@@ -24,8 +24,8 @@ export const debugSessions = () => {
   })
 }
 
-export const login = (email: string, password: string): User | null => {
-  const user = getUserByEmail(email)
+export const login = async (email: string, password: string): Promise<User | null> => {
+  const user = await getUserByEmail(email)
   if (user && user.password === password) {
     return user
   }

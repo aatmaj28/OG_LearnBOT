@@ -1,8 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getClassById, getUserById, getChatSessionsByUser, getStudentActivity } from "@/lib/mock-db"
+import { getClassById, getUserById, getRAGConversationsByUser, getStudentActivity } from "@/lib/db-service"
+import { ensureDatabaseInitialized } from "@/lib/init-db"
 
 export async function GET(request: NextRequest) {
   try {
+    await ensureDatabaseInitialized()
+    
     const { searchParams } = new URL(request.url)
     const classId = searchParams.get("classId")
 
@@ -10,23 +13,36 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Class ID required" }, { status: 400 })
     }
 
-    const classItem = getClassById(classId)
+    const classItem = await getClassById(classId)
 
     if (!classItem) {
       return NextResponse.json({ error: "Class not found" }, { status: 404 })
     }
 
-    const activities = classItem.studentIds.map((studentId) => {
-      const student = getUserById(studentId)
-      const activity = getStudentActivity(studentId)
-      const sessions = getChatSessionsByUser(studentId)
+    const activities = await Promise.all(classItem.studentIds.map(async (studentId) => {
+      const student = await getUserById(studentId)
+      // Pass classId to get class-specific activity data
+      const activity = await getStudentActivity(studentId, classId)
+      // Get RAG conversations for this student in this class
+      const conversations = await getRAGConversationsByUser(studentId, classId)
+      
+      // Convert RAGConversations to ChatSessions for compatibility
+      const sessions = conversations.map((conv: any) => ({
+        id: conv.id,
+        userId: conv.userId,
+        title: conv.title,
+        createdAt: conv.createdAt,
+        updatedAt: conv.updatedAt,
+        status: conv.status,
+        messageCount: conv.messageHistory?.length || 0
+      }))
 
       return {
         student,
         ...activity,
         sessions,
       }
-    })
+    }))
 
     return NextResponse.json({ activities })
   } catch (error) {
