@@ -44,10 +44,35 @@ cp .env.example .env.local
 ```
 
 ### 4. Set up the database
+
+#### Option A: Use Docker (Recommended for Team Development)
+```bash
+# Start PostgreSQL and the app with Docker
+docker-compose up
+
+# This will:
+# - Start PostgreSQL with the correct schema
+# - Start the Next.js app
+# - Automatically create tables and sample data
+```
+
+#### Option B: Use Local PostgreSQL
 ```bash
 # Make sure PostgreSQL is running
 # Create a database named 'learnbot' (or whatever you set in DB_NAME)
 # The app will automatically create tables on first run
+```
+
+#### Option C: Connect to Shared Team Database
+```bash
+# Get database credentials from your team lead
+# Update .env.local with shared database details
+# Example:
+# DB_HOST=your-team-db-host.com
+# DB_USER=learnbot_team
+# DB_PASSWORD=shared_password
+# DB_NAME=learnbot
+# DB_PORT=5432
 ```
 
 ### 5. Set up the RAG system (Required)
@@ -133,6 +158,73 @@ The project is configured for Vercel deployment:
 ### Build Errors
 - Run `npm install` to ensure all dependencies are installed
 - Check for TypeScript errors with `npm run lint`
+
+## Database Sharing for Team Development
+
+### Option 1: Docker Setup (Easiest)
+The project includes Docker configuration for easy team setup:
+- `docker-compose.yml` - Sets up PostgreSQL + Next.js app
+- `init-schema.sql` - Database schema and sample data
+- `Dockerfile` - Next.js application container
+
+**For teammates:**
+```bash
+git clone <repo-url>
+cd learn-bot
+docker-compose up
+```
+
+**To view the database (optional):**
+1. Install pgAdmin: https://www.pgadmin.org/download/
+2. Connect with:
+   - Host: `localhost`
+   - Port: `5432`
+   - Database: `learnbot`
+   - Username: `postgres`
+   - Password: `password`
+
+### Option 2: Shared Database Access
+If you want to share your existing database:
+
+1. **Configure PostgreSQL for network access:**
+   ```bash
+   # Edit postgresql.conf
+   listen_addresses = '*'
+   
+   # Edit pg_hba.conf
+   host all all 0.0.0.0/0 md5
+   ```
+
+2. **Create team user:**
+   ```sql
+   CREATE USER learnbot_team WITH PASSWORD 'secure_password';
+   GRANT ALL PRIVILEGES ON DATABASE learnbot TO learnbot_team;
+   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO learnbot_team;
+   ```
+
+3. **Share connection details:**
+   - Host: Your public IP
+   - Port: 5432
+   - Database: learnbot
+   - Username: learnbot_team
+   - Password: [shared password]
+
+### Option 3: Database Dump
+Create a complete database backup:
+```bash
+# Create dump
+pg_dump -h localhost -U postgres -d learnbot > learnbot_backup.sql
+
+# Teammates restore
+createdb learnbot
+psql -d learnbot < learnbot_backup.sql
+```
+
+### Option 4: Cloud Database
+Set up a shared cloud database:
+- **Supabase** (free tier available)
+- **Railway** (simple setup)
+- **Neon** (serverless PostgreSQL)
 
 ## Contributing
 
