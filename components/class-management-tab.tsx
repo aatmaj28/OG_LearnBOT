@@ -15,22 +15,36 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Users, Trash2, UserPlus } from "lucide-react"
+import { Plus, Users, Trash2, UserPlus, AlertTriangle } from "lucide-react"
 import type { Class, User } from "@/lib/types"
 
 export function ClassManagementTab() {
   const [classes, setClasses] = useState<Class[]>([])
-  const [allStudents, setAllStudents] = useState<User[]>([])
   const [selectedClass, setSelectedClass] = useState<Class | null>(null)
+  const [classStudents, setClassStudents] = useState<User[]>([])
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showAddStudentDialog, setShowAddStudentDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("")
   const [newClassName, setNewClassName] = useState("")
   const [newClassDescription, setNewClassDescription] = useState("")
+  const [newStudent, setNewStudent] = useState({
+    name: "",
+    email: "",
+    nuid: "",
+    degree: "",
+    major: "",
+  })
 
   useEffect(() => {
     loadClasses()
-    loadStudents()
   }, [])
+
+  useEffect(() => {
+    if (selectedClass) {
+      loadClassStudents()
+    }
+  }, [selectedClass])
 
   const loadClasses = async () => {
     const facultyId = localStorage.getItem("userId")
@@ -47,17 +61,26 @@ export function ClassManagementTab() {
     }
   }
 
-  const loadStudents = async () => {
+  const loadClassStudents = async () => {
+    if (!selectedClass) return
+
     try {
-      const response = await fetch("/api/users?role=student")
-      if (response.ok) {
-        const data = await response.json()
-        setAllStudents(data.users)
-      }
+      const students = await Promise.all(
+        selectedClass.studentIds.map(async (studentId) => {
+          const response = await fetch(`/api/users?id=${studentId}`)
+          if (response.ok) {
+            const data = await response.json()
+            return data.user
+          }
+          return null
+        })
+      )
+      setClassStudents(students.filter((student): student is User => student !== null))
     } catch (error) {
-      console.error("[v0] Failed to load students:", error)
+      console.error("[v0] Failed to load class students:", error)
     }
   }
+
 
   const createClass = async () => {
     if (!newClassName.trim()) return
@@ -102,13 +125,89 @@ export function ClassManagementTab() {
 
       if (response.ok) {
         await loadClasses()
-        const updatedClass = classes.find((c) => c.id === selectedClass.id)
-        if (updatedClass) {
-          setSelectedClass(updatedClass)
+        // Find the updated class from the refreshed classes list
+        const updatedClasses = await fetch(`/api/classes?facultyId=${localStorage.getItem("userId")}`)
+        if (updatedClasses.ok) {
+          const data = await updatedClasses.json()
+          const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
+          if (updatedClass) {
+            setSelectedClass(updatedClass)
+            await loadClassStudents()
+          }
         }
       }
     } catch (error) {
       console.error("[v0] Failed to add student:", error)
+    }
+  }
+
+  const createAndAddStudent = async () => {
+    if (!selectedClass || !newStudent.name || !newStudent.email) {
+      return
+    }
+
+    // Validate Northeastern email domain
+    if (!newStudent.email.endsWith('@northeastern.edu')) {
+      alert('Please enter a valid Northeastern University email address (must end with @northeastern.edu)')
+      return
+    }
+
+    try {
+      // First create the student
+      const createResponse = await fetch("/api/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newStudent),
+      })
+
+      if (!createResponse.ok) {
+        const errorData = await createResponse.json()
+        alert(`Failed to create student: ${errorData.error}`)
+        return
+      }
+
+      const { user } = await createResponse.json()
+
+      // Then add the student to the class
+      const addResponse = await fetch("/api/classes/add-student", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          classId: selectedClass.id,
+          studentId: user.id,
+        }),
+      })
+
+      if (addResponse.ok) {
+        // Reset form and close dialog
+        setNewStudent({
+          name: "",
+          email: "",
+          nuid: "",
+          degree: "",
+          major: "",
+        })
+        setShowAddStudentDialog(false)
+        await loadClasses()
+        // Find the updated class from the refreshed classes list
+        const updatedClasses = await fetch(`/api/classes?facultyId=${localStorage.getItem("userId")}`)
+        if (updatedClasses.ok) {
+          const data = await updatedClasses.json()
+          const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
+          if (updatedClass) {
+            setSelectedClass(updatedClass)
+            await loadClassStudents()
+          }
+        }
+        
+        // Show student credentials
+        alert(`Student added successfully!\n\nLogin Credentials:\nEmail: ${user.email}\nPassword: ${user.password}\n\nPlease share these credentials with the student.`)
+      } else {
+        alert("Student created but failed to add to class")
+      }
+    } catch (error) {
+      console.error("[v0] Failed to create and add student:", error)
+      alert("Failed to create and add student")
     }
   }
 
@@ -126,20 +225,56 @@ export function ClassManagementTab() {
       })
 
       if (response.ok) {
+        // Immediately update the local state to remove the student from UI
+        setClassStudents(prevStudents => 
+          prevStudents.filter(student => student.id !== studentId)
+        )
+        
+        // Update the selected class to reflect the new student count
+        setSelectedClass(prevClass => {
+          if (!prevClass) return prevClass
+          return {
+            ...prevClass,
+            studentIds: prevClass.studentIds.filter(id => id !== studentId)
+          }
+        })
+        
+        // Refresh the classes list in the background
         await loadClasses()
-        const updatedClass = classes.find((c) => c.id === selectedClass.id)
-        if (updatedClass) {
-          setSelectedClass(updatedClass)
-        }
       }
     } catch (error) {
       console.error("[v0] Failed to remove student:", error)
     }
   }
 
-  const getStudentById = (id: string) => allStudents.find((s) => s.id === id)
+  const deleteClass = async () => {
+    if (!selectedClass) return
 
-  const availableStudents = allStudents.filter((student) => !selectedClass?.studentIds.includes(student.id))
+    try {
+      const response = await fetch("/api/classes/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          classId: selectedClass.id,
+        }),
+      })
+
+      if (response.ok) {
+        setShowDeleteDialog(false)
+        setDeleteConfirmationText("")
+        setSelectedClass(null)
+        await loadClasses()
+      } else {
+        const errorData = await response.json()
+        alert(`Failed to delete class: ${errorData.error}`)
+      }
+    } catch (error) {
+      console.error("[v0] Failed to delete class:", error)
+      alert("Failed to delete class")
+    }
+  }
+
+
 
   return (
     <div className="h-full flex">
@@ -230,8 +365,68 @@ export function ClassManagementTab() {
         ) : (
           <div>
             <div className="mb-6">
-              <h2 className="text-2xl font-bold mb-2">{selectedClass.name}</h2>
-              <p className="text-muted-foreground">{selectedClass.description}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold mb-2">{selectedClass.name}</h2>
+                  <p className="text-muted-foreground">{selectedClass.description}</p>
+                </div>
+                <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+                  <DialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Class
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-destructive" />
+                        Delete Class
+                      </DialogTitle>
+                      <DialogDescription>
+                        This action cannot be undone. This will permanently delete the class and remove all associated data.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+                        <p className="text-sm font-medium text-destructive mb-2">
+                          Type the class name exactly to confirm deletion:
+                        </p>
+                        <p className="text-sm font-mono bg-background p-2 rounded border">
+                          {selectedClass.name}
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="delete-confirmation">Confirmation</Label>
+                        <Input
+                          id="delete-confirmation"
+                          placeholder={`Type "${selectedClass.name}" to confirm`}
+                          value={deleteConfirmationText}
+                          onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex justify-end space-x-2 pt-4">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setShowDeleteDialog(false)
+                            setDeleteConfirmationText("")
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={deleteClass}
+                          disabled={deleteConfirmationText !== selectedClass.name}
+                        >
+                          Delete Class
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
 
             <Card>
@@ -248,64 +443,132 @@ export function ClassManagementTab() {
                         Add Student
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="max-w-md">
                       <DialogHeader>
-                        <DialogTitle>Add Student to Class</DialogTitle>
-                        <DialogDescription>Select a student to add to {selectedClass.name}</DialogDescription>
+                        <DialogTitle>Add New Student to Class</DialogTitle>
+                        <DialogDescription>Enter student information to add them to {selectedClass.name}</DialogDescription>
                       </DialogHeader>
-                      <ScrollArea className="h-[300px] pr-4">
+                      <div className="space-y-4">
                         <div className="space-y-2">
-                          {availableStudents.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-8">
-                              All students are already enrolled
-                            </p>
-                          ) : (
-                            availableStudents.map((student) => (
-                              <Card
-                                key={student.id}
-                                className="p-3 cursor-pointer hover:bg-accent transition-colors"
-                                onClick={() => {
-                                  addStudentToClass(student.id)
-                                  setShowAddStudentDialog(false)
-                                }}
-                              >
-                                <p className="font-medium text-sm">{student.name}</p>
-                                <p className="text-xs text-muted-foreground">{student.email}</p>
-                              </Card>
-                            ))
+                          <Label htmlFor="student-name">Full Name *</Label>
+                          <Input
+                            id="student-name"
+                            placeholder="Enter student's full name"
+                            value={newStudent.name}
+                            onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="student-email">Northeastern Email ID *</Label>
+                          <Input
+                            id="student-email"
+                            type="email"
+                            placeholder="Enter student's @northeastern.edu email"
+                            value={newStudent.email}
+                            onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
+                            className={newStudent.email && !newStudent.email.endsWith('@northeastern.edu') ? 'border-red-500' : ''}
+                          />
+                          {newStudent.email && !newStudent.email.endsWith('@northeastern.edu') && (
+                            <p className="text-sm text-red-500">Email must end with @northeastern.edu</p>
                           )}
                         </div>
-                      </ScrollArea>
+                        <div className="space-y-2">
+                          <Label htmlFor="student-nuid">NUID *</Label>
+                          <Input
+                            id="student-nuid"
+                            placeholder="Enter unique student ID number"
+                            value={newStudent.nuid}
+                            onChange={(e) => setNewStudent({ ...newStudent, nuid: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="student-degree">Degree</Label>
+                          <Input
+                            id="student-degree"
+                            placeholder="e.g., Bachelor of Science"
+                            value={newStudent.degree}
+                            onChange={(e) => setNewStudent({ ...newStudent, degree: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="student-major">Major</Label>
+                          <Input
+                            id="student-major"
+                            placeholder="e.g., Computer Science"
+                            value={newStudent.major}
+                            onChange={(e) => setNewStudent({ ...newStudent, major: e.target.value })}
+                          />
+                        </div>
+                        <div className="flex justify-end space-x-2 pt-4">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setShowAddStudentDialog(false)
+                              setNewStudent({
+                                name: "",
+                                email: "",
+                                nuid: "",
+                                degree: "",
+                                major: "",
+                              })
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button onClick={createAndAddStudent}>
+                            Add Student
+                          </Button>
+                        </div>
+                      </div>
                     </DialogContent>
                   </Dialog>
                 </div>
               </CardHeader>
               <CardContent>
-                {selectedClass.studentIds.length === 0 ? (
+                {classStudents.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
                     No students enrolled yet. Add students to get started!
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {selectedClass.studentIds.map((studentId) => {
-                      const student = getStudentById(studentId)
-                      if (!student) return null
-
-                      return (
-                        <div
-                          key={studentId}
-                          className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
-                        >
-                          <div>
-                            <p className="font-medium text-sm">{student.name}</p>
-                            <p className="text-xs text-muted-foreground">{student.email}</p>
-                          </div>
-                          <Button variant="ghost" size="sm" onClick={() => removeStudentFromClass(studentId)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                    {classStudents.map((student) => (
+                      <div
+                        key={student.id}
+                        className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
+                      >
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{student.name}</p>
+                          <p className="text-xs text-muted-foreground">{student.email}</p>
+                          {(student.nuid || student.degree || student.major) && (
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {student.nuid && (
+                                <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                                  NUID: {student.nuid}
+                                </span>
+                              )}
+                              {student.degree && (
+                                <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded">
+                                  {student.degree}
+                                </span>
+                              )}
+                              {student.major && (
+                                <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded">
+                                  {student.major}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )
-                    })}
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => removeStudentFromClass(student.id)}
+                          className="cursor-pointer hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>

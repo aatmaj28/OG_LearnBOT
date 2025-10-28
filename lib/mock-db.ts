@@ -1,5 +1,5 @@
 // Mock database for development - replace with real database later
-import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity } from "./types"
+import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation } from "./types"
 
 // In-memory storage (will reset on page refresh)
 const users: User[] = [
@@ -9,6 +9,9 @@ const users: User[] = [
     password: "student123",
     name: "John Student",
     role: "student",
+    nuid: "12345678",
+    degree: "Bachelor of Science",
+    major: "Computer Science",
     createdAt: new Date("2024-01-01"),
   },
   {
@@ -35,6 +38,7 @@ const classes: Class[] = [
 const chatSessions: ChatSession[] = []
 const chatMessages: ChatMessage[] = []
 const chatAnalytics: ChatAnalytics[] = []
+const ragConversations: RAGConversation[] = []
 
 // User operations
 export const getUsers = () => users
@@ -176,6 +180,68 @@ export const getStudentActivitiesByClass = (classId: string): StudentActivity[] 
   if (!classItem) return []
 
   return classItem.studentIds.map((studentId) => getStudentActivity(studentId))
+}
+
+export const getStudentsByClass = (classId: string): User[] => {
+  const classItem = getClassById(classId)
+  if (!classItem) return []
+
+  return classItem.studentIds
+    .map((studentId) => getUserById(studentId))
+    .filter((student): student is User => student !== undefined)
+}
+
+// RAG Conversation operations
+export const getRAGConversations = () => ragConversations
+export const getRAGConversationsByUser = (userId: string) =>
+  ragConversations.filter((c) => c.userId === userId).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+export const getRAGConversationById = (id: string) => ragConversations.find((c) => c.id === id)
+export const createRAGConversation = (userId: string, title = "New Conversation") => {
+  const newConversation: RAGConversation = {
+    id: Date.now().toString(),
+    userId,
+    title,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    status: 'active',
+    checkpointState: {
+      checkpoint_1_passed: false,
+      checkpoint_2_passed: false,
+      checkpoint_3_passed: false,
+      understanding_level: 0,
+      awaiting_student_response: true
+    },
+    messageHistory: [],
+    studentProblemData: {
+      numbers: [],
+      problem_type: undefined,
+      chapter: undefined
+    }
+  }
+  ragConversations.push(newConversation)
+  return newConversation
+}
+export const updateRAGConversation = (id: string, updates: Partial<RAGConversation>) => {
+  const conversation = ragConversations.find((c) => c.id === id)
+  if (conversation) {
+    Object.assign(conversation, updates, { updatedAt: new Date() })
+  }
+  return conversation
+}
+export const archiveRAGConversation = (id: string) => {
+  updateRAGConversation(id, { status: 'archived' })
+}
+export const addRAGMessage = (conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any) => {
+  const conversation = ragConversations.find((c) => c.id === conversationId)
+  if (conversation) {
+    conversation.messageHistory.push({
+      role,
+      content,
+      timestamp: new Date(),
+      metadata
+    })
+    conversation.updatedAt = new Date()
+  }
 }
 
 // Generate some mock analytics data for the demo student
