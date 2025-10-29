@@ -2,25 +2,32 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { GraduationCap, Users, ArrowLeft } from "lucide-react"
+import { GraduationCap, Users, Bot, Brain, Target, Zap, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 
 export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const role = searchParams.get("role") || "student"
-
+  
+  const [role, setRole] = useState("student")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+
+  // Read role from URL params client-side only to avoid hydration errors
+  useEffect(() => {
+    const urlRole = searchParams.get("role") || "student"
+    setRole(urlRole)
+  }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -77,33 +84,77 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800 p-4">
-      <div className="w-full max-w-md">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to home
-        </Link>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3 mb-2">
-              <div
-                className={`p-2 rounded-lg ${role === "student" ? "bg-blue-100 dark:bg-blue-900" : "bg-indigo-100 dark:bg-indigo-900"}`}
-              >
-                {role === "student" ? (
-                  <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-                ) : (
-                  <Users className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-                )}
-              </div>
-              <CardTitle>{role === "student" ? "Student" : "Faculty"} Login</CardTitle>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4 py-8">
+      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col lg:flex-row">
+        {/* Left Panel - Blue Informational Section */}
+        <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-indigo-700 p-8 flex-col justify-between">
+          <div>
+            {/* Logo */}
+            <div className="flex items-center gap-3 mb-4">
+              <Image
+                src="/learnbot-logo.png"
+                alt="LearnBot Logo"
+                width={48}
+                height={48}
+                className="object-contain"
+                priority
+              />
+              <span className="text-3xl font-bold text-white">LearnBot</span>
             </div>
-            <CardDescription>Enter your credentials to access your {role} portal</CardDescription>
-          </CardHeader>
-          <CardContent>
+            {/* Separator Line */}
+            <div className="w-16 h-0.5 bg-white mb-6"></div>
+
+            {/* Title */}
+            <h1 className="text-5xl font-bold text-white mb-3">
+              DMSB AI
+            </h1>
+            <h2 className="text-3xl font-medium text-blue-100 mb-4">
+              Strategic Hub
+            </h2>
+            {/* Separator Line */}
+            <div className="w-16 h-0.5 bg-white mb-6"></div>
+
+            {/* Description */}
+            <p className="text-lg text-blue-50 leading-relaxed">
+              Empowering Northeastern's D'Amore-McKim School of Business with cutting-edge AI solutions and strategic insights.
+            </p>
+          </div>
+
+          {/* Feature Icons */}
+          <div className="flex gap-6 mt-8">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center">
+                <Brain className="h-8 w-8 text-white" />
+              </div>
+              <span className="text-white text-sm font-medium">AI Powered</span>
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center">
+                <Target className="h-8 w-8 text-white" />
+              </div>
+              <span className="text-white text-sm font-medium">Strategic</span>
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center">
+                <Zap className="h-8 w-8 text-white" />
+              </div>
+              <span className="text-white text-sm font-medium">Innovative</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Panel - White Login Form */}
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-6 lg:p-8">
+          <div className="w-full max-w-md">
+            {/* Heading */}
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
+            {/* Blue Separator Line */}
+            <div className="w-16 h-0.5 bg-blue-600 mb-3"></div>
+            <p className="text-gray-600 mb-6">
+              Enter your credentials to access your account
+            </p>
+
+            {/* Login Form */}
             <form onSubmit={handleLogin} className="space-y-4">
               {error && (
                 <Alert variant="destructive">
@@ -112,42 +163,75 @@ export default function LoginPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" className="text-gray-900 font-medium">Email</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="your.email@example.com"
+                  placeholder="your.email@northeastern.edu"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
+                <Label htmlFor="password" className="text-gray-900 font-medium">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button 
+                type="submit" 
+                className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white text-base font-semibold rounded-lg" 
+                disabled={loading}
+              >
                 {loading ? "Logging in..." : "Login"}
               </Button>
 
-              <div className="text-sm text-muted-foreground text-center mt-4">
-                <p>Demo credentials:</p>
-                <p className="font-mono text-xs mt-1">
-                  {role === "student" ? "student@example.com / student123" : "faculty@example.com / faculty123"}
+              <div className="text-center">
+                <Link href="#" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                  Forgot password?
+                </Link>
+              </div>
+
+              <div className="text-center pt-4 border-t border-gray-200">
+                <p className="text-sm text-gray-600">
+                  Demo credentials:{" "}
+                  <span className="font-mono text-xs text-gray-500">
+                    {role === "student" ? "student@example.com / student123" : "faculty@example.com / faculty123"}
+                  </span>
                 </p>
               </div>
             </form>
-          </CardContent>
-        </Card>
+
+            {/* Register Link */}
+            <div className="mt-4 text-center">
+              <p className="text-sm text-gray-600">
+                Don't have an account?{" "}
+                <Link href={`/register?role=${role}`} className="text-blue-600 hover:text-blue-700 font-medium">
+                  Register here
+                </Link>
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
