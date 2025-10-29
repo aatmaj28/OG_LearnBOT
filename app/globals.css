@@ -123,3 +123,11 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Sonner toast close button positioned on the right */
+[data-sonner-toast] [data-close-button] {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
