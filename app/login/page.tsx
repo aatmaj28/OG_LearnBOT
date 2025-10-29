@@ -91,14 +91,17 @@ export default function LoginPage() {
           <div>
             {/* Logo */}
             <div className="flex items-center gap-3 mb-4">
-              <Image
-                src="/learnbot-logo.png"
-                alt="LearnBot Logo"
-                width={48}
-                height={48}
-                className="object-contain"
-                priority
-              />
+              <div className="relative w-16 h-16">
+                <Image
+                  src="/learnbot-logo.png"
+                  alt="LearnBot Logo"
+                  width={48}
+                  height={48}
+                  className="object-contain"
+                  priority
+                  sizes="90px"
+                />
+              </div>
               <span className="text-3xl font-bold text-white">LearnBot</span>
             </div>
             {/* Separator Line */}
@@ -206,7 +209,7 @@ export default function LoginPage() {
               </Button>
 
               <div className="text-center">
-                <Link href="#" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
                   Forgot password?
                 </Link>
               </div>
