@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getUsers, getUserById } from "@/lib/db-service"
+import { getUsers, getUserById, getUserByEmail } from "@/lib/db-service"
 import { ensureDatabaseInitialized } from "@/lib/init-db"
 
 export async function GET(request: NextRequest) {
@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const role = searchParams.get("role")
     const id = searchParams.get("id")
+    const email = searchParams.get("email")
 
     if (id) {
       // Get specific user by ID
@@ -18,6 +19,28 @@ export async function GET(request: NextRequest) {
       }
       
       // Remove sensitive data
+      const safeUser = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        nuid: user.nuid,
+        degree: user.degree,
+        major: user.major,
+        createdAt: user.createdAt,
+      }
+      
+      return NextResponse.json({ user: safeUser })
+    }
+
+    if (email) {
+      // Get specific user by email
+      const user = await getUserByEmail(email)
+      if (!user) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 })
+      }
+      
+      // Remove sensitive data (password)
       const safeUser = {
         id: user.id,
         email: user.email,
