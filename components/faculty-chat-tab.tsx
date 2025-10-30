@@ -288,6 +288,17 @@ export function FacultyChatTab() {
                 <SelectValue placeholder="Choose a class..." />
               </SelectTrigger>
               <SelectContent>
+                {/* Entire Corpus Option */}
+                <SelectItem value="entire-corpus">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-blue-600">📚 Entire Corpus</span>
+                  </div>
+                </SelectItem>
+                {classes.length > 0 && (
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                    Individual Classes
+                  </div>
+                )}
                 {classes.map((classItem) => (
                   <SelectItem key={classItem.id} value={classItem.id}>
                     {classItem.name}
@@ -426,7 +437,20 @@ export function FacultyChatTab() {
                         }`}
                       >
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                        <p className="text-xs opacity-70 mt-2">{new Date(message.timestamp).toLocaleTimeString()}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <p className="text-xs opacity-70">{new Date(message.timestamp).toLocaleTimeString()}</p>
+                          {message.role === "assistant" && message.metadata?.mode && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                              message.metadata.mode === 'rag' 
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' 
+                                : message.metadata.mode === 'llm_fallback'
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                                : 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
+                            }`}>
+                              {message.metadata.mode === 'rag' ? 'RAG' : message.metadata.mode === 'llm_fallback' ? 'Llama3' : 'Error'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))

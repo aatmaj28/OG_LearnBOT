@@ -154,7 +154,7 @@ export const getClassById = async (id: string): Promise<Class | null> => {
       FROM classes c
       LEFT JOIN class_students cs ON c.id = cs.class_id
       WHERE c.id = $1
-      GROUP BY c.id, c.name, c.description, c.faculty_id, c.created_at
+      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.created_at
     `, [id])
     
     if (result.rows.length === 0) return null
@@ -165,6 +165,7 @@ export const getClassById = async (id: string): Promise<Class | null> => {
       name: row.name,
       description: row.description,
       facultyId: row.faculty_id.toString(),
+      vectorStoreFolder: row.vector_store_folder,
       studentIds: row.student_ids.map((id: number) => id.toString()),
       createdAt: new Date(row.created_at)
     }
@@ -185,7 +186,7 @@ export const getClassesByFaculty = async (facultyId: string): Promise<Class[]> =
       FROM classes c
       LEFT JOIN class_students cs ON c.id = cs.class_id
       WHERE c.faculty_id = $1
-      GROUP BY c.id, c.name, c.description, c.faculty_id, c.created_at
+      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.created_at
       ORDER BY c.created_at DESC
     `, [facultyId])
     
@@ -194,8 +195,8 @@ export const getClassesByFaculty = async (facultyId: string): Promise<Class[]> =
       name: row.name,
       description: row.description,
       facultyId: row.faculty_id.toString(),
+      vectorStoreFolder: row.vector_store_folder,
       studentIds: row.student_ids.map((id: number) => id.toString()),
-      vectorStoreFolder: row.vector_store_folder || null,
       createdAt: new Date(row.created_at)
     }))
   } finally {
@@ -642,7 +643,7 @@ export const createChatAnalytics = async (analytics: Omit<ChatAnalytics, 'timest
 }
 
 // Student activity aggregation - Updated to use RAG conversations
-export const getStudentActivity = async (userId: string, classId?: string): Promise<StudentActivity> => {
+export const getStudentActivity = async (userId: string, classId?: string, skipLLMAnalysis: boolean = false): Promise<StudentActivity> => {
   const client = await pool.connect()
   try {
     // Get all RAG conversations for the user (optionally filtered by class)
@@ -692,19 +693,33 @@ export const getStudentActivity = async (userId: string, classId?: string): Prom
     let topTopics: { topic: string; count: number }[] = []
 
     if (latestConversation && latestConversation.messageHistory && latestConversation.messageHistory.length > 0) {
-      // Get latest conversation messages for LLM analysis
-      const latestMessages = latestConversation.messageHistory
-      
-      // Calculate sentiment and extract topics from latest conversation using LLM
-      const analysisResult = await analyzeLatestConversation(userId, classId, latestMessages, latestConversation.title)
-      averageSentiment = analysisResult.sentiment
-      topTopics = analysisResult.topics
-      
-      console.log(`[v0] Latest conversation analysis for user ${userId}:`, {
-        sentiment: averageSentiment,
-        topics: topTopics,
-        conversationTitle: latestConversation.title
-      })
+      // PRIORITY 1: Use cached analytics if available (instant!)
+      if (latestConversation.cachedSentiment !== undefined && latestConversation.cachedTopics) {
+        console.log(`[v0] Using cached analytics for user ${userId}`)
+        averageSentiment = latestConversation.cachedSentiment
+        topTopics = latestConversation.cachedTopics
+      } 
+      // PRIORITY 2: Use fast keyword-based fallback for batch operations
+      else if (skipLLMAnalysis) {
+        console.log(`[v0] No cache available, using fast fallback for user ${userId}`)
+        const latestMessages = latestConversation.messageHistory
+        averageSentiment = calculateSimpleSentiment(latestMessages.filter((m: any) => m.role === 'user'))
+        topTopics = extractSimpleTopics(latestMessages)
+      } 
+      // PRIORITY 3: Run LLM analysis only when specifically requested AND no cache
+      else {
+        console.log(`[v0] Running LLM analysis for user ${userId} (no cache, not skipped)`)
+        const latestMessages = latestConversation.messageHistory
+        const analysisResult = await analyzeLatestConversation(userId, classId, latestMessages, latestConversation.title)
+        averageSentiment = analysisResult.sentiment
+        topTopics = analysisResult.topics
+        
+        console.log(`[v0] Latest conversation analysis for user ${userId}:`, {
+          sentiment: averageSentiment,
+          topics: topTopics,
+          conversationTitle: latestConversation.title
+        })
+      }
     } else {
       console.log(`[v0] No messages found in latest conversation for user ${userId}`)
     }
@@ -934,7 +949,10 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
         chapter: undefined
       },
       cachedContext: row.cached_context,
-      lastRetrievalTopic: row.last_retrieval_topic
+      lastRetrievalTopic: row.last_retrieval_topic,
+      cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
+      cachedTopics: row.cached_topics || undefined,
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
     }))
   } finally {
     client.release()
@@ -971,7 +989,10 @@ export const getRAGConversationById = async (id: string): Promise<RAGConversatio
         chapter: undefined
       },
       cachedContext: row.cached_context,
-      lastRetrievalTopic: row.last_retrieval_topic
+      lastRetrievalTopic: row.last_retrieval_topic,
+      cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
+      cachedTopics: row.cached_topics || undefined,
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
     }
   } finally {
     client.release()
@@ -1026,7 +1047,10 @@ export const createRAGConversation = async (userId: string, title?: string, clas
         chapter: undefined
       },
       cachedContext: row.cached_context,
-      lastRetrievalTopic: row.last_retrieval_topic
+      lastRetrievalTopic: row.last_retrieval_topic,
+      cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
+      cachedTopics: row.cached_topics || undefined,
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
     }
     
     console.log("Formatted conversation:", conversation)
@@ -1083,6 +1107,21 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
       values.push(updates.lastRetrievalTopic)
       paramCount++
     }
+    if (updates.cachedSentiment !== undefined) {
+      updateFields.push(`cached_sentiment = $${paramCount}`)
+      values.push(updates.cachedSentiment)
+      paramCount++
+    }
+    if (updates.cachedTopics !== undefined) {
+      updateFields.push(`cached_topics = $${paramCount}`)
+      values.push(JSON.stringify(updates.cachedTopics))
+      paramCount++
+    }
+    if (updates.analyticsLastUpdated !== undefined) {
+      updateFields.push(`analytics_last_updated = $${paramCount}`)
+      values.push(updates.analyticsLastUpdated)
+      paramCount++
+    }
 
     if (updateFields.length === 0) {
       return await getRAGConversationById(id)
@@ -1116,7 +1155,10 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
         chapter: undefined
       },
       cachedContext: row.cached_context,
-      lastRetrievalTopic: row.last_retrieval_topic
+      lastRetrievalTopic: row.last_retrieval_topic,
+      cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
+      cachedTopics: row.cached_topics || undefined,
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
     }
   } finally {
     client.release()
@@ -1157,6 +1199,38 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
     })
     
     console.log(`[DB] Successfully updated conversation ${conversationId} with new message`)
+
+    // CACHE ANALYTICS: After every assistant response, analyze and cache sentiment/topics
+    if (role === 'assistant' && updatedHistory.length >= 2) {
+      console.log(`[DB] Triggering analytics cache update for conversation ${conversationId}`)
+      
+      // Run analysis asynchronously (don't block the response)
+      setImmediate(async () => {
+        try {
+          const analysisResult = await analyzeLatestConversation(
+            conversation.userId,
+            conversation.classId,
+            updatedHistory,
+            conversation.title
+          )
+          
+          // Cache the results
+          await updateRAGConversation(conversationId, {
+            cachedSentiment: analysisResult.sentiment,
+            cachedTopics: analysisResult.topics,
+            analyticsLastUpdated: new Date()
+          })
+          
+          console.log(`[DB] ✅ Analytics cached for conversation ${conversationId}:`, {
+            sentiment: analysisResult.sentiment,
+            topics: analysisResult.topics.map(t => t.topic).join(', ')
+          })
+        } catch (error) {
+          console.error(`[DB] ❌ Failed to cache analytics for conversation ${conversationId}:`, error)
+          // Don't throw - this is background processing
+        }
+      })
+    }
   } finally {
     client.release()
   }

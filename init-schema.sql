@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS classes (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vector_store_folder VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS chat_analytics (
 CREATE TABLE IF NOT EXISTS rag_conversations (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  class_id INTEGER REFERENCES classes(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
   current_topic TEXT,
@@ -76,9 +78,39 @@ CREATE TABLE IF NOT EXISTS rag_conversations (
   student_problem_data JSONB,
   cached_context JSONB,
   last_retrieval_topic TEXT,
+  cached_sentiment DECIMAL(3,2) DEFAULT 0,
+  cached_topics JSONB DEFAULT '[]',
+  analytics_last_updated TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create index for faster student activity queries
+CREATE INDEX IF NOT EXISTS idx_rag_conversations_user_class 
+ON rag_conversations(user_id, class_id) 
+WHERE status = 'active';
+
+-- Create pending_registrations table for email verification
+CREATE TABLE IF NOT EXISTS pending_registrations (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  role VARCHAR(50) NOT NULL CHECK (role IN ('student', 'faculty')),
+  nuid VARCHAR(50),
+  degree VARCHAR(255),
+  major VARCHAR(255),
+  otp_code VARCHAR(6) NOT NULL,
+  otp_expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for pending_registrations
+CREATE INDEX IF NOT EXISTS idx_pending_registrations_email 
+ON pending_registrations(email);
+
+CREATE INDEX IF NOT EXISTS idx_pending_registrations_expires 
+ON pending_registrations(otp_expires_at);
 
 -- Insert sample data
 INSERT INTO users (email, password, name, role, nuid, degree, major) VALUES

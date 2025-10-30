@@ -121,4 +121,4 @@ public
 # Temporary folders
 tmp/
 temp/
-vector_store_ra/
+vector_stores/

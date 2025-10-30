@@ -93,4 +93,8 @@ export interface RAGConversation {
   }
   cachedContext?: any
   lastRetrievalTopic?: string
+  // Analytics caching fields
+  cachedSentiment?: number
+  cachedTopics?: Array<{ topic: string; count: number }>
+  analyticsLastUpdated?: Date
 }

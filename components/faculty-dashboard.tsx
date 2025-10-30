@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LogoutButton } from "@/components/logout-button"
-import { MessageSquare, Users, BarChart3, BookOpen } from "lucide-react"
+import { MessageSquare, Users, BarChart3, BookOpen, Database } from "lucide-react"
 import { FacultyChatTab } from "@/components/faculty-chat-tab"
 import { ClassManagementTab } from "@/components/class-management-tab"
 import { StudentMonitoringTab } from "@/components/student-monitoring-tab"
 import { AnalyticsTab } from "@/components/analytics-tab"
+import { CorpusManagementTab } from "@/components/corpus-management-tab"
 
 export function FacultyDashboard() {
   const [userName, setUserName] = useState("")
@@ -17,7 +18,7 @@ export function FacultyDashboard() {
     loadUserData()
     // Load the last active tab from localStorage
     const savedTab = localStorage.getItem("facultyActiveTab")
-    if (savedTab && ["chat", "classes", "students", "analytics"].includes(savedTab)) {
+    if (savedTab && ["chat", "classes", "students", "analytics", "corpus"].includes(savedTab)) {
       setActiveTab(savedTab)
     }
   }, [])
@@ -78,6 +79,10 @@ export function FacultyDashboard() {
                 <BookOpen className="h-4 w-4" />
                 Classes
               </TabsTrigger>
+              <TabsTrigger value="corpus" className="gap-2">
+                <Database className="h-4 w-4" />
+                Corpus
+              </TabsTrigger>
               <TabsTrigger value="students" className="gap-2">
                 <Users className="h-4 w-4" />
                 Students
@@ -95,6 +100,9 @@ export function FacultyDashboard() {
             </TabsContent>
             <TabsContent value="classes" className="h-full m-0">
               <ClassManagementTab />
+            </TabsContent>
+            <TabsContent value="corpus" className="h-full m-0">
+              <CorpusManagementTab />
             </TabsContent>
             <TabsContent value="students" className="h-full m-0">
               <StudentMonitoringTab />

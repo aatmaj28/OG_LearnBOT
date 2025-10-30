@@ -9,23 +9,14 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LogoutButton } from "@/components/logout-button"
-import { MessageSquare, Send, Plus, History, Bot, Wifi, WifiOff, BookOpen, Trash2, Search, LayoutGrid, ArrowUp, Mic } from "lucide-react"
-import Image from "next/image"
+import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2 } from "lucide-react"
 import type { RAGConversation, Class } from "@/lib/types"
-
-const SUGGESTED_PROMPTS = [
-  { title: "Explain a concept", description: "help me understand it better" },
-  { title: "Show me examples", description: "of how to solve this problem" },
-  { title: "Practice quiz", description: "give me questions on this topic" },
-  { title: "Study guide", description: "create a summary for this chapter" }
-]
 
 export function StudentChatInterface() {
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
-  const [showHistory, setShowHistory] = useState(false)
   const [userName, setUserName] = useState("")
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [classes, setClasses] = useState<Class[]>([])
@@ -180,7 +171,6 @@ export function StudentChatInterface() {
         const data = await response.json()
         setCurrentConversation(data.conversation)
         await loadConversations()
-        setShowHistory(false)
       }
     } catch (error) {
       console.error("[v0] Failed to create conversation:", error)
@@ -229,17 +219,17 @@ export function StudentChatInterface() {
 
     // Add user message to conversation immediately for instant display
     const userMessageObj = {
-      role: "user" as const,
+      role: "user",
       content: userMessage,
       timestamp: new Date(),
       metadata: {}
     }
     
     // Update current conversation state immediately
-    setCurrentConversation(prev => prev ? {
+    setCurrentConversation(prev => ({
       ...prev,
       messageHistory: [...(prev?.messageHistory || []), userMessageObj]
-    } : null)
+    }))
 
     try {
       console.log("[v0] Starting fetch request to /api/chat/ai-response")
@@ -280,7 +270,7 @@ export function StudentChatInterface() {
       }
     } catch (error) {
       console.error("[v0] Failed to send message:", error)
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (error.name === 'AbortError') {
         console.error("[v0] Request timed out after 2 minutes")
       }
     } finally {
@@ -293,17 +283,6 @@ export function StudentChatInterface() {
       e.preventDefault()
       sendMessage()
     }
-  }
-
-  const handleSuggestedPrompt = async (prompt: { title: string, description: string }) => {
-    // Create conversation if none exists
-    if (!currentConversation) {
-      await createNewConversation()
-    }
-    // Wait for conversation to be created
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // Set the input with the suggested text
-    setInput(`${prompt.title}: ${prompt.description}`)
   }
 
   return (
@@ -329,6 +308,17 @@ export function StudentChatInterface() {
                   <SelectValue placeholder="Select class..." />
                 </SelectTrigger>
                 <SelectContent>
+                  {/* Entire Corpus Option */}
+                  <SelectItem value="entire-corpus">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-blue-600">📚 Entire Corpus</span>
+                    </div>
+                  </SelectItem>
+                  {classes.length > 0 && (
+                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                      Individual Classes
+                    </div>
+                  )}
                   {classes.map((classItem) => (
                     <SelectItem key={classItem.id} value={classItem.id}>
                       {classItem.name}
@@ -357,63 +347,34 @@ export function StudentChatInterface() {
                 </div>
               )}
             </div>
-            <Button variant="outline" size="sm" onClick={() => setShowHistory(!showHistory)}>
-              <History className="h-4 w-4 mr-2" />
-              History
-            </Button>
             <LogoutButton />
           </div>
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden bg-[#1a1a1a]">
-        {/* Dark Left Sidebar */}
-        <div className="w-16 bg-[#0f0f0f] flex flex-col items-center py-4 gap-4">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="w-12 h-12 rounded-full hover:bg-[#2a2a2a] text-white"
-            onClick={createNewConversation}
-            title="New Chat"
-          >
-            <Plus className="h-5 w-5" />
-          </Button>
-          <Button variant="ghost" 
-            size="sm" 
-            className="w-12 h-12 rounded-full hover:bg-[#2a2a2a] text-white"
-            onClick={() => setShowHistory(!showHistory)}
-            title={showHistory ? "Hide History" : "Show History"}
-          >
-            <LayoutGrid className="h-5 w-5" />
-          </Button>
-          <div className="w-8 h-px bg-[#2a2a2a]"></div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="w-12 h-12 rounded-full hover:bg-[#2a2a2a] text-white"
-            title="Search"
-          >
-            <Search className="h-5 w-5" />
-          </Button>
-        </div>
-
-        {/* Chat History Sidebar */}
-        {showHistory && (
-          <div className="w-80 bg-[#141414] border-r border-[#2a2a2a]">
-            <div className="p-4 border-b border-[#2a2a2a]">
-              <h2 className="font-semibold text-white">Chat History</h2>
+      <div className="flex-1 flex overflow-hidden">
+        {/* Chat History Sidebar - Always Visible */}
+        <div className="w-80 border-r bg-card p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold">Chat History</h2>
+              <Button size="sm" onClick={createNewConversation}>
+                <Plus className="h-4 w-4 mr-1" />
+                New
+              </Button>
             </div>
             <ScrollArea className="h-[calc(100vh-180px)]">
               <div className="space-y-2">
                 {!selectedClassId ? (
-                  <div className="text-center py-8 px-4">
-                    <BookOpen className="mx-auto h-12 w-12 text-gray-500 mb-4" />
-                    <p className="text-sm text-gray-400 mb-2">Select a class to view conversations</p>
+                  <div className="text-center py-8">
+                    <BookOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                    <p className="text-sm text-muted-foreground mb-2">Select a class to view conversations</p>
+                    <p className="text-xs text-muted-foreground">Choose a class from the dropdown above to see your chat history</p>
                   </div>
                 ) : !conversations || conversations.length === 0 ? (
-                  <div className="text-center py-8 px-4">
-                    <MessageSquare className="mx-auto h-12 w-12 text-gray-500 mb-4" />
-                    <p className="text-sm text-gray-400 mb-2">No conversations yet</p>
+                  <div className="text-center py-8">
+                    <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                    <p className="text-sm text-muted-foreground mb-2">No conversations yet for this class</p>
+                    <p className="text-xs text-muted-foreground">Start a new conversation to begin chatting</p>
                   </div>
                 ) : (
                   conversations.map((conversation) => (
@@ -452,46 +413,29 @@ export function StudentChatInterface() {
                 )}
               </div>
             </ScrollArea>
-          </div>
-        )}
+        </div>
 
         {/* Main Chat Area */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#1a1a1a]">
+        <div className="flex-1 flex flex-col overflow-hidden">
         {!currentConversation ? (
           <div className="flex-1 flex items-center justify-center p-8">
-            <div className="text-center w-full">
-              {/* Logo - Large centered icon */}
-              <div className="mb-8">
-                <div className="mx-auto w-16 h-16 rounded-full bg-[#2a2a2a] flex items-center justify-center mb-4">
-                  <Bot className="h-10 w-10 text-white" />
-                </div>
-                <h1 className="text-4xl font-bold text-white mb-2">
-                  {selectedClassId ? `${classes.find(c => c.id === selectedClassId)?.name || 'LearnBot'}` : 'LearnBot'}
-                </h1>
-                <p className="text-xl text-gray-400">How can I help you today?</p>
+            <div className="text-center max-w-md">
+              <div className="p-4 bg-blue-100 dark:bg-blue-900 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center">
+                <MessageSquare className="h-10 w-10 text-blue-600 dark:text-blue-400" />
               </div>
-
-              {/* Suggested Prompts */}
-              <div className="max-w-5xl mx-auto mt-12">
-                <h3 className="text-sm font-medium text-gray-400 mb-4 text-left">+ Suggested</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  {SUGGESTED_PROMPTS.map((prompt, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleSuggestedPrompt(prompt)}
-                      disabled={!selectedClassId}
-                      className="bg-[#202020] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg p-4 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
-                    >
-                      <p className="text-white font-medium mb-1">{prompt.title}</p>
-                      <p className="text-sm text-gray-400 mb-2">{prompt.description}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">Prompt</span>
-                        <ArrowUp className="h-4 w-4 text-gray-500 group-hover:text-white transition-colors" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <h2 className="text-2xl font-bold mb-3">Start a New Conversation</h2>
+              <p className="text-muted-foreground mb-6">
+                {selectedClassId === 'entire-corpus'
+                  ? "Ask me anything across ALL DMSB courses! I'm your universal teaching assistant for the entire business school curriculum."
+                  : selectedClassId 
+                  ? `Ask me anything about ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}. I'm here to help you learn!`
+                  : "Select a class or the Entire Corpus to start chatting with the AI assistant"
+                }
+              </p>
+              <Button size="lg" onClick={createNewConversation} disabled={!selectedClassId}>
+                <Plus className="h-5 w-5 mr-2" />
+                New Chat
+              </Button>
             </div>
           </div>
           ) : (
@@ -515,7 +459,20 @@ export function StudentChatInterface() {
                           }`}
                         >
                           <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                          <p className="text-xs opacity-70 mt-2">{new Date(message.timestamp).toLocaleTimeString()}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <p className="text-xs opacity-70">{new Date(message.timestamp).toLocaleTimeString()}</p>
+                            {message.role === "assistant" && message.metadata?.mode && (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                message.metadata.mode === 'rag' 
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' 
+                                  : message.metadata.mode === 'llm_fallback'
+                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                                  : 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
+                              }`}>
+                                {message.metadata.mode === 'rag' ? 'RAG' : message.metadata.mode === 'llm_fallback' ? 'Llama3' : 'Error'}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))
@@ -535,34 +492,19 @@ export function StudentChatInterface() {
               </div>
 
               {/* Input Area */}
-              <div className="border-t border-[#2a2a2a] bg-[#0f0f0f] p-4">
-                <div className="max-w-3xl mx-auto">
-                  <div className="flex items-center gap-2 bg-[#1a1a1a] rounded-lg px-4 py-3 border border-[#2a2a2a]">
-                    <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                    <input
-                      placeholder="Send a message..."
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      disabled={loading}
-                      className="flex-1 bg-transparent text-white placeholder-gray-500 outline-none"
-                    />
-                    <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
-                      <Mic className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      onClick={sendMessage} 
-                      disabled={loading || !input.trim()}
-                      className="text-white bg-transparent hover:bg-[#2a2a2a]"
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2 text-center">
-                    AI assistants can make mistakes. Verify important information.
-                  </p>
+              <div className="border-t bg-card p-4">
+                <div className="max-w-3xl mx-auto flex gap-2">
+                  <Input
+                    placeholder="Type your message..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    disabled={loading}
+                    className="flex-1"
+                  />
+                  <Button onClick={sendMessage} disabled={loading || !input.trim()}>
+                    <Send className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </>

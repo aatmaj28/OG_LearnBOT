@@ -20,9 +20,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Aggregate analytics for all students in class
+    // Use LLM analysis for Analytics tab (higher quality, worth the wait)
     const studentActivities = await Promise.all(classItem.studentIds.map(async (studentId) => ({
       student: await getUserById(studentId),
-      activity: await getStudentActivity(studentId, classId),
+      activity: await getStudentActivity(studentId, classId, false), // false = use LLM analysis
       conversations: await getRAGConversationsByUser(studentId, classId),
     })))
 

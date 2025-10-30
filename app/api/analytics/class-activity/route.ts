@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
     const activities = await Promise.all(classItem.studentIds.map(async (studentId) => {
       const student = await getUserById(studentId)
       // Pass classId to get class-specific activity data
-      const activity = await getStudentActivity(studentId, classId)
+      // Skip LLM analysis for fast loading (use simple keyword-based sentiment)
+      const activity = await getStudentActivity(studentId, classId, true)
       // Get RAG conversations for this student in this class
       const conversations = await getRAGConversationsByUser(studentId, classId)
       

@@ -8,6 +8,7 @@ const pool = new Pool({
   port: parseInt(process.env.DB_PORT || '5432'),
 })
 
+export { pool }
 export default pool
 
 // Database schema initialization
@@ -95,6 +96,7 @@ export const initializeDatabase = async () => {
       CREATE TABLE IF NOT EXISTS rag_conversations (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        class_id INTEGER REFERENCES classes(id) ON DELETE CASCADE,
         title VARCHAR(255) NOT NULL,
         status VARCHAR(50) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
         current_topic TEXT,
@@ -103,6 +105,9 @@ export const initializeDatabase = async () => {
         student_problem_data JSONB,
         cached_context JSONB,
         last_retrieval_topic TEXT,
+        cached_sentiment DECIMAL(3,2) DEFAULT 0,
+        cached_topics JSONB DEFAULT '[]',
+        analytics_last_updated TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )

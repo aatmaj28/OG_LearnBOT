@@ -16,8 +16,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Users, Trash2, UserPlus, AlertTriangle } from "lucide-react"
+import { Plus, Users, Trash2, UserPlus, AlertTriangle, Upload, FileText, CheckCircle2, XCircle } from "lucide-react"
 import type { Class, User } from "@/lib/types"
+
+interface BulkUploadResult {
+  success: string[]
+  alreadyEnrolled: string[]
+  notRegistered: string[]
+}
 
 export function ClassManagementTab() {
   const [classes, setClasses] = useState<Class[]>([])
@@ -25,12 +31,15 @@ export function ClassManagementTab() {
   const [classStudents, setClassStudents] = useState<User[]>([])
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showAddStudentDialog, setShowAddStudentDialog] = useState(false)
+  const [showBulkUploadDialog, setShowBulkUploadDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("")
   const [showRemoveStudentDialog, setShowRemoveStudentDialog] = useState(false)
   const [studentToRemove, setStudentToRemove] = useState<User | null>(null)
   const [newClassName, setNewClassName] = useState("")
   const [newClassDescription, setNewClassDescription] = useState("")
+  const [bulkUploadResult, setBulkUploadResult] = useState<BulkUploadResult | null>(null)
+  const [isProcessingBulk, setIsProcessingBulk] = useState(false)
   const [newStudent, setNewStudent] = useState({
     name: "",
     email: "",
@@ -145,7 +154,8 @@ export function ClassManagementTab() {
   }
 
   const createAndAddStudent = async () => {
-    if (!selectedClass || !newStudent.name || !newStudent.email) {
+    if (!selectedClass || !newStudent.email) {
+      toast.error('Please enter a student email address')
       return
     }
 
@@ -238,6 +248,137 @@ export function ClassManagementTab() {
         description: 'An unexpected error occurred. Please try again.'
       })
     }
+  }
+
+  const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file || !selectedClass) return
+
+    // Reset previous results
+    setBulkUploadResult(null)
+    setIsProcessingBulk(true)
+
+    try {
+      const text = await file.text()
+      const lines = text.split('\n').map(line => line.trim()).filter(line => line)
+      
+      // Parse CSV - expect "email" header or just list of emails
+      const emails: string[] = []
+      let hasHeader = false
+      
+      lines.forEach((line, index) => {
+        // Check if first line is a header
+        if (index === 0 && (line.toLowerCase().includes('email') || line.toLowerCase().includes('e-mail'))) {
+          hasHeader = true
+          return
+        }
+        
+        // Extract email from line (handle comma-separated or just email)
+        const parts = line.split(',').map(p => p.trim())
+        const email = parts.find(p => p.includes('@'))
+        
+        if (email && email.includes('@northeastern.edu')) {
+          emails.push(email.toLowerCase())
+        }
+      })
+
+      if (emails.length === 0) {
+        toast.error('No valid emails found in CSV', {
+          description: 'Please ensure the file contains Northeastern email addresses.'
+        })
+        setIsProcessingBulk(false)
+        return
+      }
+
+      // Remove duplicates
+      const uniqueEmails = Array.from(new Set(emails))
+
+      const result: BulkUploadResult = {
+        success: [],
+        alreadyEnrolled: [],
+        notRegistered: []
+      }
+
+      // Process each email
+      for (const email of uniqueEmails) {
+        try {
+          // Check if user exists
+          const checkResponse = await fetch(`/api/users?email=${encodeURIComponent(email)}`)
+          
+          if (!checkResponse.ok || checkResponse.status === 404) {
+            result.notRegistered.push(email)
+            continue
+          }
+
+          const checkData = await checkResponse.json()
+          if (!checkData.user) {
+            result.notRegistered.push(email)
+            continue
+          }
+
+          const user = checkData.user
+
+          // Check if already enrolled
+          if (selectedClass.studentIds.includes(user.id)) {
+            result.alreadyEnrolled.push(email)
+            continue
+          }
+
+          // Add student to class
+          const addResponse = await fetch("/api/classes/add-student", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              classId: selectedClass.id,
+              studentId: user.id,
+            }),
+          })
+
+          if (addResponse.ok) {
+            result.success.push(email)
+          } else {
+            result.notRegistered.push(email) // Failed to add
+          }
+        } catch (error) {
+          console.error(`Failed to process ${email}:`, error)
+          result.notRegistered.push(email)
+        }
+      }
+
+      setBulkUploadResult(result)
+      setIsProcessingBulk(false)
+
+      // Refresh the class data
+      await loadClasses()
+      const updatedClasses = await fetch(`/api/classes?facultyId=${localStorage.getItem("userId")}`)
+      if (updatedClasses.ok) {
+        const data = await updatedClasses.json()
+        const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
+        if (updatedClass) {
+          setSelectedClass(updatedClass)
+          await loadClassStudents()
+        }
+      }
+
+      // Show summary toast
+      if (result.success.length > 0) {
+        toast.success(`Successfully added ${result.success.length} student(s)`)
+      }
+      if (result.notRegistered.length > 0) {
+        toast.warning(`${result.notRegistered.length} student(s) not registered`, {
+          description: 'These students need to register first.'
+        })
+      }
+    } catch (error) {
+      console.error('CSV upload error:', error)
+      toast.error('Failed to process CSV file', {
+        description: 'Please check the file format and try again.'
+      })
+      setIsProcessingBulk(false)
+    }
+
+    // Reset file input
+    event.target.value = ''
   }
 
   const handleRemoveStudentClick = (student: User) => {
@@ -528,68 +669,39 @@ export function ClassManagementTab() {
                     <CardTitle>Students</CardTitle>
                     <CardDescription>{selectedClass.studentIds.length} students enrolled</CardDescription>
                   </div>
-                  <Dialog open={showAddStudentDialog} onOpenChange={setShowAddStudentDialog}>
-                    <DialogTrigger asChild>
-                      <Button size="sm">
-                        <UserPlus className="h-4 w-4 mr-2" />
-                        Add Student
-                      </Button>
-                    </DialogTrigger>
+                  <div className="flex gap-2">
+                    <Dialog open={showAddStudentDialog} onOpenChange={setShowAddStudentDialog}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="outline">
+                          <UserPlus className="h-4 w-4 mr-2" />
+                          Add Student
+                        </Button>
+                      </DialogTrigger>
                     <DialogContent className="max-w-md">
                       <DialogHeader>
-                        <DialogTitle>Add New Student to Class</DialogTitle>
-                        <DialogDescription>Enter student information to add them to {selectedClass.name}</DialogDescription>
+                        <DialogTitle>Add Student to Class</DialogTitle>
+                        <DialogDescription>
+                          Enter the registered student's email address. The student must have already registered an account.
+                        </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <Label htmlFor="student-name">Full Name *</Label>
-                          <Input
-                            id="student-name"
-                            placeholder="Enter student's full name"
-                            value={newStudent.name}
-                            onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="student-email">Northeastern Email ID *</Label>
+                          <Label htmlFor="student-email">Student's Northeastern Email *</Label>
                           <Input
                             id="student-email"
                             type="email"
-                            placeholder="Enter student's @northeastern.edu email"
+                            placeholder="student@northeastern.edu"
                             value={newStudent.email}
                             onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
                             className={newStudent.email && !newStudent.email.endsWith('@northeastern.edu') ? 'border-red-500' : ''}
+                            autoFocus
                           />
                           {newStudent.email && !newStudent.email.endsWith('@northeastern.edu') && (
                             <p className="text-sm text-red-500">Email must end with @northeastern.edu</p>
                           )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="student-nuid">NUID *</Label>
-                          <Input
-                            id="student-nuid"
-                            placeholder="Enter unique student ID number"
-                            value={newStudent.nuid}
-                            onChange={(e) => setNewStudent({ ...newStudent, nuid: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="student-degree">Degree</Label>
-                          <Input
-                            id="student-degree"
-                            placeholder="e.g., Bachelor of Science"
-                            value={newStudent.degree}
-                            onChange={(e) => setNewStudent({ ...newStudent, degree: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="student-major">Major</Label>
-                          <Input
-                            id="student-major"
-                            placeholder="e.g., Computer Science"
-                            value={newStudent.major}
-                            onChange={(e) => setNewStudent({ ...newStudent, major: e.target.value })}
-                          />
+                          <p className="text-xs text-muted-foreground">
+                            Note: Student must register first before they can be added to a class.
+                          </p>
                         </div>
                         <div className="flex justify-end space-x-2 pt-4">
                           <Button
@@ -607,13 +719,157 @@ export function ClassManagementTab() {
                           >
                             Cancel
                           </Button>
-                          <Button onClick={createAndAddStudent}>
+                          <Button onClick={createAndAddStudent} disabled={!newStudent.email || !newStudent.email.endsWith('@northeastern.edu')}>
                             Add Student
                           </Button>
                         </div>
                       </div>
                     </DialogContent>
                   </Dialog>
+
+                    {/* Bulk Upload Dialog */}
+                    <Dialog open={showBulkUploadDialog} onOpenChange={(open) => {
+                      setShowBulkUploadDialog(open)
+                      if (!open) {
+                        setBulkUploadResult(null)
+                        setIsProcessingBulk(false)
+                      }
+                    }}>
+                      <DialogTrigger asChild>
+                        <Button size="sm">
+                          <Upload className="h-4 w-4 mr-2" />
+                          Bulk Upload (CSV)
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>Bulk Upload Students from CSV</DialogTitle>
+                          <DialogDescription>
+                            Upload a CSV file containing student email addresses. Only registered students will be added.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          {!bulkUploadResult ? (
+                            <>
+                              <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                                <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                                <Label htmlFor="csv-upload" className="cursor-pointer">
+                                  <div className="space-y-2">
+                                    <p className="text-sm font-medium">Click to upload CSV file</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      File should contain one email per line or a column with "email" header
+                                    </p>
+                                  </div>
+                                  <Input
+                                    id="csv-upload"
+                                    type="file"
+                                    accept=".csv,.txt"
+                                    onChange={handleCSVUpload}
+                                    className="hidden"
+                                    disabled={isProcessingBulk}
+                                  />
+                                </Label>
+                                {isProcessingBulk && (
+                                  <div className="mt-4">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                                    <p className="text-sm text-muted-foreground mt-2">Processing...</p>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="bg-muted p-4 rounded-lg space-y-2">
+                                <p className="text-sm font-medium">CSV Format Example:</p>
+                                <pre className="text-xs bg-background p-2 rounded border">
+{`email
+john.doe@northeastern.edu
+sarah.smith@northeastern.edu
+mike.johnson@northeastern.edu`}
+                                </pre>
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  Or just a simple list without header:
+                                </p>
+                                <pre className="text-xs bg-background p-2 rounded border">
+{`john.doe@northeastern.edu
+sarah.smith@northeastern.edu
+mike.johnson@northeastern.edu`}
+                                </pre>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="text-center pb-4 border-b">
+                                <h3 className="text-lg font-semibold mb-2">Upload Results</h3>
+                                <p className="text-sm text-muted-foreground">
+                                  Processed {bulkUploadResult.success.length + bulkUploadResult.alreadyEnrolled.length + bulkUploadResult.notRegistered.length} email(s)
+                                </p>
+                              </div>
+
+                              {bulkUploadResult.success.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                                    <CheckCircle2 className="h-5 w-5" />
+                                    <h4 className="font-medium">Successfully Added ({bulkUploadResult.success.length})</h4>
+                                  </div>
+                                  <ScrollArea className="h-32 rounded border p-2 bg-green-50 dark:bg-green-950/20">
+                                    <div className="space-y-1">
+                                      {bulkUploadResult.success.map((email, i) => (
+                                        <p key={i} className="text-sm">{email}</p>
+                                      ))}
+                                    </div>
+                                  </ScrollArea>
+                                </div>
+                              )}
+
+                              {bulkUploadResult.alreadyEnrolled.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                                    <AlertTriangle className="h-5 w-5" />
+                                    <h4 className="font-medium">Already Enrolled ({bulkUploadResult.alreadyEnrolled.length})</h4>
+                                  </div>
+                                  <ScrollArea className="h-32 rounded border p-2 bg-blue-50 dark:bg-blue-950/20">
+                                    <div className="space-y-1">
+                                      {bulkUploadResult.alreadyEnrolled.map((email, i) => (
+                                        <p key={i} className="text-sm">{email}</p>
+                                      ))}
+                                    </div>
+                                  </ScrollArea>
+                                </div>
+                              )}
+
+                              {bulkUploadResult.notRegistered.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                                    <XCircle className="h-5 w-5" />
+                                    <h4 className="font-medium">Not Registered ({bulkUploadResult.notRegistered.length})</h4>
+                                  </div>
+                                  <ScrollArea className="h-32 rounded border p-2 bg-red-50 dark:bg-red-950/20">
+                                    <div className="space-y-1">
+                                      {bulkUploadResult.notRegistered.map((email, i) => (
+                                        <p key={i} className="text-sm">{email}</p>
+                                      ))}
+                                    </div>
+                                  </ScrollArea>
+                                  <p className="text-xs text-muted-foreground mt-2">
+                                    These students need to register on LearnBOT first before they can be added to the class.
+                                  </p>
+                                </div>
+                              )}
+
+                              <div className="flex justify-end gap-2 pt-4">
+                                <Button 
+                                  onClick={() => {
+                                    setBulkUploadResult(null)
+                                    setShowBulkUploadDialog(false)
+                                  }}
+                                >
+                                  Done
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>

@@ -23,7 +23,11 @@ export async function POST(request: NextRequest) {
         // The RAG system already saves the message to the conversation
         // No need to save it again here
         
-        return NextResponse.json({ response: ragResponse.response })
+        return NextResponse.json({ 
+          response: ragResponse.response,
+          mode: ragResponse.mode || 'rag',
+          contentFound: ragResponse.retrieval_result?.content_found || false
+        })
       } catch (ragError) {
         console.error('RAG system error:', ragError)
         // Fall through to Ollama fallback
