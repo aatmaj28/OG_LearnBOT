@@ -1,4 +1,4 @@
-// RAG Service for LearnBOT - Custom LLM Integration
+// RAG Service for LearnBot - Custom LLM Integration
 import { spawn, ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
@@ -432,7 +432,7 @@ def simple_rag_pipeline(query: str, conversation_id: str, user_id: str):
             ])
             
             # Generate response
-            prompt = f"""You are LearnBOT, a Socratic teaching assistant for FINA 2201.
+            prompt = f"""You are LearnBot, a Socratic teaching assistant for FINA 2201.
 
 STUDENT QUERY: {query}
 

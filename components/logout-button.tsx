@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { LogOut } from "lucide-react"
 
@@ -19,6 +20,15 @@ export function LogoutButton() {
     }
 
     localStorage.clear()
+    
+    // Show success toast
+    toast.success('Logged out successfully', {
+      description: 'You have been logged out.'
+    })
+    
+    // Small delay to show toast before redirect
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
     router.push("/")
   }
 

@@ -1,4 +1,4 @@
-# LearnBOT - AI-Powered Learning Assistant
+# LearnBot - AI-Powered Learning Assistant
 
 A Next.js application that provides AI-powered chat assistance for students and faculty management tools.
 

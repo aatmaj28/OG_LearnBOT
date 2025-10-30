@@ -8,20 +8,26 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { GraduationCap, Users, Bot, Brain, Target, Zap, Eye, EyeOff } from "lucide-react"
+import { GraduationCap, Users, Brain, Target, Zap, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
   const [role, setRole] = useState("student")
+  const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [nuid, setNuid] = useState("")
+  const [degree, setDegree] = useState("")
+  const [major, setMajor] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   // Read role from URL params client-side only to avoid hydration errors
   useEffect(() => {
@@ -29,46 +35,60 @@ export default function LoginPage() {
     setRole(urlRole)
   }, [searchParams])
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+
+    // Validation
+    if (!name || !email || !password || !confirmPassword) {
+      setError("All fields are required")
+      return
+    }
+
+    if (role === "student" && !nuid) {
+      setError("NUID is required for students")
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match")
+      return
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters")
+      return
+    }
+
     setLoading(true)
 
-    console.log("[v0] FRONTEND: Starting login for:", email, "role:", role)
-
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role }),
+        body: JSON.stringify({
+          email,
+          password,
+          name,
+          role,
+          nuid: role === "student" ? nuid : undefined,
+          degree: role === "student" ? degree : undefined,
+          major: role === "student" ? major : undefined,
+        }),
       })
 
-      console.log("[v0] FRONTEND: Login response status:", response.status)
-
       const data = await response.json()
-      console.log("[v0] FRONTEND: Login response data:", data)
 
       if (!response.ok) {
-        console.log("[v0] FRONTEND: Login failed:", data.error)
-        setError(data.error || "Login failed")
+        setError(data.error || "Registration failed")
         setLoading(false)
         return
       }
 
       // Store session
-      console.log("[v0] FRONTEND: Storing session in localStorage:", data.sessionId)
       localStorage.setItem("sessionId", data.sessionId)
       localStorage.setItem("userId", data.user.id)
       localStorage.setItem("userRole", data.user.role)
-
-      console.log("[v0] FRONTEND: Login successful, session stored:", data.sessionId)
-      console.log("[v0] FRONTEND: Stored userId:", data.user.id)
-      console.log("[v0] FRONTEND: Stored userRole:", data.user.role)
-
-      // Add a small delay before redirect to ensure localStorage is set
-      await new Promise(resolve => setTimeout(resolve, 50))
-
-      console.log("[v0] FRONTEND: Redirecting to:", data.user.role === "student" ? "/student/chat" : "/faculty/dashboard")
 
       // Redirect based on role
       if (data.user.role === "student") {
@@ -77,7 +97,7 @@ export default function LoginPage() {
         router.push("/faculty/dashboard")
       }
     } catch (err) {
-      console.error("[v0] FRONTEND: Login error:", err)
+      console.error("Registration error:", err)
       setError("An error occurred. Please try again.")
       setLoading(false)
     }
@@ -91,17 +111,14 @@ export default function LoginPage() {
           <div>
             {/* Logo */}
             <div className="flex items-center gap-3 mb-4">
-              <div className="relative w-16 h-16">
-                <Image
-                  src="/learnbot-logo.png"
-                  alt="LearnBot Logo"
-                  width={48}
-                  height={48}
-                  className="object-contain"
-                  priority
-                  sizes="90px"
-                />
-              </div>
+              <Image
+                src="/learnbot-logo.png"
+                alt="LearnBot Logo"
+                width={48}
+                height={48}
+                className="object-contain"
+                priority
+              />
               <span className="text-3xl font-bold text-white">LearnBot</span>
             </div>
             {/* Separator Line */}
@@ -146,24 +163,49 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Right Panel - White Login Form */}
+        {/* Right Panel - White Registration Form */}
         <div className="w-full lg:w-1/2 flex items-center justify-center p-6 lg:p-8">
           <div className="w-full max-w-md">
             {/* Heading */}
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h2>
             {/* Blue Separator Line */}
             <div className="w-16 h-0.5 bg-blue-600 mb-3"></div>
             <p className="text-gray-600 mb-6">
-              Enter your credentials to access your account
+              Sign up to access your {role} portal
             </p>
 
-            {/* Login Form */}
-            <form onSubmit={handleLogin} className="space-y-4">
+            {/* Role Indicator */}
+            <div className="mb-4 flex items-center gap-2">
+              <div className={`p-2 rounded-lg ${role === "student" ? "bg-blue-100" : "bg-indigo-100"}`}>
+                {role === "student" ? (
+                  <GraduationCap className={`h-5 w-5 text-blue-600`} />
+                ) : (
+                  <Users className={`h-5 w-5 text-indigo-600`} />
+                )}
+              </div>
+              <span className="text-sm font-medium text-gray-700 capitalize">{role} Registration</span>
+            </div>
+
+            {/* Registration Form */}
+            <form onSubmit={handleRegister} className="space-y-3">
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
+
+              <div className="space-y-2">
+                <Label htmlFor="name" className="text-gray-900 font-medium">Full Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="John Doe"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
+                />
+              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-gray-900 font-medium">Email</Label>
@@ -177,6 +219,47 @@ export default function LoginPage() {
                   className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
                 />
               </div>
+
+              {role === "student" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="nuid" className="text-gray-900 font-medium">NUID</Label>
+                    <Input
+                      id="nuid"
+                      type="text"
+                      placeholder="12345678"
+                      value={nuid}
+                      onChange={(e) => setNuid(e.target.value)}
+                      required
+                      className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="degree" className="text-gray-900 font-medium">Degree</Label>
+                    <Input
+                      id="degree"
+                      type="text"
+                      placeholder="Bachelor of Science"
+                      value={degree}
+                      onChange={(e) => setDegree(e.target.value)}
+                      className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="major" className="text-gray-900 font-medium">Major</Label>
+                    <Input
+                      id="major"
+                      type="text"
+                      placeholder="Computer Science"
+                      value={major}
+                      onChange={(e) => setMajor(e.target.value)}
+                      className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-gray-900 font-medium">Password</Label>
@@ -200,19 +283,35 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-gray-900 font-medium">Confirm Password</Label>
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    placeholder="Confirm your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+              </div>
+
               <Button 
                 type="submit" 
-                className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white text-base font-semibold rounded-lg" 
+                className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white text-base font-semibold rounded-lg mt-4" 
                 disabled={loading}
               >
-                {loading ? "Logging in..." : "Login"}
+                {loading ? "Creating account..." : "Register"}
               </Button>
-
-              <div className="text-center">
-                <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                  Forgot password?
-                </Link>
-              </div>
 
               <div className="text-center pt-4 border-t border-gray-200">
                 <p className="text-sm text-gray-600">
@@ -224,12 +323,12 @@ export default function LoginPage() {
               </div>
             </form>
 
-            {/* Register Link */}
+            {/* Login Link */}
             <div className="mt-4 text-center">
               <p className="text-sm text-gray-600">
-                Don't have an account?{" "}
-                <Link href={`/register?role=${role}`} className="text-blue-600 hover:text-blue-700 font-medium">
-                  Register here
+                Already have an account?{" "}
+                <Link href="/login" className="text-blue-600 hover:text-blue-700 font-medium">
+                  Login here
                 </Link>
               </p>
             </div>
@@ -239,3 +338,4 @@ export default function LoginPage() {
     </div>
   )
 }
+

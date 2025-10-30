@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -26,6 +27,8 @@ export function ClassManagementTab() {
   const [showAddStudentDialog, setShowAddStudentDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("")
+  const [showRemoveStudentDialog, setShowRemoveStudentDialog] = useState(false)
+  const [studentToRemove, setStudentToRemove] = useState<User | null>(null)
   const [newClassName, setNewClassName] = useState("")
   const [newClassDescription, setNewClassDescription] = useState("")
   const [newStudent, setNewStudent] = useState({
@@ -148,27 +151,51 @@ export function ClassManagementTab() {
 
     // Validate Northeastern email domain
     if (!newStudent.email.endsWith('@northeastern.edu')) {
-      alert('Please enter a valid Northeastern University email address (must end with @northeastern.edu)')
+      toast.error('Please enter a valid Northeastern University email address (must end with @northeastern.edu)')
       return
     }
 
     try {
-      // First create the student
-      const createResponse = await fetch("/api/students", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newStudent),
-      })
+      // Check if student already exists by email
+      const checkResponse = await fetch(`/api/users?email=${encodeURIComponent(newStudent.email)}`)
+      const checkData = await checkResponse.json()
+      
+      // If response is not OK, handle different cases
+      if (!checkResponse.ok) {
+        // 404 means user not found - this is expected
+        if (checkResponse.status === 404 || checkData.error === "User not found") {
+          toast.error('This user does not exist', {
+            description: 'Please ask the student to register first.'
+          })
+          return
+        } else {
+          // Actual error occurred
+          toast.error('Failed to check if student exists', {
+            description: 'Please try again.'
+          })
+          return
+        }
+      }
 
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json()
-        alert(`Failed to create student: ${errorData.error}`)
+      // If student doesn't exist (no user in response), show error
+      if (!checkData.user) {
+        toast.error('This user does not exist', {
+          description: 'Please ask the student to register first.'
+        })
         return
       }
 
-      const { user } = await createResponse.json()
+      const user = checkData.user
+      
+      // Check if student is already in this class
+      if (selectedClass.studentIds.includes(user.id)) {
+        toast.warning('Student already enrolled', {
+          description: 'This student is already enrolled in this class.'
+        })
+        return
+      }
 
-      // Then add the student to the class
+      // Add the existing student to the class
       const addResponse = await fetch("/api/classes/add-student", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -200,19 +227,26 @@ export function ClassManagementTab() {
           }
         }
         
-        // Show student credentials
-        alert(`Student added successfully!\n\nLogin Credentials:\nEmail: ${user.email}\nPassword: ${user.password}\n\nPlease share these credentials with the student.`)
+        // Show success message
+        toast.success('Student added successfully!')
       } else {
-        alert("Student created but failed to add to class")
+        toast.error('Failed to add student to class')
       }
     } catch (error) {
-      console.error("[v0] Failed to create and add student:", error)
-      alert("Failed to create and add student")
+      console.error("[v0] Failed to add student:", error)
+      toast.error('Failed to add student', {
+        description: 'An unexpected error occurred. Please try again.'
+      })
     }
   }
 
-  const removeStudentFromClass = async (studentId: string) => {
-    if (!selectedClass) return
+  const handleRemoveStudentClick = (student: User) => {
+    setStudentToRemove(student)
+    setShowRemoveStudentDialog(true)
+  }
+
+  const removeStudentFromClass = async () => {
+    if (!selectedClass || !studentToRemove) return
 
     try {
       const response = await fetch("/api/classes/remove-student", {
@@ -220,14 +254,14 @@ export function ClassManagementTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           classId: selectedClass.id,
-          studentId,
+          studentId: studentToRemove.id,
         }),
       })
 
       if (response.ok) {
         // Immediately update the local state to remove the student from UI
         setClassStudents(prevStudents => 
-          prevStudents.filter(student => student.id !== studentId)
+          prevStudents.filter(student => student.id !== studentToRemove.id)
         )
         
         // Update the selected class to reflect the new student count
@@ -235,15 +269,34 @@ export function ClassManagementTab() {
           if (!prevClass) return prevClass
           return {
             ...prevClass,
-            studentIds: prevClass.studentIds.filter(id => id !== studentId)
+            studentIds: prevClass.studentIds.filter(id => id !== studentToRemove.id)
           }
         })
         
         // Refresh the classes list in the background
         await loadClasses()
+        
+        // Store student name and class name before resetting
+        const studentName = studentToRemove.name
+        const className = selectedClass.name
+        
+        // Close dialog and reset
+        setShowRemoveStudentDialog(false)
+        setStudentToRemove(null)
+        
+        toast.success('Student removed successfully', {
+          description: `${studentName} has been removed from ${className}.`
+        })
+      } else {
+        toast.error('Failed to remove student', {
+          description: 'An error occurred while removing the student.'
+        })
       }
     } catch (error) {
       console.error("[v0] Failed to remove student:", error)
+      toast.error('Failed to remove student', {
+        description: 'An unexpected error occurred. Please try again.'
+      })
     }
   }
 
@@ -264,13 +317,18 @@ export function ClassManagementTab() {
         setDeleteConfirmationText("")
         setSelectedClass(null)
         await loadClasses()
+        toast.success('Class deleted successfully')
       } else {
         const errorData = await response.json()
-        alert(`Failed to delete class: ${errorData.error}`)
+        toast.error('Failed to delete class', {
+          description: errorData.error || 'An error occurred while deleting the class.'
+        })
       }
     } catch (error) {
       console.error("[v0] Failed to delete class:", error)
-      alert("Failed to delete class")
+      toast.error('Failed to delete class', {
+        description: 'An unexpected error occurred. Please try again.'
+      })
     }
   }
 
@@ -426,6 +484,40 @@ export function ClassManagementTab() {
                     </div>
                   </DialogContent>
                 </Dialog>
+
+                {/* Remove Student Confirmation Dialog */}
+                <Dialog open={showRemoveStudentDialog} onOpenChange={setShowRemoveStudentDialog}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Remove Student from Class</DialogTitle>
+                      <DialogDescription>
+                        Are you sure you want to remove {studentToRemove?.name} from {selectedClass?.name}?
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                      <p className="text-sm text-muted-foreground">
+                        This action will remove the student from this class. They will no longer have access to class materials or chat sessions.
+                      </p>
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setShowRemoveStudentDialog(false)
+                          setStudentToRemove(null)
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={removeStudentFromClass}
+                      >
+                        Remove Student
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
             </div>
 
@@ -562,7 +654,7 @@ export function ClassManagementTab() {
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          onClick={() => removeStudentFromClass(student.id)}
+                          onClick={() => handleRemoveStudentClick(student)}
                           className="cursor-pointer hover:bg-destructive/10"
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />

@@ -1,5 +1,5 @@
 @echo off
-echo 🚀 LearnBOT Vector Store Setup
+echo 🚀 LearnBot Vector Store Setup
 echo ==============================
 
 REM Check if vector_store_ra directory exists

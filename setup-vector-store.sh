@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Setup script for LearnBOT vector store
+# Setup script for LearnBot vector store
 # This script helps set up the required vector_store_ra directory
 
-echo "🚀 LearnBOT Vector Store Setup"
+echo "🚀 LearnBot Vector Store Setup"
 echo "=============================="
 
 # Check if vector_store_ra directory exists
