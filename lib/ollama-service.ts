@@ -8,6 +8,7 @@ const ollama = new Ollama({
 
 // Available models - you can add more as needed
 export const AVAILABLE_MODELS = {
+  LLAMA_3_1_8B: 'llama3.1:8b',
   MISTRAL: 'mistral',
   MISTRAL_7B: 'mistral:7b',
   MISTRAL_7B_INSTRUCT: 'mistral:7b-instruct',
@@ -17,7 +18,7 @@ export const AVAILABLE_MODELS = {
 export type ModelName = keyof typeof AVAILABLE_MODELS
 
 // Default model to use
-const DEFAULT_MODEL = AVAILABLE_MODELS.MISTRAL_7B_LATEST
+const DEFAULT_MODEL = AVAILABLE_MODELS.LLAMA_3_1_8B
 
 // Check if Ollama is running and model is available
 export async function checkOllamaStatus(): Promise<{
@@ -32,7 +33,7 @@ export async function checkOllamaStatus(): Promise<{
     
     // Check if our default model is available
     const modelAvailable = modelNames.some(name => 
-      name.includes('mistral') && name.includes('latest')
+      name.includes('llama3.1') && name.includes('8b')
     )
     
     console.log('Available models:', modelNames)

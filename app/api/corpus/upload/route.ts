@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import fs from "fs"
-import { getClassById } from "@/lib/db-service"
+import { getClassById, updateClassVectorStoreFolder, generateVectorStoreFolderName } from "@/lib/db-service"
 import { VectorStoreManager } from "@/lib/vector-store-manager"
 
 export async function POST(request: NextRequest) {
@@ -14,14 +14,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
     }
 
-    const cls = await getClassById(classId)
+    let cls = await getClassById(classId)
     console.log("[Corpus Upload] Class data:", cls)
     
+    // If class doesn't have a vector store folder, create one
     if (!cls?.vectorStoreFolder) {
-      console.error("[Corpus Upload] Class has no vectorStoreFolder:", cls)
+      console.log("[Corpus Upload] Class has no vectorStoreFolder, creating one...")
+      const vectorStoreFolder = generateVectorStoreFolderName(cls?.name || `class_${classId}`)
+      cls = await updateClassVectorStoreFolder(classId, vectorStoreFolder)
+      console.log("[Corpus Upload] Updated class with vectorStoreFolder:", vectorStoreFolder)
+    }
+    
+    if (!cls?.vectorStoreFolder) {
+      console.error("[Corpus Upload] Failed to create vectorStoreFolder for class:", cls)
       return NextResponse.json({ 
-        error: "Class vector store not configured. Class folder: " + (cls?.vectorStoreFolder || "none") 
-      }, { status: 400 })
+        error: "Failed to configure class vector store" 
+      }, { status: 500 })
     }
 
     const form = await request.formData()

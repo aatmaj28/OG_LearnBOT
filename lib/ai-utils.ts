@@ -26,7 +26,7 @@ export const generateChatResponse = async (
     
     if (isRunning && modelAvailable) {
       console.log('Using Ollama for AI response')
-      return await generateOllamaResponse(message, 'mistral:latest')
+      return await generateOllamaResponse(message, 'llama3.1:8b')
     } else {
       console.warn('Ollama not available, using fallback responses')
       return await generateFallbackResponse(message)
@@ -38,7 +38,7 @@ export const generateChatResponse = async (
     try {
       const { isRunning, modelAvailable } = await checkOllamaStatus()
       if (isRunning && modelAvailable) {
-        return await generateOllamaResponse(message, 'mistral:latest')
+        return await generateOllamaResponse(message, 'llama3.1:8b')
       }
     } catch (ollamaError) {
       console.error('Ollama fallback also failed:', ollamaError)
@@ -78,7 +78,7 @@ export const generateChatResponseWithHistory = async (
     
     if (isRunning && modelAvailable) {
       console.log('Using Ollama for AI response with history')
-      return await generateOllamaResponseWithHistory(messages, 'mistral:latest')
+      return await generateOllamaResponseWithHistory(messages, 'llama3.1:8b')
     } else {
       console.warn('Ollama not available, using fallback responses')
       const lastMessage = messages[messages.length - 1]
@@ -91,7 +91,7 @@ export const generateChatResponseWithHistory = async (
     try {
       const { isRunning, modelAvailable } = await checkOllamaStatus()
       if (isRunning && modelAvailable) {
-        return await generateOllamaResponseWithHistory(messages, 'mistral:latest')
+        return await generateOllamaResponseWithHistory(messages, 'llama3.1:8b')
       }
     } catch (ollamaError) {
       console.error('Ollama fallback also failed:', ollamaError)

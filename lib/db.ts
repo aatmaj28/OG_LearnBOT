@@ -38,9 +38,17 @@ export const initializeDatabase = async () => {
         name VARCHAR(255) NOT NULL,
         description TEXT,
         faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        vector_store_folder VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `)
+    
+    // Add vector_store_folder column if it doesn't exist (for existing databases)
+    try {
+      await client.query('ALTER TABLE classes ADD COLUMN IF NOT EXISTS vector_store_folder VARCHAR(255)')
+    } catch (error) {
+      console.log('vector_store_folder column already exists or could not be added')
+    }
 
     // Create class_students junction table
     await client.query(`

@@ -295,6 +295,23 @@ const generateVectorStoreFolderName = (className: string): string => {
     .trim()
 }
 
+// Export the function so it can be used elsewhere
+export { generateVectorStoreFolderName }
+
+// Update class vector store folder
+export const updateClassVectorStoreFolder = async (classId: string, vectorStoreFolder: string): Promise<Class | null> => {
+  const client = await pool.connect()
+  try {
+    await client.query(
+      'UPDATE classes SET vector_store_folder = $1 WHERE id = $2',
+      [vectorStoreFolder, classId]
+    )
+    return await getClassById(classId)
+  } finally {
+    client.release()
+  }
+}
+
 export const addStudentToClass = async (classId: string, studentId: string): Promise<Class | null> => {
   const client = await pool.connect()
   try {
@@ -777,7 +794,7 @@ Respond in JSON format:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'mistral:latest',
+        model: 'llama3.1:8b',
         prompt: prompt,
         stream: false,
         options: {
@@ -791,18 +808,71 @@ Respond in JSON format:
       const ollamaData = await ollamaResponse.json()
       const responseText = ollamaData.response
 
-      // Try to parse JSON response
+      // Try to parse JSON response with robust extraction
       try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const analysis = JSON.parse(jsonMatch[0])
-          return {
-            sentiment: analysis.sentiment || 0,
-            topics: analysis.topics || []
+        // Method 1: Try to find JSON object by matching balanced braces
+        const firstBrace = responseText.indexOf('{')
+        if (firstBrace !== -1) {
+          let braceCount = 0
+          let inString = false
+          let escapeNext = false
+          let jsonEnd = -1
+          
+          for (let i = firstBrace; i < responseText.length; i++) {
+            const char = responseText[i]
+            
+            if (escapeNext) {
+              escapeNext = false
+              continue
+            }
+            
+            if (char === '\\') {
+              escapeNext = true
+              continue
+            }
+            
+            if (char === '"') {
+              inString = !inString
+              continue
+            }
+            
+            if (!inString) {
+              if (char === '{') braceCount++
+              if (char === '}') {
+                braceCount--
+                if (braceCount === 0) {
+                  jsonEnd = i + 1
+                  break
+                }
+              }
+            }
+          }
+          
+          if (jsonEnd > firstBrace) {
+            const jsonStr = responseText.substring(firstBrace, jsonEnd)
+            const analysis = JSON.parse(jsonStr)
+            return {
+              sentiment: analysis.sentiment || 0,
+              topics: analysis.topics || []
+            }
           }
         }
       } catch (parseError) {
         console.error('Failed to parse LLM response:', parseError)
+        // Try fallback regex method
+        try {
+          // Method 2: Try simple non-greedy match as fallback
+          const jsonMatch = responseText.match(/\{[^}]*"sentiment"[^}]*\}/)
+          if (jsonMatch) {
+            const analysis = JSON.parse(jsonMatch[0])
+            return {
+              sentiment: analysis.sentiment || 0,
+              topics: analysis.topics || []
+            }
+          }
+        } catch (fallbackError) {
+          console.error('Fallback JSON parsing also failed')
+        }
       }
     }
 

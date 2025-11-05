@@ -30,19 +30,24 @@ export async function GET(request: NextRequest) {
       pdfCount = files.length
     }
     
-    // Count chunks from metadata
-    if (fs.existsSync(metaPath)) {
+    // Count chunks from metadata - read actual count from metadata.json
+    const metaJsonPath = path.join(basePath, "metadata.json")
+    if (fs.existsSync(metaJsonPath)) {
       try {
-        // Read file size as proxy for chunk count (each entry ~200-500 bytes)
-        const stats = fs.statSync(metaPath)
-        // Rough estimate: 300 bytes per chunk average
-        chunkCount = Math.floor(stats.size / 300)
-        
-        // Better: parse if we can
-        // For now, we'll use the spawn python approach only when building index
-        // This is just a rough estimate for display
+        const metadata = JSON.parse(fs.readFileSync(metaJsonPath, 'utf-8'))
+        chunkCount = Array.isArray(metadata) ? metadata.length : 0
       } catch (e) {
-        console.error("Error reading metadata:", e)
+        console.error("Error reading metadata.json:", e)
+        // Fallback: try to read from config.json
+        const configPath = path.join(basePath, "config.json")
+        if (fs.existsSync(configPath)) {
+          try {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+            chunkCount = config.total_chunks || 0
+          } catch (e2) {
+            console.error("Error reading config.json:", e2)
+          }
+        }
       }
     }
     

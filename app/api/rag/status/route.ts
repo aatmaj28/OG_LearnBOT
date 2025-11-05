@@ -3,12 +3,12 @@ import { ragService } from "@/lib/rag-service"
 
 export async function GET(request: NextRequest) {
   try {
-    // Wait for RAG service to initialize
-    const isAvailable = await ragService.waitForInitialization(5000)
+    // Check current availability (don't wait, just report current state)
+    const isAvailable = ragService.isAvailable()
     
     return NextResponse.json({ 
       isAvailable,
-      message: isAvailable ? "RAG service is ready" : "RAG service not available"
+      message: isAvailable ? "RAG service is ready" : "RAG service initializing..."
     })
   } catch (error) {
     console.error("RAG status check error:", error)

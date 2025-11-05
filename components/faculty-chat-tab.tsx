@@ -8,8 +8,8 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2 } from "lucide-react"
-import type { RAGConversation, Class } from "@/lib/types"
+import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap } from "lucide-react"
+import type { RAGConversation, Class, ModelBackend } from "@/lib/types"
 
 export function FacultyChatTab() {
   const [conversations, setConversations] = useState<RAGConversation[]>([])
@@ -17,6 +17,7 @@ export function FacultyChatTab() {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState<string>("")
+  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-ollama")
   const [classes, setClasses] = useState<Class[]>([])
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
@@ -28,6 +29,11 @@ export function FacultyChatTab() {
     loadClasses()
     loadConversations()
     checkRAGStatus()
+    
+    // Poll status every 5 seconds to detect when RAG becomes ready
+    const statusInterval = setInterval(checkRAGStatus, 5000)
+    
+    return () => clearInterval(statusInterval)
   }, [])
 
   useEffect(() => {
@@ -234,22 +240,98 @@ export function FacultyChatTab() {
           userId,
           sessionId: currentConversation.id,
           classId: selectedClassId,
+          preferredModel: preferredModel,
+          stream: true, // ✅ Enable streaming
         }),
         signal: controller.signal
       })
 
       clearTimeout(timeoutId)
-      console.log("[v0] Fetch request completed, status:", response.status)
+      console.log("[v0] Fetch request started, status:", response.status)
 
       if (response.ok) {
-        const responseData = await response.json()
-        console.log("[v0] AI response received:", responseData)
-        
-        // Reload the conversation to get the complete updated messages from database
-        console.log("[v0] Reloading conversation:", currentConversation.id)
-        await loadConversation(currentConversation.id)
-        await loadConversations()
-        console.log("[v0] Conversation reloaded successfully")
+        // Check if response is streaming (SSE)
+        const contentType = response.headers.get('content-type')
+        if (contentType?.includes('text/event-stream')) {
+          console.log("[v0] Streaming response detected")
+          
+          // Create placeholder for assistant message
+          const assistantMessageObj = {
+            role: "assistant",
+            content: "",
+            timestamp: new Date(),
+            metadata: {}
+          }
+          
+          // Add empty assistant message that we'll update
+          setCurrentConversation(prev => ({
+            ...prev,
+            messageHistory: [...(prev?.messageHistory || []), assistantMessageObj]
+          }))
+          
+          // Read the stream
+          const reader = response.body?.getReader()
+          const decoder = new TextDecoder()
+          
+          if (reader) {
+            let accumulatedResponse = ''
+            
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              
+              const chunk = decoder.decode(value)
+              const lines = chunk.split('\n').filter(line => line.trim() !== '')
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6))
+                    
+                    if (data.content) {
+                      accumulatedResponse += data.content
+                      
+                      // Update the last message (assistant) with new content
+                      setCurrentConversation(prev => {
+                        const messages = [...(prev?.messageHistory || [])]
+                        if (messages.length > 0) {
+                          messages[messages.length - 1] = {
+                            ...messages[messages.length - 1],
+                            content: accumulatedResponse
+                          }
+                        }
+                        return { ...prev, messageHistory: messages }
+                      })
+                    }
+                    
+                    if (data.done) {
+                      console.log("[v0] Streaming completed")
+                      break
+                    }
+                  } catch (e) {
+                    console.error("[v0] Failed to parse SSE data:", e)
+                  }
+                }
+              }
+            }
+          }
+          
+          // Reload conversation to get the saved version from DB
+          console.log("[v0] Reloading conversation:", currentConversation.id)
+          await loadConversation(currentConversation.id)
+          await loadConversations()
+          console.log("[v0] Conversation reloaded successfully")
+        } else {
+          // Non-streaming response (fallback)
+          const responseData = await response.json()
+          console.log("[v0] Non-streaming AI response received:", responseData)
+          
+          // Reload the conversation to get the complete updated messages from database
+          console.log("[v0] Reloading conversation:", currentConversation.id)
+          await loadConversation(currentConversation.id)
+          await loadConversations()
+          console.log("[v0] Conversation reloaded successfully")
+        }
       } else {
         console.error("[v0] Failed to get AI response:", response.status, response.statusText)
         const errorText = await response.text()
@@ -277,6 +359,22 @@ export function FacultyChatTab() {
       {/* Chat History Sidebar */}
       <div className="w-80 border-r bg-card p-4">
         <div className="space-y-4 mb-4">
+          {/* Model Selection */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Select Model
+            </label>
+            <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a model..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="remote-ollama">🚀 Remote Ollama (Lab Server)</SelectItem>
+                <SelectItem value="openai">⚡ OpenAI API</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           {/* Class Selection */}
           <div className="space-y-2">
             <label className="text-sm font-medium flex items-center gap-2">
@@ -437,7 +535,7 @@ export function FacultyChatTab() {
                         }`}
                       >
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
                           <p className="text-xs opacity-70">{new Date(message.timestamp).toLocaleTimeString()}</p>
                           {message.role === "assistant" && message.metadata?.mode && (
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -447,7 +545,19 @@ export function FacultyChatTab() {
                                 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
                                 : 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
                             }`}>
-                              {message.metadata.mode === 'rag' ? 'RAG' : message.metadata.mode === 'llm_fallback' ? 'Llama3' : 'Error'}
+                              {message.metadata.mode === 'rag' ? 'RAG' : message.metadata.mode === 'llm_fallback' ? 'LLM' : 'Error'}
+                            </span>
+                          )}
+                          {message.role === "assistant" && message.metadata?.modelUsed && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                              {message.metadata.modelUsed === 'openai' ? '⚡ OpenAI' : 
+                               message.metadata.modelUsed === 'remote-ollama' ? '🚀 Remote' :
+                               message.metadata.modelUsed === 'local-ollama' ? '💻 Local' : message.metadata.modelUsed}
+                            </span>
+                          )}
+                          {message.role === "assistant" && message.metadata?.timeTaken && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                              ⏱️ {message.metadata.timeTaken < 1000 ? `${message.metadata.timeTaken}ms` : `${(message.metadata.timeTaken / 1000).toFixed(2)}s`}
                             </span>
                           )}
                         </div>

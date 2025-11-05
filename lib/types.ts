@@ -2,6 +2,16 @@
 
 export type UserRole = "student" | "faculty"
 
+// LLM Backend Types
+export type ModelBackend = 'openai' | 'remote-ollama'
+
+export interface ModelResponseMetadata {
+  modelUsed: ModelBackend
+  timeTaken: number // in milliseconds
+  success: boolean
+  error?: string
+}
+
 export interface User {
   id: string
   email: string
@@ -31,6 +41,7 @@ export interface ChatMessage {
   content: string
   timestamp: Date
   sessionId: string
+  metadata?: ModelResponseMetadata // Add metadata for model info and timing
 }
 
 export interface ChatSession {
@@ -42,6 +53,7 @@ export interface ChatSession {
   updatedAt: Date
   messageCount: number
   status?: 'active' | 'archived'
+  preferredModel?: ModelBackend // User's preferred model selection
 }
 
 export interface ChatAnalytics {
@@ -84,7 +96,7 @@ export interface RAGConversation {
     role: 'user' | 'assistant'
     content: string
     timestamp: Date
-    metadata?: any
+    metadata?: ModelResponseMetadata | any
   }>
   studentProblemData: {
     numbers: string[]
