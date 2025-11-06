@@ -1,7 +1,131 @@
-// LLM Service for multiple model backends
-// Supports OpenAI API and Remote Ollama with fallback mechanisms
+// Stream generators for different model backends
 
-export type ModelBackend = 'openai' | 'remote-ollama'
+// vLLM stream generator
+async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>) {
+  const modelConfig = MODEL_CONFIGS['remote-blackwell']
+  
+  try {
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ]
+
+    const response = await fetch(modelConfig.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: modelConfig.model,
+        messages: messages,
+        temperature: config?.temperature || 0.7,
+        max_tokens: config?.maxTokens || 2048,
+        stream: true
+      }),
+      signal: AbortSignal.timeout(120000)
+    })
+
+    if (!response.ok) {
+      yield { 
+        content: '', 
+        done: true, 
+        error: `vLLM error: ${response.status}`, 
+        modelUsed: 'remote-blackwell'
+      }
+      return
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      yield { 
+        content: '', 
+        done: true, 
+        error: 'No response stream', 
+        modelUsed: 'remote-blackwell'
+      }
+      return
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      
+      if (done) {
+        yield { content: '', done: true, modelUsed: 'remote-blackwell' }
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      
+      // Process complete lines from the buffer
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.trim()) {
+          const parsed = JSON.parse(line)
+          const text = parsed.choices?.[0]?.delta?.content || ''
+          if (text) {
+            yield { content: text, done: false, modelUsed: 'remote-blackwell' }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('vLLM stream error:', error)
+    yield { 
+      content: '', 
+      done: true, 
+      error: String(error), 
+      modelUsed: 'remote-blackwell'
+    }
+  }
+}
+// Supports OpenAI API, Remote A6000 (Ollama), and Remote Blackwell (vLLM)
+
+export type ModelBackend = 'openai' | 'remote-a6000' | 'remote-blackwell'
+
+export interface ModelInfo {
+  name: string
+  type: string
+  endpoint: string
+  model: string
+  description: string
+  requiresTunnel: boolean
+  tunnelCommand: string
+}
+
+export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
+  'openai': {
+    name: "OpenAI GPT-3.5 Turbo",
+    type: "openai",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    model: "gpt-3.5-turbo",
+    description: "OpenAI's GPT-3.5 Turbo model",
+    requiresTunnel: false,
+    tunnelCommand: ""
+  },
+  'remote-a6000': {
+    name: "Remote A6000 (Gemma 27B)",
+    type: "ollama",
+    endpoint: "http://localhost:5001/api/generate",
+    model: "gemma3:27b",
+    description: "Ollama on NVIDIA RTX A6000 (48GB VRAM)",
+    requiresTunnel: true,
+    tunnelCommand: "ssh -L 5001:localhost:11434 ra_aatmaj@129.10.156.97"
+  },
+  'remote-blackwell': {
+    name: "Remote Blackwell (Gemma 27B)",
+    type: "vllm",
+    endpoint: "http://localhost:8001/v1/chat/completions",
+    model: "google/gemma-3-27b-it",
+    description: "vLLM on NVIDIA RTX 6000 Blackwell (96GB VRAM) - 2x faster",
+    requiresTunnel: true,
+    tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97"
+  }
+}
 
 export interface LLMResponse {
   response: string
@@ -9,6 +133,7 @@ export interface LLMResponse {
   timeTaken: number // in milliseconds
   success: boolean
   error?: string
+  modelInfo?: ModelInfo
 }
 
 export interface LLMStreamChunk {
@@ -123,19 +248,74 @@ async function callRemoteOllama(prompt: string, systemPrompt: string, config?: P
 
     return {
       response: responseText,
-      modelUsed: 'remote-ollama',
+      modelUsed: 'remote-a6000',
       timeTaken: endTime - startTime,
-      success: true
+      success: true,
+      modelInfo: MODEL_CONFIGS['remote-a6000']
     }
   } catch (error) {
     const endTime = Date.now()
     console.error('Remote Ollama error:', error)
     return {
       response: '',
-      modelUsed: 'remote-ollama',
+      modelUsed: 'remote-a6000',
       timeTaken: endTime - startTime,
       success: false,
       error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+// vLLM API call for Blackwell
+async function callVLLM(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
+  const startTime = Date.now()
+  const modelConfig = MODEL_CONFIGS['remote-blackwell']
+  
+  try {
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ]
+
+    const response = await fetch(modelConfig.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: modelConfig.model,
+        messages: messages,
+        temperature: config?.temperature || 0.7,
+        max_tokens: config?.maxTokens || 2048,
+        stream: false
+      }),
+      signal: AbortSignal.timeout(120000) // 2 minute timeout
+    })
+
+    if (!response.ok) {
+      const errorData = await response.text()
+      throw new Error(`vLLM error: ${response.status} - ${errorData}`)
+    }
+
+    const data = await response.json()
+    const responseText = data.choices[0]?.message?.content || ''
+
+    return {
+      response: responseText,
+      modelUsed: 'remote-blackwell',
+      timeTaken: Date.now() - startTime,
+      success: true,
+      modelInfo: modelConfig
+    }
+  } catch (error) {
+    console.error('vLLM error:', error)
+    return {
+      response: '',
+      modelUsed: 'remote-blackwell',
+      timeTaken: Date.now() - startTime,
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      modelInfo: modelConfig
     }
   }
 }
@@ -226,23 +406,67 @@ export async function generateLLMResponse(
     }
     console.log(`[LLM Service] ❌ OpenAI failed: ${result.error}`)
     
-    // Fallback to Remote Ollama
-    console.log('[LLM Service] Falling back to Remote Ollama...')
-    result = await callRemoteOllama(prompt, config.systemPrompt, config)
+    // Fallback to Blackwell
+    console.log('[LLM Service] Falling back to Blackwell...')
+    result = await callVLLM(prompt, config.systemPrompt, config)
     if (result.success) {
-      console.log(`[LLM Service] ✅ Remote Ollama succeeded in ${result.timeTaken}ms`)
+      console.log(`[LLM Service] ✅ Blackwell succeeded in ${result.timeTaken}ms`)
       return result
     }
-    console.log(`[LLM Service] ❌ Remote Ollama failed: ${result.error}`)
+    console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
+    
+    // Fallback to A6000
+    console.log('[LLM Service] Falling back to A6000...')
+    result = await callRemoteOllama(prompt, config.systemPrompt, config)
+    if (result.success) {
+      console.log(`[LLM Service] ✅ A6000 succeeded in ${result.timeTaken}ms`)
+      return result
+    }
+    console.log(`[LLM Service] ❌ A6000 failed: ${result.error}`)
+    
+  } else if (config.preferredBackend === 'remote-blackwell') {
+    result = await callVLLM(prompt, config.systemPrompt, config)
+    if (result.success) {
+      console.log(`[LLM Service] ✅ Blackwell succeeded in ${result.timeTaken}ms`)
+      return result
+    }
+    console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
+    
+    // Fallback to A6000
+    console.log('[LLM Service] Falling back to A6000...')
+    result = await callRemoteOllama(prompt, config.systemPrompt, config)
+    if (result.success) {
+      console.log(`[LLM Service] ✅ A6000 succeeded in ${result.timeTaken}ms`)
+      return result
+    }
+    console.log(`[LLM Service] ❌ A6000 failed: ${result.error}`)
+    
+    // Fallback to OpenAI
+    console.log('[LLM Service] Falling back to OpenAI...')
+    result = await callOpenAI(prompt, config.systemPrompt, config)
+    if (result.success) {
+      console.log(`[LLM Service] ✅ OpenAI succeeded in ${result.timeTaken}ms`)
+      return result
+    }
+    console.log(`[LLM Service] ❌ OpenAI failed: ${result.error}`)
     
   } else {
-    // Remote Ollama
+    // Remote A6000
     result = await callRemoteOllama(prompt, config.systemPrompt, config)
     if (result.success) {
-      console.log(`[LLM Service] ✅ Remote Ollama succeeded in ${result.timeTaken}ms`)
+      console.log(`[LLM Service] ✅ A6000 succeeded in ${result.timeTaken}ms`)
       return result
     }
-    console.log(`[LLM Service] ❌ Remote Ollama failed: ${result.error}`)
+    console.log(`[LLM Service] ❌ A6000 failed: ${result.error}`)
+    
+    // Fallback to Blackwell
+    console.log('[LLM Service] Falling back to Blackwell...')
+    result = await callVLLM(prompt, config.systemPrompt, config)
+    if (result.success) {
+      console.log(`[LLM Service] ✅ Blackwell succeeded in ${result.timeTaken}ms`)
+      return result
+    }
+    console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
     
     // Fallback to OpenAI
     console.log('[LLM Service] Falling back to OpenAI...')
@@ -256,7 +480,7 @@ export async function generateLLMResponse(
 
   // All backends failed
   return {
-    response: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (OpenAI API key configured or Remote Ollama tunnel active).",
+    response: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (OpenAI API key, A6000, or Blackwell tunnel active).",
     modelUsed: config.preferredBackend,
     timeTaken: result?.timeTaken || 0,
     success: false,
@@ -382,7 +606,7 @@ async function* streamRemoteOllama(
     })
 
     if (!response.ok) {
-      yield { content: '', done: true, error: `Remote Ollama error: ${response.status}`, modelUsed: 'remote-ollama' }
+      yield { content: '', done: true, error: `Remote A6000 error: ${response.status}`, modelUsed: 'remote-a6000' }
       return
     }
 
@@ -390,7 +614,7 @@ async function* streamRemoteOllama(
     const decoder = new TextDecoder()
 
     if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: 'remote-ollama' }
+      yield { content: '', done: true, error: 'No response stream', modelUsed: 'remote-a6000' }
       return
     }
 
@@ -405,10 +629,10 @@ async function* streamRemoteOllama(
         try {
           const parsed = JSON.parse(line)
           if (parsed.response) {
-            yield { content: parsed.response, done: false, modelUsed: 'remote-ollama' }
+            yield { content: parsed.response, done: false, modelUsed: 'remote-a6000' }
           }
           if (parsed.done) {
-            yield { content: '', done: true, modelUsed: 'remote-ollama' }
+            yield { content: '', done: true, modelUsed: 'remote-a6000' }
             return
           }
         } catch (e) {
@@ -417,10 +641,10 @@ async function* streamRemoteOllama(
       }
     }
 
-    yield { content: '', done: true, modelUsed: 'remote-ollama' }
+    yield { content: '', done: true, modelUsed: 'remote-a6000' }
   } catch (error) {
-    console.error('Remote Ollama streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: 'remote-ollama' }
+    console.error('Remote A6000 streaming error:', error)
+    yield { content: '', done: true, error: String(error), modelUsed: 'remote-a6000' }
   }
 }
 
@@ -532,10 +756,10 @@ export async function* generateLLMStreamingResponse(
         if (chunk.done) return
       }
     }
-  } else if (config.preferredBackend === 'remote-ollama') {
+  } else if (config.preferredBackend === 'remote-a6000') {
     for await (const chunk of streamRemoteOllama(prompt, config.systemPrompt, config)) {
       if (chunk.error) {
-        console.log(`[LLM Service] ❌ Remote Ollama streaming failed: ${chunk.error}`)
+        console.log(`[LLM Service] ❌ Remote A6000 streaming failed: ${chunk.error}`)
         break
       }
       hasSuccess = true
@@ -544,10 +768,33 @@ export async function* generateLLMStreamingResponse(
     }
 
     if (!hasSuccess) {
-      console.log('[LLM Service] Falling back to OpenAI...')
-      for await (const chunk of streamOpenAI(prompt, config.systemPrompt, config)) {
+      console.log('[LLM Service] Falling back to Blackwell...')
+      for await (const chunk of streamVLLM(prompt, config.systemPrompt, config)) {
         if (chunk.error) {
-          console.log(`[LLM Service] ❌ OpenAI streaming failed: ${chunk.error}`)
+          console.log(`[LLM Service] ❌ Blackwell streaming failed: ${chunk.error}`)
+          break
+        }
+        hasSuccess = true
+        yield chunk
+        if (chunk.done) return
+      }
+    }
+  } else if (config.preferredBackend === 'remote-blackwell') {
+    for await (const chunk of streamVLLM(prompt, config.systemPrompt, config)) {
+      if (chunk.error) {
+        console.log(`[LLM Service] ❌ Blackwell streaming failed: ${chunk.error}`)
+        break
+      }
+      hasSuccess = true
+      yield chunk
+      if (chunk.done) return
+    }
+
+    if (!hasSuccess) {
+      console.log('[LLM Service] Falling back to A6000...')
+      for await (const chunk of streamRemoteOllama(prompt, config.systemPrompt, config)) {
+        if (chunk.error) {
+          console.log(`[LLM Service] ❌ Remote A6000 streaming failed: ${chunk.error}`)
           break
         }
         hasSuccess = true
@@ -560,7 +807,7 @@ export async function* generateLLMStreamingResponse(
   // If all failed
   if (!hasSuccess) {
     yield {
-      content: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (OpenAI API key or Remote Ollama tunnel).",
+      content: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (OpenAI API key, A6000, or Blackwell tunnel).",
       done: true,
       error: 'All backends failed',
       modelUsed: config.preferredBackend
@@ -572,14 +819,8 @@ export async function* generateLLMStreamingResponse(
  * Get friendly display name for model backend
  */
 export function getModelDisplayName(backend: ModelBackend): string {
-  switch (backend) {
-    case 'openai':
-      return 'OpenAI (GPT-3.5)'
-    case 'remote-ollama':
-      return `Remote Ollama (${process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'})`
-    default:
-      return 'Unknown'
-  }
+  const config = MODEL_CONFIGS[backend]
+  return config ? config.name : 'Unknown'
 }
 
 /**

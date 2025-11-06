@@ -967,6 +967,8 @@ import requests
 LOCAL_OLLAMA_URL = "http://localhost:11434"
 REMOTE_OLLAMA_URL = "${process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'}"
 REMOTE_OLLAMA_MODEL = "${process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'}"
+REMOTE_BLACKWELL_URL = "${process.env.REMOTE_BLACKWELL_URL || 'http://localhost:8001/v1/chat/completions'}"
+REMOTE_BLACKWELL_MODEL = "${process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-27b-it'}"
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = "${process.env.ENABLE_LLM_GUARDS || 'true'}".lower() == 'true'
 OPENAI_API_KEY = "${process.env.OPENAI_API_KEY || ''}"
@@ -984,7 +986,7 @@ vector_stores = {}
 
 def warmup_ollama_connection():
     import time
-    print(f"🔥 Warming up Ollama connection (SSH tunnel)...", file=sys.stderr)
+    print(f"🔥 Warming up A6000 Ollama connection (SSH tunnel)...", file=sys.stderr)
     warmup_start = time.time()
     
     try:
@@ -1004,12 +1006,40 @@ def warmup_ollama_connection():
         warmup_time = time.time() - warmup_start
         
         if response.status_code == 200:
-            print(f"✅ Ollama connection warmed up in {warmup_time:.3f}s - subsequent queries will be fast!", file=sys.stderr)
+            print(f"✅ A6000 Ollama connection warmed up in {warmup_time:.3f}s - subsequent queries will be fast!", file=sys.stderr)
         else:
-            print(f"⚠️ Ollama warmup got status {response.status_code} in {warmup_time:.3f}s", file=sys.stderr)
+            print(f"⚠️ A6000 Ollama warmup got status {response.status_code} in {warmup_time:.3f}s", file=sys.stderr)
     except Exception as e:
         warmup_time = time.time() - warmup_start
-        print(f"⚠️ Ollama warmup failed after {warmup_time:.3f}s: {str(e)}", file=sys.stderr)
+        print(f"⚠️ A6000 Ollama warmup failed after {warmup_time:.3f}s: {str(e)}", file=sys.stderr)
+        print(f"   (This is OK - the first query will just be slower)", file=sys.stderr)
+
+def warmup_blackwell_connection():
+    import time
+    print(f"🔥 Warming up Blackwell vLLM connection (SSH tunnel)...", file=sys.stderr)
+    warmup_start = time.time()
+    
+    try:
+        response = requests.post(
+            REMOTE_BLACKWELL_URL,
+            json={
+                "model": REMOTE_BLACKWELL_MODEL,
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 1,
+                "stream": False
+            },
+            timeout=30
+        )
+        
+        warmup_time = time.time() - warmup_start
+        
+        if response.status_code == 200:
+            print(f"✅ Blackwell vLLM connection warmed up in {warmup_time:.3f}s - subsequent queries will be fast!", file=sys.stderr)
+        else:
+            print(f"⚠️ Blackwell vLLM warmup got status {response.status_code} in {warmup_time:.3f}s", file=sys.stderr)
+    except Exception as e:
+        warmup_time = time.time() - warmup_start
+        print(f"⚠️ Blackwell vLLM warmup failed after {warmup_time:.3f}s: {str(e)}", file=sys.stderr)
         print(f"   (This is OK - the first query will just be slower)", file=sys.stderr)
 
 def keep_alive_ping():
@@ -1019,21 +1049,40 @@ def keep_alive_ping():
         try:
             time.sleep(30)
             
-            response = requests.post(
-                REMOTE_OLLAMA_URL,
-                json={
-                    "model": REMOTE_OLLAMA_MODEL,
-                    "prompt": "ping",
-                    "stream": False,
-                    "options": {
-                        "num_predict": 1
-                    }
-                },
-                timeout=15
-            )
+            # Ping A6000 Ollama
+            try:
+                response = requests.post(
+                    REMOTE_OLLAMA_URL,
+                    json={
+                        "model": REMOTE_OLLAMA_MODEL,
+                        "prompt": "ping",
+                        "stream": False,
+                        "options": {
+                            "num_predict": 1
+                        }
+                    },
+                    timeout=15
+                )
+            except Exception as e:
+                print(f"⚠️ A6000 Ollama keep-alive ping failed: {str(e)}", file=sys.stderr)
+            
+            # Ping Blackwell vLLM
+            try:
+                response = requests.post(
+                    REMOTE_BLACKWELL_URL,
+                    json={
+                        "model": REMOTE_BLACKWELL_MODEL,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "max_tokens": 1,
+                        "stream": False
+                    },
+                    timeout=15
+                )
+            except Exception as e:
+                print(f"⚠️ Blackwell vLLM keep-alive ping failed: {str(e)}", file=sys.stderr)
             
         except Exception as e:
-            print(f"⚠️ Keep-alive ping failed: {str(e)}", file=sys.stderr)
+            print(f"⚠️ Keep-alive ping loop error: {str(e)}", file=sys.stderr)
 
 def start_keep_alive_thread():
     import threading
@@ -1042,10 +1091,10 @@ def start_keep_alive_thread():
         keep_alive_thread = threading.Thread(
             target=keep_alive_ping,
             daemon=True,
-            name="OllamaKeepAlive"
+            name="TunnelKeepAlive"
         )
         keep_alive_thread.start()
-        print(f"🫧 Started Ollama keep-alive thread (pings every 30s)", file=sys.stderr)
+        print(f"🫧 Started SSH tunnel keep-alive thread (pings A6000 + Blackwell every 30s)", file=sys.stderr)
     except Exception as e:
         print(f"⚠️ Failed to start keep-alive thread: {str(e)}", file=sys.stderr)
         print(f"   (Connection may go cold after long idle periods)", file=sys.stderr)
@@ -1086,6 +1135,7 @@ def initialize_models():
         sys.stderr.flush()
         
         warmup_ollama_connection()
+        warmup_blackwell_connection()
         start_keep_alive_thread()
         
     except Exception as e:
@@ -1166,20 +1216,64 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model):
             )
             if response.status_code == 200:
                 if stream:
-                    return response, 'remote-ollama'
+                    return response, 'remote-a6000'
                 else:
                     result = response.json()
-                    return result.get('response', ''), 'remote-ollama'
+                    return result.get('response', ''), 'remote-a6000'
             return None, None
         except Exception as e:
+            return None, None
+    
+    def try_blackwell(stream=False):
+        try:
+            # Use system/user split like warmup, with length limit
+            messages = [
+                {"role": "system", "content": system_prompt[:4000]},
+                {"role": "user", "content": prompt}
+            ]
+            response = requests.post(
+                REMOTE_BLACKWELL_URL,
+                json={
+                    "model": REMOTE_BLACKWELL_MODEL,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 1000,
+                    "stream": stream
+                },
+                timeout=120,
+                stream=stream
+            )
+            if response.status_code == 200:
+                if stream:
+                    return response, 'remote-blackwell'
+                else:
+                    result = response.json()
+                    return result['choices'][0]['message']['content'], 'remote-blackwell'
+            else:
+                error_text = response.text if hasattr(response, 'text') else 'Unknown error'
+                print(f"❌ Blackwell vLLM failed: HTTP {response.status_code}", file=sys.stderr)
+                print(f"   Response: {error_text[:200]}", file=sys.stderr)
+            return None, None
+        except Exception as e:
+            print(f"❌ Blackwell vLLM exception: {str(e)}", file=sys.stderr)
             return None, None
     
     if preferred_model == 'openai':
         response_text, model_used = try_openai()
         if not response_text:
+            response_text, model_used = try_blackwell()
+        if not response_text:
             response_text, model_used = try_remote_ollama()
-    else:
+    elif preferred_model == 'remote-blackwell':
+        response_text, model_used = try_blackwell()
+        if not response_text:
+            response_text, model_used = try_remote_ollama()
+        if not response_text:
+            response_text, model_used = try_openai()
+    else:  # remote-a6000 or default
         response_text, model_used = try_remote_ollama()
+        if not response_text:
+            response_text, model_used = try_blackwell()
         if not response_text:
             response_text, model_used = try_openai()
     
@@ -1369,21 +1463,119 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id):
                     streaming_time = (time.time() - ttfb_start) - first_chunk_time
                     print(f"   ⏱️ LLM Stage 4 (Token generation): {streaming_time:.3f}s ({chunk_count} chunks)", file=sys.stderr)
                 
-                return full_text, 'remote-ollama'
+                return full_text, 'remote-a6000'
             return None, None
         except Exception as e:
-            print(f"❌ Streaming error: {str(e)}", file=sys.stderr)
+            print(f"❌ A6000 Ollama streaming error: {str(e)}", file=sys.stderr)
+            return None, None
+    
+    def try_blackwell_stream():
+        try:
+            prompt_start = time.time()
+            # Use system/user split like warmup (which works)
+            messages = [
+                {"role": "system", "content": system_prompt[:4000]},  # Limit to 4000 chars
+                {"role": "user", "content": prompt}
+            ]
+            prompt_time = time.time() - prompt_start
+            print(f"   ⏱️ LLM Stage 1 (Prompt construction): {prompt_time:.3f}s", file=sys.stderr)
+            print(f"   📏 System prompt length: {len(system_prompt)} chars (truncated to {len(messages[0]['content'])})", file=sys.stderr)
+            
+            connection_start = time.time()
+            response = requests.post(
+                REMOTE_BLACKWELL_URL,
+                json={
+                    "model": REMOTE_BLACKWELL_MODEL,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 1000,
+                    "stream": True
+                },
+                timeout=120,
+                stream=True
+            )
+            connection_time = time.time() - connection_start
+            print(f"   ⏱️ LLM Stage 2 (API connection): {connection_time:.3f}s", file=sys.stderr)
+            
+            if response.status_code == 200:
+                full_text = ""
+                first_chunk_received = False
+                first_chunk_time = None
+                chunk_count = 0
+                
+                ttfb_start = time.time()
+                
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8')
+                        if line_str.startswith('data: '):
+                            data_str = line_str[6:]
+                            if data_str.strip() == '[DONE]':
+                                break
+                            try:
+                                chunk_data = json.loads(data_str)
+                                if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                    delta = chunk_data['choices'][0].get('delta', {})
+                                    if 'content' in delta:
+                                        chunk = delta['content']
+                                        chunk_count += 1
+                                        
+                                        if not first_chunk_received:
+                                            first_chunk_time = time.time() - ttfb_start
+                                            print(f"   ⏱️ LLM Stage 3 (Time to first token): {first_chunk_time:.3f}s", file=sys.stderr)
+                                            first_chunk_received = True
+                                        
+                                        full_text += chunk
+                                        chunk_message = {
+                                            "type": "chunk",
+                                            "request_id": request_id,
+                                            "chunk": chunk
+                                        }
+                                        print(json.dumps(chunk_message), flush=True)
+                                        if STREAM_CHUNK_DELAY > 0:
+                                            time.sleep(STREAM_CHUNK_DELAY)
+                            except json.JSONDecodeError:
+                                continue
+                
+                if first_chunk_received:
+                    streaming_time = (time.time() - ttfb_start) - first_chunk_time
+                    print(f"   ⏱️ LLM Stage 4 (Token generation): {streaming_time:.3f}s ({chunk_count} chunks)", file=sys.stderr)
+                
+                return full_text, 'remote-blackwell'
+            else:
+                error_text = response.text if hasattr(response, 'text') else 'Unknown error'
+                print(f"❌ Blackwell vLLM streaming failed: HTTP {response.status_code}", file=sys.stderr)
+                print(f"   Response: {error_text[:200]}", file=sys.stderr)
+            return None, None
+        except Exception as e:
+            print(f"❌ Blackwell vLLM streaming error: {str(e)}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             return None, None
     
     if preferred_model == 'openai':
         response_text, model_used = try_openai_stream()
         if not response_text:
-            print(f"   ⚠️ OpenAI failed, falling back to Remote Ollama", file=sys.stderr)
+            print(f"   ⚠️ OpenAI failed, falling back to Blackwell vLLM", file=sys.stderr)
+            response_text, model_used = try_blackwell_stream()
+        if not response_text:
+            print(f"   ⚠️ Blackwell failed, falling back to A6000 Ollama", file=sys.stderr)
             response_text, model_used = try_remote_ollama_stream()
-    else:
+    elif preferred_model == 'remote-blackwell':
+        response_text, model_used = try_blackwell_stream()
+        if not response_text:
+            print(f"   ⚠️ Blackwell failed, falling back to A6000 Ollama", file=sys.stderr)
+            response_text, model_used = try_remote_ollama_stream()
+        if not response_text:
+            print(f"   ⚠️ A6000 Ollama failed, falling back to OpenAI", file=sys.stderr)
+            response_text, model_used = try_openai_stream()
+    else:  # remote-a6000 or default
         response_text, model_used = try_remote_ollama_stream()
         if not response_text:
-            print(f"   ⚠️ Remote Ollama failed, falling back to OpenAI", file=sys.stderr)
+            print(f"   ⚠️ A6000 Ollama failed, falling back to Blackwell vLLM", file=sys.stderr)
+            response_text, model_used = try_blackwell_stream()
+        if not response_text:
+            print(f"   ⚠️ Blackwell failed, falling back to OpenAI", file=sys.stderr)
             response_text, model_used = try_openai_stream()
     
     total_time = time.time() - total_start
@@ -1406,7 +1598,7 @@ def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
         user_id = request_data['user_id']
         vector_store_path = request_data['vector_store_path']
         system_prompt = request_data['system_prompt']
-        preferred_model = request_data.get('preferred_model', 'remote-ollama')
+        preferred_model = request_data.get('preferred_model', 'remote-a6000')
         request_id = request_data['request_id']
         message_history = request_data.get('message_history', [])
         checkpoint_state = request_data.get('checkpoint_state', {
@@ -1853,7 +2045,7 @@ if __name__ == "__main__":
           user_id: userId,
           vector_store_path: vectorStorePath.replace(/\\/g, '\\\\'),
           system_prompt: systemPromptContent,
-          preferred_model: preferredModel || 'remote-ollama',
+          preferred_model: preferredModel || 'remote-a6000',
           message_history: messageHistory,
           checkpoint_state: checkpointState
         }
@@ -1941,7 +2133,7 @@ Now respond to the student's query following the checkpoint system instructions 
 Response:`
 
       const llmConfig: LLMConfig = {
-        preferredBackend: preferredModel || 'remote-ollama',
+        preferredBackend: preferredModel || 'remote-a6000',
         systemPrompt: systemPrompt,
         temperature: 0.2,
         maxTokens: 1000

@@ -17,7 +17,7 @@ export function FacultyChatTab() {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState<string>("")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-ollama")
+  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-blackwell")
   const [classes, setClasses] = useState<Class[]>([])
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
@@ -210,6 +210,10 @@ export function FacultyChatTab() {
     setInput("")
     setLoading(true)
 
+    // Track time to first token (TTFT)
+    const sendTimestamp = Date.now()
+    let firstTokenTimestamp: number | null = null
+
     // Add user message to conversation immediately for instant display
     const userMessageObj = {
       role: "user",
@@ -260,7 +264,7 @@ export function FacultyChatTab() {
             role: "assistant",
             content: "",
             timestamp: new Date(),
-            metadata: {}
+            metadata: { timeToFirstToken: null }
           }
           
           // Add empty assistant message that we'll update
@@ -289,15 +293,27 @@ export function FacultyChatTab() {
                     const data = JSON.parse(line.slice(6))
                     
                     if (data.content) {
+                      // Track time to first token (only once)
+                      if (firstTokenTimestamp === null && data.content.trim()) {
+                        firstTokenTimestamp = Date.now()
+                        const ttft = firstTokenTimestamp - sendTimestamp
+                        console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
+                      }
+                      
                       accumulatedResponse += data.content
                       
                       // Update the last message (assistant) with new content
                       setCurrentConversation(prev => {
                         const messages = [...(prev?.messageHistory || [])]
                         if (messages.length > 0) {
+                          const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
                           messages[messages.length - 1] = {
                             ...messages[messages.length - 1],
-                            content: accumulatedResponse
+                            content: accumulatedResponse,
+                            metadata: {
+                              ...messages[messages.length - 1].metadata,
+                              timeToFirstToken: ttft
+                            }
                           }
                         }
                         return { ...prev, messageHistory: messages }
@@ -316,11 +332,37 @@ export function FacultyChatTab() {
             }
           }
           
+          // Calculate total response time (send to last token)
+          const lastTokenTimestamp = Date.now()
+          const totalResponseTime = lastTokenTimestamp - sendTimestamp
+          const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
+          console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
+          
           // Reload conversation to get the saved version from DB
           console.log("[v0] Reloading conversation:", currentConversation.id)
           await loadConversation(currentConversation.id)
           await loadConversations()
           console.log("[v0] Conversation reloaded successfully")
+          
+          // Merge frontend timing metrics with DB data
+          setCurrentConversation(prev => {
+            if (!prev?.messageHistory) return prev
+            const messages = [...prev.messageHistory]
+            if (messages.length > 0) {
+              const lastMsg = messages[messages.length - 1]
+              if (lastMsg.role === 'assistant') {
+                messages[messages.length - 1] = {
+                  ...lastMsg,
+                  metadata: {
+                    ...lastMsg.metadata,
+                    timeToFirstToken: ttft,
+                    totalResponseTime: totalResponseTime
+                  }
+                }
+              }
+            }
+            return { ...prev, messageHistory: messages }
+          })
         } else {
           // Non-streaming response (fallback)
           const responseData = await response.json()
@@ -370,8 +412,9 @@ export function FacultyChatTab() {
                 <SelectValue placeholder="Choose a model..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="remote-ollama">🚀 Remote Ollama (Lab Server)</SelectItem>
-                <SelectItem value="openai">⚡ OpenAI API</SelectItem>
+                <SelectItem value="openai">⚡ OpenAI GPT-3.5</SelectItem>
+                <SelectItem value="remote-a6000">🚀 Remote A6000 (Gemma 27B)</SelectItem>
+                <SelectItem value="remote-blackwell">⚡ Remote Blackwell (Gemma 27B)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -551,8 +594,20 @@ export function FacultyChatTab() {
                           {message.role === "assistant" && message.metadata?.modelUsed && (
                             <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
                               {message.metadata.modelUsed === 'openai' ? '⚡ OpenAI' : 
-                               message.metadata.modelUsed === 'remote-ollama' ? '🚀 Remote' :
-                               message.metadata.modelUsed === 'local-ollama' ? '💻 Local' : message.metadata.modelUsed}
+                               message.metadata.modelUsed === 'remote-a6000' ? '🚀 A6000' :
+                               message.metadata.modelUsed === 'remote-blackwell' ? '⚡ Blackwell' :
+                               message.metadata.modelUsed === 'remote-ollama' ? '🚀 A6000' : // backward compatibility
+                               message.metadata.modelUsed}
+                            </span>
+                          )}
+                          {message.role === "assistant" && message.metadata?.timeToFirstToken && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                              ⚡ TTFT: {message.metadata.timeToFirstToken < 1000 ? `${message.metadata.timeToFirstToken}ms` : `${(message.metadata.timeToFirstToken / 1000).toFixed(2)}s`}
+                            </span>
+                          )}
+                          {message.role === "assistant" && message.metadata?.totalResponseTime && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                              🏁 Total: {message.metadata.totalResponseTime < 1000 ? `${message.metadata.totalResponseTime}ms` : `${(message.metadata.totalResponseTime / 1000).toFixed(2)}s`}
                             </span>
                           )}
                           {message.role === "assistant" && message.metadata?.timeTaken && (

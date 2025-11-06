@@ -3,13 +3,18 @@
 export type UserRole = "student" | "faculty"
 
 // LLM Backend Types
-export type ModelBackend = 'openai' | 'remote-ollama'
+export type ModelBackend = 'openai' | 'remote-a6000' | 'remote-blackwell'
 
 export interface ModelResponseMetadata {
   modelUsed: ModelBackend
   timeTaken: number // in milliseconds
   success: boolean
   error?: string
+  modelInfo?: {
+    name: string
+    type: string
+    model: string
+  }
 }
 
 export interface User {

@@ -13,8 +13,8 @@ A Next.js application that provides AI-powered chat assistance for students and 
 ## Prerequisites
 
 - Node.js 18+ 
-- PostgreSQL database
 - Python 3.8+ (for RAG system)
+- Supabase account (for database)
 - Ollama (optional, for fallback AI)
 
 ## Quick Start
@@ -25,55 +25,35 @@ git clone <your-repo-url>
 cd learn-bot
 ```
 
-### 2. Install dependencies
+### 2. Install Node.js dependencies
 ```bash
 npm install
 ```
 
-### 3. Set up environment variables
+### 3. Install Python dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Set up environment variables
 ```bash
 # Copy the example environment file
-cp .env.example .env.local
+cp env.local.example .env.local
 
-# Edit .env.local with your database credentials
-# DB_USER=your_db_user
-# DB_HOST=your_db_host  
-# DB_NAME=your_db_name
-# DB_PASSWORD=your_db_password
-# DB_PORT=5432
+# Edit .env.local with your Supabase database credentials
+# Get these from your Supabase project settings > Database
 ```
 
-### 4. Set up the database
-
-#### Option A: Use Docker (Recommended for Team Development)
+Your `.env.local` should look like:
 ```bash
-# Start PostgreSQL and the app with Docker
-docker-compose up
-
-# This will:
-# - Start PostgreSQL with the correct schema
-# - Start the Next.js app
-# - Automatically create tables and sample data
+DB_HOST=your-project.supabase.co
+DB_USER=postgres
+DB_NAME=postgres
+DB_PASSWORD=your-supabase-password
+DB_PORT=5432
 ```
 
-#### Option B: Use Local PostgreSQL
-```bash
-# Make sure PostgreSQL is running
-# Create a database named 'learnbot' (or whatever you set in DB_NAME)
-# The app will automatically create tables on first run
-```
-
-#### Option C: Connect to Shared Team Database
-```bash
-# Get database credentials from your team lead
-# Update .env.local with shared database details
-# Example:
-# DB_HOST=your-team-db-host.com
-# DB_USER=learnbot_team
-# DB_PASSWORD=shared_password
-# DB_NAME=learnbot
-# DB_PORT=5432
-```
+**Note**: For teammates, share the `.env.local` credentials securely (via password manager, secure chat, etc.)
 
 ### 5. Set up the RAG system (Required)
 The application requires a `vector_store_ra/` directory with the following files:
@@ -127,12 +107,12 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Environment Variables
 
-| Variable | Description | Default |
+| Variable | Description | Example |
 |----------|-------------|---------|
 | `DB_USER` | PostgreSQL username | `postgres` |
-| `DB_HOST` | Database host | `localhost` |
-| `DB_NAME` | Database name | `learnbot` |
-| `DB_PASSWORD` | Database password | `password` |
+| `DB_HOST` | Supabase database host | `your-project.supabase.co` |
+| `DB_NAME` | Database name | `postgres` |
+| `DB_PASSWORD` | Supabase database password | (from Supabase dashboard) |
 | `DB_PORT` | Database port | `5432` |
 
 ## Deployment
@@ -151,80 +131,38 @@ The project is configured for Vercel deployment:
 - Verify Ollama is running (for fallback)
 
 ### Database Connection Issues
-- Verify PostgreSQL is running
-- Check database credentials in `.env.local`
-- Ensure database exists
+- Verify Supabase credentials in `.env.local`
+- Check that your Supabase database is active
+- Ensure you're using the correct connection string from Supabase dashboard
 
 ### Build Errors
 - Run `npm install` to ensure all dependencies are installed
 - Check for TypeScript errors with `npm run lint`
 
-## Database Sharing for Team Development
+### Python Dependencies Not Found
+- Make sure Python 3.8+ is installed
+- Run `pip install -r requirements.txt` to install all Python packages
 
-### Option 1: Docker Setup (Easiest)
-The project includes Docker configuration for easy team setup:
-- `docker-compose.yml` - Sets up PostgreSQL + Next.js app
-- `init-schema.sql` - Database schema and sample data
-- `Dockerfile` - Next.js application container
+## Team Development Setup
 
-**For teammates:**
-```bash
-git clone <repo-url>
-cd learn-bot
-docker-compose up
-```
+This project uses **Supabase** for the shared database, making team collaboration simple:
 
-**To view the database (optional):**
-1. Install pgAdmin: https://www.pgadmin.org/download/
-2. Connect with:
-   - Host: `localhost`
-   - Port: `5432`
-   - Database: `learnbot`
-   - Username: `postgres`
-   - Password: `password`
+1. **Database is already hosted**: The project uses a cloud-hosted PostgreSQL database on Supabase
+2. **Shared credentials**: Get the `.env.local` file from your team lead
+3. **No local database needed**: Everyone connects to the same Supabase instance
+4. **No Docker required**: Just install Node.js and Python dependencies
 
-### Option 2: Shared Database Access
-If you want to share your existing database:
+**For new team members:**
+1. Clone the repository
+2. Run `npm install` and `pip install -r requirements.txt`
+3. Get `.env.local` credentials from team lead
+4. Run `npm run dev`
 
-1. **Configure PostgreSQL for network access:**
-   ```bash
-   # Edit postgresql.conf
-   listen_addresses = '*'
-   
-   # Edit pg_hba.conf
-   host all all 0.0.0.0/0 md5
-   ```
-
-2. **Create team user:**
-   ```sql
-   CREATE USER learnbot_team WITH PASSWORD 'secure_password';
-   GRANT ALL PRIVILEGES ON DATABASE learnbot TO learnbot_team;
-   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO learnbot_team;
-   ```
-
-3. **Share connection details:**
-   - Host: Your public IP
-   - Port: 5432
-   - Database: learnbot
-   - Username: learnbot_team
-   - Password: [shared password]
-
-### Option 3: Database Dump
-Create a complete database backup:
-```bash
-# Create dump
-pg_dump -h localhost -U postgres -d learnbot > learnbot_backup.sql
-
-# Teammates restore
-createdb learnbot
-psql -d learnbot < learnbot_backup.sql
-```
-
-### Option 4: Cloud Database
-Set up a shared cloud database:
-- **Supabase** (free tier available)
-- **Railway** (simple setup)
-- **Neon** (serverless PostgreSQL)
+**Benefits:**
+- ✅ No Docker setup needed
+- ✅ No local PostgreSQL installation
+- ✅ Everyone sees the same data in real-time
+- ✅ Database managed through Supabase dashboard
 
 ## Contributing
 
