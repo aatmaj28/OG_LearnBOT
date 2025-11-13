@@ -20,7 +20,11 @@ interface StudentActivityData {
   sessions: ChatSession[]
 }
 
-export function StudentMonitoringTab() {
+interface StudentMonitoringTabProps {
+  isDarkMode?: boolean
+}
+
+export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTabProps) {
   const [classes, setClasses] = useState<Class[]>([])
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [studentActivities, setStudentActivities] = useState<StudentActivityData[]>([])
@@ -137,8 +141,8 @@ export function StudentMonitoringTab() {
   return (
     <div className="h-full flex flex-col p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2">Student Monitoring</h2>
-        <p className="text-muted-foreground">View student activity and chat history</p>
+        <h2 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Student Monitoring</h2>
+        <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>View student activity and chat history</p>
       </div>
 
       {classes.length === 0 ? (
@@ -152,12 +156,12 @@ export function StudentMonitoringTab() {
         <>
           <div className="mb-6">
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger className="w-[300px]">
+              <SelectTrigger className={`w-[300px] ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}`}>
                 <SelectValue placeholder="Select a class" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
                 {classes.map((classItem) => (
-                  <SelectItem key={classItem.id} value={classItem.id}>
+                  <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                     {classItem.name}
                   </SelectItem>
                 ))}
@@ -229,11 +233,11 @@ export function StudentMonitoringTab() {
               {!selectedStudent ? (
                 <div className="h-full flex items-start justify-center pt-16">
                   <div className="text-center max-w-md">
-                    <div className="p-4 bg-indigo-100 dark:bg-indigo-900 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center">
-                      <Eye className="h-10 w-10 text-indigo-600 dark:text-indigo-400" />
+                    <div className={`p-4 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center ${isDarkMode ? 'bg-indigo-900' : 'bg-indigo-100'}`}>
+                      <Eye className={`h-10 w-10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
                     </div>
-                    <h3 className="text-xl font-bold mb-3">Select a Student</h3>
-                    <p className="text-muted-foreground">Choose a student to view their chat history and activity</p>
+                    <h3 className={`text-xl font-bold mb-3 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Select a Student</h3>
+                    <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Choose a student to view their chat history and activity</p>
                   </div>
                 </div>
               ) : (

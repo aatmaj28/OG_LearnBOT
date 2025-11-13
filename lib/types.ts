@@ -3,7 +3,7 @@
 export type UserRole = "student" | "faculty"
 
 // LLM Backend Types
-export type ModelBackend = 'openai' | 'remote-a6000' | 'remote-blackwell'
+export type ModelBackend = 'claude' | 'remote-a6000' | 'remote-blackwell'
 
 export interface ModelResponseMetadata {
   modelUsed: ModelBackend
@@ -36,6 +36,7 @@ export interface Class {
   facultyId: string
   studentIds: string[]
   vectorStoreFolder?: string
+  syllabusVectorStoreFolder?: string
   createdAt: Date
 }
 
@@ -85,6 +86,7 @@ export interface RAGConversation {
   id: string
   userId: string
   classId?: string // New field for class-specific conversations
+  chatType?: 'class_material' | 'syllabus' // Type of chat conversation
   title: string
   createdAt: Date
   updatedAt: Date
@@ -114,4 +116,25 @@ export interface RAGConversation {
   cachedSentiment?: number
   cachedTopics?: Array<{ topic: string; count: number }>
   analyticsLastUpdated?: Date
+  conversationSummary?: string // Summary of the conversation for analytics
+}
+
+export interface Assignment {
+  id: string
+  classId: string
+  facultyId: string
+  name: string
+  dueDate: Date
+  canvasLink?: string
+  pdfFileName: string
+  createdAt: Date
+}
+
+export interface Resource {
+  id: string
+  classId: string
+  facultyId: string
+  fileName: string
+  fileSize: number
+  uploadedAt: Date
 }

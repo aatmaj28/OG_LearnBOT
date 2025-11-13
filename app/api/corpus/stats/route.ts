@@ -8,16 +8,21 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const classId = searchParams.get("classId")
+    const materialType = searchParams.get("materialType") || "class_material"
+    const isSyllabus = materialType === "syllabus"
+    
     if (!classId) {
       return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
     }
 
     const cls = await getClassById(classId)
-    if (!cls?.vectorStoreFolder) {
+    const vectorStoreFolder = isSyllabus ? cls?.syllabusVectorStoreFolder : cls?.vectorStoreFolder
+    
+    if (!vectorStoreFolder) {
       return NextResponse.json({ pdfCount: 0, chunkCount: 0 })
     }
 
-    const basePath = VectorStoreManager.getVectorStorePathByFolder(cls.vectorStoreFolder)
+    const basePath = VectorStoreManager.getVectorStorePathByFolder(vectorStoreFolder)
     const pdfDir = path.join(basePath, "source_pdfs")
     const metaPath = path.join(basePath, "metadata.pkl")
     

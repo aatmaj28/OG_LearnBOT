@@ -1,14 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import fs from "fs"
-import { getClassById, updateClassVectorStoreFolder, generateVectorStoreFolderName } from "@/lib/db-service"
+import { getClassById, updateClassVectorStoreFolder, updateClassSyllabusVectorStoreFolder, generateVectorStoreFolderName } from "@/lib/db-service"
 import { VectorStoreManager } from "@/lib/vector-store-manager"
 
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const classId = searchParams.get("classId")
-    console.log("[Corpus Upload] Class ID:", classId)
+    const materialType = searchParams.get("materialType") || "class_material" // "class_material" or "syllabus"
+    console.log("[Corpus Upload] Class ID:", classId, "Material Type:", materialType)
     
     if (!classId) {
       return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
@@ -17,16 +18,24 @@ export async function POST(request: NextRequest) {
     let cls = await getClassById(classId)
     console.log("[Corpus Upload] Class data:", cls)
     
-    // If class doesn't have a vector store folder, create one
-    if (!cls?.vectorStoreFolder) {
-      console.log("[Corpus Upload] Class has no vectorStoreFolder, creating one...")
-      const vectorStoreFolder = generateVectorStoreFolderName(cls?.name || `class_${classId}`)
-      cls = await updateClassVectorStoreFolder(classId, vectorStoreFolder)
-      console.log("[Corpus Upload] Updated class with vectorStoreFolder:", vectorStoreFolder)
+    // Determine which vector store folder to use based on material type
+    const isSyllabus = materialType === "syllabus"
+    const currentFolder = isSyllabus ? cls?.syllabusVectorStoreFolder : cls?.vectorStoreFolder
+    const updateFunction = isSyllabus ? updateClassSyllabusVectorStoreFolder : updateClassVectorStoreFolder
+    const folderSuffix = isSyllabus ? "_syllabus" : ""
+    
+    // If class doesn't have a vector store folder for this type, create one
+    if (!currentFolder) {
+      console.log(`[Corpus Upload] Class has no ${materialType} folder, creating one...`)
+      const vectorStoreFolder = generateVectorStoreFolderName(cls?.name || `class_${classId}`) + folderSuffix
+      cls = await updateFunction(classId, vectorStoreFolder)
+      console.log(`[Corpus Upload] Updated class with ${materialType} folder:`, vectorStoreFolder)
     }
     
-    if (!cls?.vectorStoreFolder) {
-      console.error("[Corpus Upload] Failed to create vectorStoreFolder for class:", cls)
+    const vectorStoreFolder = isSyllabus ? cls?.syllabusVectorStoreFolder : cls?.vectorStoreFolder
+    
+    if (!vectorStoreFolder) {
+      console.error(`[Corpus Upload] Failed to create ${materialType} folder for class:`, cls)
       return NextResponse.json({ 
         error: "Failed to configure class vector store" 
       }, { status: 500 })
@@ -38,7 +47,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No files provided" }, { status: 400 })
     }
 
-    const storePath = VectorStoreManager.getVectorStorePathByFolder(cls.vectorStoreFolder)
+    const storePath = VectorStoreManager.getVectorStorePathByFolder(vectorStoreFolder)
     const pdfDir = path.join(storePath, "source_pdfs")
     if (!fs.existsSync(pdfDir)) {
       fs.mkdirSync(pdfDir, { recursive: true })

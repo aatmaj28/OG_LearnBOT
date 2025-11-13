@@ -64,7 +64,7 @@ export class VectorStoreManager {
               class_id: classId,
               class_name: classData.name,
               created_at: new Date().toISOString(),
-              embedding_model: "nomic-ai/nomic-embed-text-v1.5"
+              embedding_model: "sentence-transformers/all-mpnet-base-v2"
             }, null, 2))
           } else {
             // Create empty placeholder files

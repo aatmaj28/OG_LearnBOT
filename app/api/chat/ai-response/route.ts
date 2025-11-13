@@ -6,7 +6,7 @@ import type { ModelBackend } from "@/lib/types"
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, userId, sessionId, classId, preferredModel, stream } = await request.json()
+    const { message, userId, sessionId, classId, chatType, preferredModel, stream } = await request.json()
 
     if (!message) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 })
@@ -15,10 +15,10 @@ export async function POST(request: NextRequest) {
     // ✅ Always use RAG service (it has built-in fallback to LLM with checkpoint tracking)
     // Even if Python RAG is not initialized, it will use callPureLLM internally
     const ragInitialized = await ragService.waitForInitialization(3000)
-    console.log('RAG initialized:', ragInitialized, 'userId:', userId, 'sessionId:', sessionId, 'classId:', classId)
+    console.log('RAG initialized:', ragInitialized, 'userId:', userId, 'sessionId:', sessionId, 'classId:', classId, 'chatType:', chatType)
     
     if (userId && sessionId) {
-      console.log('Using RAG system for response generation (with checkpoint tracking) - preferred model:', preferredModel, 'streaming:', stream)
+      console.log('Using RAG system for response generation (with checkpoint tracking) - preferred model:', preferredModel, 'streaming:', stream, 'chatType:', chatType)
       
       // STREAMING MODE
       if (stream) {
@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
                   sessionId,
                   userId,
                   classId,
-                  preferredModel as ModelBackend
+                  preferredModel as ModelBackend,
+                  chatType || 'class_material' // Default to class_material if not specified
                 )) {
                   // Send chunk to client
                   const data = JSON.stringify(chunk)
@@ -84,7 +85,8 @@ export async function POST(request: NextRequest) {
           sessionId, 
           userId, 
           classId,
-          preferredModel as ModelBackend
+          preferredModel as ModelBackend,
+          chatType || 'class_material' // Default to class_material if not specified
         )
         
         // The RAG system already saves the message to the conversation

@@ -38,12 +38,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Name and faculty ID required" }, { status: 400 })
     }
 
-    const newClass = await createClass({
-      name,
-      description: description || "",
-      facultyId,
-      studentIds: [],
-    })
+    let newClass
+    try {
+      newClass = await createClass({
+        name,
+        description: description || "",
+        facultyId,
+        studentIds: [],
+      })
+    } catch (error: any) {
+      // Handle duplicate class name error
+      if (error.message && error.message.includes('already exists')) {
+        return NextResponse.json({ error: error.message }, { status: 409 }) // 409 Conflict
+      }
+      throw error // Re-throw other errors
+    }
 
     // Create vector store for the new class
     try {
@@ -93,7 +102,7 @@ async function createVectorStoreManually(folderName: string, className: string) 
       class_name: className,
       vector_store_folder: folderName,
       created_at: new Date().toISOString(),
-      embedding_model: "nomic-ai/nomic-embed-text-v1.5",
+      embedding_model: "sentence-transformers/all-mpnet-base-v2",
       status: "ready_for_upload",
       note: "Upload your FAISS index files (faiss_index.bin, metadata.json, metadata.pkl) to this folder"
     }

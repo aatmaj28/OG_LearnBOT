@@ -8,24 +8,35 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap } from "lucide-react"
+import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, Download } from "lucide-react"
 import type { RAGConversation, Class, ModelBackend } from "@/lib/types"
 
-export function FacultyChatTab() {
+type ChatType = "class_material" | "syllabus"
+
+interface FacultyChatTabProps {
+  isDarkMode: boolean
+}
+
+export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState<string>("")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-blackwell")
+  const [chatType, setChatType] = useState<ChatType>("class_material")
+  const [preferredModel, setPreferredModel] = useState<ModelBackend>("claude")
   const [classes, setClasses] = useState<Class[]>([])
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
     ollamaAvailable: boolean
   }>({ isAvailable: false, ollamaAvailable: false })
+  const [userName, setUserName] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
+  const shouldAutoScrollRef = useRef(true) // Track if we should auto-scroll
+  const isScrollingProgrammaticallyRef = useRef(false) // Track if we're programmatically scrolling
 
   useEffect(() => {
+    loadUserData()
     loadClasses()
     loadConversations()
     checkRAGStatus()
@@ -41,6 +52,34 @@ export function FacultyChatTab() {
       loadConversations()
     }
   }, [selectedClassId])
+
+  // Reload conversations and clear current conversation when chat type changes
+  useEffect(() => {
+    if (selectedClassId) {
+      setCurrentConversation(null) // Clear current conversation when switching types
+      loadConversations()
+    }
+  }, [chatType])
+
+  const loadUserData = async () => {
+    const sessionId = localStorage.getItem("sessionId")
+    if (!sessionId) return
+
+    try {
+      const response = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setUserName(data.user.name)
+      }
+    } catch (error) {
+      console.error("[v0] Failed to load user data:", error)
+    }
+  }
 
   const checkRAGStatus = async () => {
     try {
@@ -61,11 +100,70 @@ export function FacultyChatTab() {
     }
   }
 
+  // Helper function to check if user is near bottom
+  const isNearBottom = (element: HTMLDivElement) => {
+    const { scrollTop, scrollHeight, clientHeight } = element
+    return scrollHeight - scrollTop - clientHeight < 100 // 100px threshold
+  }
+
+  // Handle scroll events to detect user scrolling
+  useEffect(() => {
+    const scrollElement = scrollRef.current
+    if (!scrollElement) return
+
+    let scrollTimeout: NodeJS.Timeout | null = null
+    let lastScrollTop = scrollElement.scrollTop
+
+    const handleScroll = () => {
+      // Ignore scroll events caused by our programmatic scrolling
+      if (isScrollingProgrammaticallyRef.current) {
+        return
+      }
+      
+      const currentScrollTop = scrollElement.scrollTop
+      // Only update if scroll position actually changed (user scrolled)
+      if (currentScrollTop === lastScrollTop) {
+        return
+      }
+      lastScrollTop = currentScrollTop
+      
+      // Debounce to avoid too many updates
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout)
+      }
+      
+      scrollTimeout = setTimeout(() => {
+        // This is user-initiated scrolling
+        const isNear = isNearBottom(scrollElement)
+        shouldAutoScrollRef.current = isNear
+      }, 100)
+    }
+
+    scrollElement.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      scrollElement.removeEventListener('scroll', handleScroll)
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout)
+      }
+    }
+  }, [])
+
+  // Auto-scroll when conversation changes (e.g., loading a conversation)
   useEffect(() => {
     if (scrollRef.current && currentConversation) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      // Small delay to ensure DOM is updated
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          isScrollingProgrammaticallyRef.current = true
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+          shouldAutoScrollRef.current = true
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false
+          }, 100)
+        }
+      })
     }
-  }, [currentConversation])
+  }, [currentConversation?.id]) // Only when conversation ID changes, not on every message update
 
   const loadClasses = async () => {
     const userId = localStorage.getItem("userId")
@@ -101,7 +199,7 @@ export function FacultyChatTab() {
         return
       }
 
-      const url = `/api/chat/conversations?userId=${userId}&classId=${selectedClassId}`
+      const url = `/api/chat/conversations?userId=${userId}&classId=${selectedClassId}&chatType=${chatType}`
       
       const response = await fetch(url)
       if (response.ok) {
@@ -131,6 +229,8 @@ export function FacultyChatTab() {
         console.log("[v0] Conversation messageHistory:", data.conversation?.messageHistory)
         console.log("[v0] MessageHistory length:", data.conversation?.messageHistory?.length)
         setCurrentConversation(data.conversation)
+        // Reset auto-scroll when loading a conversation
+        shouldAutoScrollRef.current = true
         console.log("[v0] Current conversation set:", data.conversation?.id)
       } else {
         console.error("[v0] Failed to load conversation:", response.status, response.statusText)
@@ -153,13 +253,15 @@ export function FacultyChatTab() {
       const response = await fetch("/api/chat/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, classId: selectedClassId }),
+        body: JSON.stringify({ userId, classId: selectedClassId, chatType }),
       })
 
       if (response.ok) {
         const data = await response.json()
         console.log("[v0] Created conversation response:", data)
         setCurrentConversation(data.conversation)
+        // Reset auto-scroll when creating a new conversation
+        shouldAutoScrollRef.current = true
         await loadConversations()
       } else {
         console.error("[v0] Failed to create conversation:", response.status, response.statusText)
@@ -209,6 +311,8 @@ export function FacultyChatTab() {
     const userMessage = input.trim()
     setInput("")
     setLoading(true)
+    // Reset auto-scroll when sending a new message
+    shouldAutoScrollRef.current = true
 
     // Track time to first token (TTFT)
     const sendTimestamp = Date.now()
@@ -216,17 +320,32 @@ export function FacultyChatTab() {
 
     // Add user message to conversation immediately for instant display
     const userMessageObj = {
-      role: "user",
+      role: "user" as const,
       content: userMessage,
       timestamp: new Date(),
       metadata: {}
     }
     
     // Update current conversation state immediately
-    setCurrentConversation(prev => ({
-      ...prev,
-      messageHistory: [...(prev?.messageHistory || []), userMessageObj]
-    }))
+    setCurrentConversation(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        messageHistory: [...(prev.messageHistory || []), userMessageObj]
+      }
+    })
+
+    // Force scroll to bottom immediately after adding user message
+    setTimeout(() => {
+      if (scrollRef.current) {
+        isScrollingProgrammaticallyRef.current = true
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        shouldAutoScrollRef.current = true
+        setTimeout(() => {
+          isScrollingProgrammaticallyRef.current = false
+        }, 100)
+      }
+    }, 0)
 
     try {
       console.log("[v0] Starting fetch request to /api/chat/ai-response")
@@ -244,6 +363,7 @@ export function FacultyChatTab() {
           userId,
           sessionId: currentConversation.id,
           classId: selectedClassId,
+          chatType: chatType,
           preferredModel: preferredModel,
           stream: true, // ✅ Enable streaming
         }),
@@ -261,25 +381,27 @@ export function FacultyChatTab() {
           
           // Create placeholder for assistant message
           const assistantMessageObj = {
-            role: "assistant",
+            role: "assistant" as const,
             content: "",
             timestamp: new Date(),
             metadata: { timeToFirstToken: null }
           }
           
           // Add empty assistant message that we'll update
-          setCurrentConversation(prev => ({
-            ...prev,
-            messageHistory: [...(prev?.messageHistory || []), assistantMessageObj]
-          }))
+          setCurrentConversation(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              messageHistory: [...(prev.messageHistory || []), assistantMessageObj]
+            }
+          })
           
           // Read the stream
           const reader = response.body?.getReader()
           const decoder = new TextDecoder()
+          let accumulatedResponse = '' // Declare outside the if block so it's accessible later
           
           if (reader) {
-            let accumulatedResponse = ''
-            
             while (true) {
               const { done, value } = await reader.read()
               if (done) break
@@ -304,7 +426,8 @@ export function FacultyChatTab() {
                       
                       // Update the last message (assistant) with new content
                       setCurrentConversation(prev => {
-                        const messages = [...(prev?.messageHistory || [])]
+                        if (!prev) return prev
+                        const messages = [...(prev.messageHistory || [])]
                         if (messages.length > 0) {
                           const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
                           messages[messages.length - 1] = {
@@ -318,10 +441,53 @@ export function FacultyChatTab() {
                         }
                         return { ...prev, messageHistory: messages }
                       })
+                      
+                      // Auto-scroll only if user is at bottom - always check position during streaming
+                      if (scrollRef.current) {
+                        const element = scrollRef.current
+                        // Always check if user is at bottom - if they scrolled back down, resume auto-scroll
+                        if (isNearBottom(element)) {
+                          // Re-enable auto-scroll if user is back at bottom
+                          shouldAutoScrollRef.current = true
+                          requestAnimationFrame(() => {
+                            if (scrollRef.current && isNearBottom(scrollRef.current)) {
+                              isScrollingProgrammaticallyRef.current = true
+                              scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+                              // Reset flag quickly
+                              setTimeout(() => {
+                                isScrollingProgrammaticallyRef.current = false
+                              }, 10)
+                            }
+                          })
+                        } else {
+                          // User has scrolled up, disable auto-scroll
+                          shouldAutoScrollRef.current = false
+                        }
+                      }
                     }
                     
                     if (data.done) {
-                      console.log("[v0] Streaming completed")
+                      console.log("[v0] Streaming completed, modelUsed:", data.modelUsed)
+                      // Capture modelUsed from the done event
+                      if (data.modelUsed) {
+                        setCurrentConversation(prev => {
+                          if (!prev) return prev
+                          const messages = [...(prev.messageHistory || [])]
+                          if (messages.length > 0) {
+                            const lastMsg = messages[messages.length - 1]
+                            if (lastMsg.role === 'assistant') {
+                              messages[messages.length - 1] = {
+                                ...lastMsg,
+                                metadata: {
+                                  ...lastMsg.metadata,
+                                  modelUsed: data.modelUsed
+                                }
+                              }
+                            }
+                          }
+                          return { ...prev, messageHistory: messages }
+                        })
+                      }
                       break
                     }
                   } catch (e) {
@@ -338,25 +504,35 @@ export function FacultyChatTab() {
           const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
           console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
           
+          // Preserve the streamed content (including checkpoint update) before reloading
+          const streamedContent = accumulatedResponse
+          
           // Reload conversation to get the saved version from DB
           console.log("[v0] Reloading conversation:", currentConversation.id)
           await loadConversation(currentConversation.id)
           await loadConversations()
           console.log("[v0] Conversation reloaded successfully")
           
-          // Merge frontend timing metrics with DB data
+          // Merge frontend timing metrics with DB data and preserve streamed content (including checkpoint update)
+          // Also preserve modelUsed if it was captured from the done event
+          let capturedModelUsed: string | undefined = undefined
           setCurrentConversation(prev => {
             if (!prev?.messageHistory) return prev
             const messages = [...prev.messageHistory]
             if (messages.length > 0) {
               const lastMsg = messages[messages.length - 1]
               if (lastMsg.role === 'assistant') {
+                // Preserve modelUsed if it was set during streaming
+                capturedModelUsed = lastMsg.metadata?.modelUsed
+                // Preserve the streamed content which includes the checkpoint update
                 messages[messages.length - 1] = {
                   ...lastMsg,
+                  content: streamedContent, // Use streamed content which includes checkpoint update
                   metadata: {
                     ...lastMsg.metadata,
                     timeToFirstToken: ttft,
-                    totalResponseTime: totalResponseTime
+                    totalResponseTime: totalResponseTime,
+                    modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed // Preserve modelUsed
                   }
                 }
               }
@@ -381,12 +557,94 @@ export function FacultyChatTab() {
       }
     } catch (error) {
       console.error("[v0] Failed to send message:", error)
-      if (error.name === 'AbortError') {
+      if (error instanceof Error && error.name === 'AbortError') {
         console.error("[v0] Request timed out after 2 minutes")
       }
     } finally {
       setLoading(false)
     }
+  }
+
+  const exportChat = () => {
+    if (!currentConversation) {
+      alert("No conversation to export")
+      return
+    }
+
+    // Get class name
+    const className = selectedClassId === 'entire-corpus' 
+      ? 'Entire Corpus' 
+      : classes.find(c => c.id === selectedClassId)?.name || 'Unknown Class'
+    
+    // Format chat type
+    const chatTypeFormatted = chatType === 'class_material' ? 'Class Material' : 'Syllabus/Schedule'
+    
+    // Format date and time
+    const startDate = new Date(currentConversation.createdAt)
+    const formattedDate = startDate.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    })
+    const formattedTime = startDate.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true
+    })
+    
+    // Build the export content
+    let exportContent = `LearnBOT Chat Export\n`
+    exportContent += `${'='.repeat(80)}\n\n`
+    exportContent += `Faculty: ${userName}\n`
+    exportContent += `Class: ${className}\n`
+    exportContent += `Chat Type: ${chatTypeFormatted}\n`
+    exportContent += `Date Started: ${formattedDate}\n`
+    exportContent += `Time Started: ${formattedTime}\n`
+    exportContent += `Conversation Title: ${currentConversation.title}\n`
+    exportContent += `\n${'='.repeat(80)}\n\n`
+    
+    // Add messages
+    if (currentConversation.messageHistory && currentConversation.messageHistory.length > 0) {
+      currentConversation.messageHistory.forEach((message, index) => {
+        const role = message.role === 'user' ? '[USER]' : '[AI TA]'
+        const timestamp = new Date(message.timestamp).toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: true
+        })
+        
+        exportContent += `${role} (${timestamp})\n`
+        exportContent += `${message.content}\n\n`
+        
+        // Add separator between messages (except last one)
+        if (index < currentConversation.messageHistory.length - 1) {
+          exportContent += `${'-'.repeat(80)}\n\n`
+        }
+      })
+    } else {
+      exportContent += `No messages in this conversation.\n`
+    }
+    
+    exportContent += `\n${'='.repeat(80)}\n`
+    exportContent += `End of Chat Export\n`
+    exportContent += `Total Messages: ${currentConversation.messageHistory?.length || 0}\n`
+    
+    // Create blob and download
+    const blob = new Blob([exportContent], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    
+    // Create filename: LearnBOT_ClassName_Date_Time.txt
+    const sanitizedClassName = className.replace(/[^a-z0-9]/gi, '_')
+    const dateStr = startDate.toISOString().split('T')[0]
+    const timeStr = startDate.toTimeString().split(' ')[0].replace(/:/g, '-')
+    link.download = `LearnBOT_${sanitizedClassName}_${dateStr}_${timeStr}.txt`
+    
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -403,45 +661,45 @@ export function FacultyChatTab() {
         <div className="space-y-4 mb-4">
           {/* Model Selection */}
           <div className="space-y-2">
-            <label className="text-sm font-medium flex items-center gap-2">
-              <Zap className="h-4 w-4" />
+            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+              <Zap className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
               Select Model
             </label>
             <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-              <SelectTrigger>
+              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
                 <SelectValue placeholder="Choose a model..." />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="openai">⚡ OpenAI GPT-3.5</SelectItem>
-                <SelectItem value="remote-a6000">🚀 Remote A6000 (Gemma 27B)</SelectItem>
-                <SelectItem value="remote-blackwell">⚡ Remote Blackwell (Gemma 27B)</SelectItem>
+              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude 3.5 Sonnet</SelectItem>
+                <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🚀 Remote A6000 (Gemma 27B)</SelectItem>
+                <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>⚡ Remote Blackwell (Gemma 27B)</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {/* Class Selection */}
           <div className="space-y-2">
-            <label className="text-sm font-medium flex items-center gap-2">
-              <BookOpen className="h-4 w-4" />
+            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+              <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
               Select Class
             </label>
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger>
+              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
                 <SelectValue placeholder="Choose a class..." />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
                 {/* Entire Corpus Option */}
-                <SelectItem value="entire-corpus">
+                <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-blue-600">📚 Entire Corpus</span>
+                    <span className={`font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
                   </div>
                 </SelectItem>
                 {classes.length > 0 && (
-                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                  <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     Individual Classes
                   </div>
                 )}
                 {classes.map((classItem) => (
-                  <SelectItem key={classItem.id} value={classItem.id}>
+                  <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                     {classItem.name}
                   </SelectItem>
                 ))}
@@ -449,12 +707,38 @@ export function FacultyChatTab() {
             </Select>
           </div>
 
+          {/* Chat Type Selection */}
+          <div className="space-y-2">
+            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+              Chat Type
+            </label>
+            <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
+                    <span>Class Material</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    <span>Syllabus/Schedule</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Chat Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <h2 className="font-semibold">My Chats</h2>
+              <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Chats</h2>
               {/* AI Status Indicator */}
-              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-muted">
+              <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
                 <Bot className="h-3 w-3" />
                 {ragStatus.isAvailable ? (
                   <div className="flex items-center gap-1 text-green-600">
@@ -534,15 +818,29 @@ export function FacultyChatTab() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Export Chat Button - Only show when there's an active conversation */}
+        {currentConversation && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={exportChat}
+            className={`absolute top-4 right-4 z-10 shadow-md rounded-lg border gap-2 ${isDarkMode ? 'bg-gray-800 border-gray-700 hover:bg-gray-700 text-gray-100' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-900'}`}
+            title="Export chat as text file"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Export Chat</span>
+          </Button>
+        )}
+
         {!currentConversation ? (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center max-w-md">
-              <div className="p-4 bg-indigo-100 dark:bg-indigo-900 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center">
-                <MessageSquare className="h-10 w-10 text-indigo-600 dark:text-indigo-400" />
+              <div className={`p-4 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center ${isDarkMode ? 'bg-indigo-900/50' : 'bg-indigo-100'}`}>
+                <MessageSquare className={`h-10 w-10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
               </div>
-              <h2 className="text-2xl font-bold mb-3">Start a New Conversation</h2>
-              <p className="text-muted-foreground mb-6">
+              <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Start a New Conversation</h2>
+              <p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                 {selectedClassId 
                   ? `Use the AI assistant to help with ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}`
                   : "Select a class to start chatting with the AI assistant"
@@ -593,7 +891,7 @@ export function FacultyChatTab() {
                           )}
                           {message.role === "assistant" && message.metadata?.modelUsed && (
                             <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
-                              {message.metadata.modelUsed === 'openai' ? '⚡ OpenAI' : 
+                              {message.metadata.modelUsed === 'claude' ? '🧠 Claude' : 
                                message.metadata.modelUsed === 'remote-a6000' ? '🚀 A6000' :
                                message.metadata.modelUsed === 'remote-blackwell' ? '⚡ Blackwell' :
                                message.metadata.modelUsed === 'remote-ollama' ? '🚀 A6000' : // backward compatibility

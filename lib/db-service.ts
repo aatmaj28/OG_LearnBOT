@@ -1,5 +1,5 @@
 import pool from './db'
-import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation } from './types'
+import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource } from './types'
 
 // User operations
 export const getUsers = async (): Promise<User[]> => {
@@ -124,7 +124,7 @@ export const getClasses = async (): Promise<Class[]> => {
              ) as student_ids
       FROM classes c
       LEFT JOIN class_students cs ON c.id = cs.class_id
-      GROUP BY c.id, c.name, c.description, c.faculty_id, c.created_at
+      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.syllabus_vector_store_folder, c.created_at
       ORDER BY c.created_at DESC
     `)
     
@@ -135,6 +135,7 @@ export const getClasses = async (): Promise<Class[]> => {
       facultyId: row.faculty_id.toString(),
       studentIds: row.student_ids.map((id: number) => id.toString()),
       vectorStoreFolder: row.vector_store_folder || null,
+      syllabusVectorStoreFolder: row.syllabus_vector_store_folder || null,
       createdAt: new Date(row.created_at)
     }))
   } finally {
@@ -154,7 +155,7 @@ export const getClassById = async (id: string): Promise<Class | null> => {
       FROM classes c
       LEFT JOIN class_students cs ON c.id = cs.class_id
       WHERE c.id = $1
-      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.created_at
+      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.syllabus_vector_store_folder, c.created_at
     `, [id])
     
     if (result.rows.length === 0) return null
@@ -166,6 +167,7 @@ export const getClassById = async (id: string): Promise<Class | null> => {
       description: row.description,
       facultyId: row.faculty_id.toString(),
       vectorStoreFolder: row.vector_store_folder,
+      syllabusVectorStoreFolder: row.syllabus_vector_store_folder,
       studentIds: row.student_ids.map((id: number) => id.toString()),
       createdAt: new Date(row.created_at)
     }
@@ -237,6 +239,16 @@ export const getClassesByStudent = async (studentId: string): Promise<Class[]> =
 export const createClass = async (classData: Omit<Class, 'id' | 'createdAt'>): Promise<Class> => {
   const client = await pool.connect()
   try {
+    // Check if a class with the same name already exists for this faculty
+    const existingClass = await client.query(
+      `SELECT id, name FROM classes WHERE name = $1 AND faculty_id = $2`,
+      [classData.name, classData.facultyId]
+    )
+    
+    if (existingClass.rows.length > 0) {
+      throw new Error(`A class with the name "${classData.name}" already exists. Please use a different name.`)
+    }
+    
     // Generate vector store folder name from class name
     const vectorStoreFolder = generateVectorStoreFolderName(classData.name)
     
@@ -305,6 +317,20 @@ export const updateClassVectorStoreFolder = async (classId: string, vectorStoreF
     await client.query(
       'UPDATE classes SET vector_store_folder = $1 WHERE id = $2',
       [vectorStoreFolder, classId]
+    )
+    return await getClassById(classId)
+  } finally {
+    client.release()
+  }
+}
+
+// Update class syllabus vector store folder
+export const updateClassSyllabusVectorStoreFolder = async (classId: string, syllabusVectorStoreFolder: string): Promise<Class | null> => {
+  const client = await pool.connect()
+  try {
+    await client.query(
+      'UPDATE classes SET syllabus_vector_store_folder = $1 WHERE id = $2',
+      [syllabusVectorStoreFolder, classId]
     )
     return await getClassById(classId)
   } finally {
@@ -754,17 +780,148 @@ export const getStudentActivity = async (userId: string, classId?: string, skipL
   }
 }
 
+// Helper function to generate conversation summary using LLM
+export const generateConversationSummary = async (messages: any[], existingSummary?: string): Promise<string> => {
+  if (messages.length === 0) {
+    return existingSummary || ''
+  }
+
+  try {
+    // If we have an existing summary and new messages, do incremental update
+    const recentMessages = existingSummary 
+      ? messages.slice(-5) // Only last 5 messages for incremental update
+      : messages // All messages for initial summary
+
+    const conversationText = recentMessages.map((msg, index) => 
+      `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`
+    ).join('\n\n')
+
+    const prompt = existingSummary
+      ? `You have an existing summary of a student-teacher conversation. Here are the new messages that were just added. Update the summary to include these new messages while keeping it concise (2-3 sentences).
+
+Existing Summary:
+${existingSummary}
+
+New Messages:
+${conversationText}
+
+Provide an updated summary that incorporates the new information:`
+      : `Summarize this student-teacher conversation in 2-3 sentences. Focus on:
+1. The main topic/question the student asked
+2. Key concepts discussed
+3. The learning outcome or resolution
+
+Conversation:
+${conversationText}
+
+Summary:`
+
+    // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
+    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://localhost:8001/v1/chat/completions'
+    const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
+    const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
+    const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
+    
+    let response: Response | null = null
+    let responseData: any = null
+    
+    // Try Blackwell first
+    try {
+      response = await fetch(blackwellUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: blackwellModel,
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 150 // Limit summary length
+        }),
+        signal: AbortSignal.timeout(30000) // 30s timeout
+      })
+      
+      if (response.ok) {
+        responseData = await response.json()
+        const summary = responseData.choices?.[0]?.message?.content?.trim() || ''
+        if (summary) {
+          return summary.split('\n')[0].trim() // Take first line only
+        }
+      }
+    } catch (blackwellError) {
+      // Blackwell failed, try A6000 as fallback
+    }
+    
+    // Fallback to A6000 Ollama
+    try {
+      response = await fetch(a6000Url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: a6000Model,
+          prompt: prompt,
+          stream: false,
+          options: {
+            temperature: 0.3,
+            top_p: 0.9,
+            num_predict: 150 // Limit summary length
+          }
+        }),
+        signal: AbortSignal.timeout(30000) // 30s timeout
+      })
+      
+      if (response.ok) {
+        responseData = await response.json()
+        const summary = responseData.response?.trim() || ''
+        if (summary) {
+          return summary.split('\n')[0].trim() // Take first line only
+        }
+      }
+    } catch (a6000Error) {
+      // Both failed, will use fallback summary below
+      throw new Error('Both Blackwell and A6000 unavailable')
+    }
+  } catch (error) {
+    // Silently fail - will use fallback summary below
+    // Only log if it's not a connection error (which is expected when models aren't available)
+    if (error instanceof Error && !error.message.includes('unavailable') && !error.message.includes('ECONNREFUSED')) {
+      console.error('Error generating conversation summary:', error)
+    }
+  }
+
+  // Fallback: Generate simple summary from keywords
+  if (existingSummary) {
+    return existingSummary // Keep existing if generation fails
+  }
+  
+  const userMessages = messages.filter(m => m.role === 'user')
+  if (userMessages.length > 0) {
+    const firstMessage = userMessages[0].content.substring(0, 200)
+    return `Student asked about: ${firstMessage}...`
+  }
+  
+  return 'No summary available'
+}
+
 // Helper function to analyze latest conversation using LLM
-const analyzeLatestConversation = async (userId: string, classId: string | undefined, messages: any[], conversationTitle: string): Promise<{ sentiment: number; topics: { topic: string; count: number }[] }> => {
+export const analyzeLatestConversation = async (userId: string, classId: string | undefined, messages: any[], conversationTitle: string, conversationSummary?: string): Promise<{ sentiment: number; topics: { topic: string; count: number }[] }> => {
   if (messages.length === 0) {
     return { sentiment: 0, topics: [] }
   }
 
   try {
-    // Prepare conversation for LLM analysis
-    const conversationText = messages.map((msg, index) => 
-      `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`
-    ).join('\n\n')
+    // Use summary if available for faster analysis, otherwise use full conversation
+    const conversationText = conversationSummary 
+      ? `Conversation Summary: ${conversationSummary}\n\nRecent Messages (last 3):\n${messages.slice(-3).map((msg, index) => 
+          `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`
+        ).join('\n\n')}`
+      : messages.map((msg, index) => 
+          `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`
+        ).join('\n\n')
 
     const prompt = `Analyze this student chat conversation and provide both sentiment analysis and topic extraction.
 
@@ -787,26 +944,72 @@ Respond in JSON format:
   ]
 }`
 
-    // Call Ollama for analysis
-    const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama3.1:8b',
-        prompt: prompt,
-        stream: false,
-        options: {
+    // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
+    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://localhost:8001/v1/chat/completions'
+    const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
+    const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
+    const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
+    
+    let response: Response | null = null
+    let responseText = ''
+    
+    // Try Blackwell first
+    try {
+      response = await fetch(blackwellUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: blackwellModel,
+          messages: [
+            { role: 'user', content: prompt }
+          ],
           temperature: 0.3,
-          top_p: 0.9
-        }
+          max_tokens: 1000
+        }),
+        signal: AbortSignal.timeout(30000) // 30s timeout
       })
-    })
+      
+      if (response.ok) {
+        const responseData = await response.json()
+        responseText = responseData.choices?.[0]?.message?.content || ''
+      }
+    } catch (blackwellError) {
+      // Blackwell failed, try A6000 as fallback
+    }
+    
+    // Fallback to A6000 Ollama if Blackwell failed or didn't return text
+    if (!responseText) {
+      try {
+        response = await fetch(a6000Url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: a6000Model,
+            prompt: prompt,
+            stream: false,
+            options: {
+              temperature: 0.3,
+              top_p: 0.9
+            }
+          }),
+          signal: AbortSignal.timeout(30000) // 30s timeout
+        })
+        
+        if (response.ok) {
+          const responseData = await response.json()
+          responseText = responseData.response || ''
+        }
+      } catch (a6000Error) {
+        // Both failed, will use fallback analysis below
+        throw new Error('Both Blackwell and A6000 unavailable')
+      }
+    }
 
-    if (ollamaResponse.ok) {
-      const ollamaData = await ollamaResponse.json()
-      const responseText = ollamaData.response
+    if (responseText) {
 
       // Try to parse JSON response with robust extraction
       try {
@@ -884,7 +1087,11 @@ Respond in JSON format:
     }
 
   } catch (error) {
-    console.error('Error in LLM analysis:', error)
+    // Silently fail for connection errors (expected when models aren't available)
+    // Only log unexpected errors
+    if (error instanceof Error && !error.message.includes('unavailable') && !error.message.includes('ECONNREFUSED')) {
+      console.error('Error in LLM analysis:', error)
+    }
     // Fallback to simple analysis
     return {
       sentiment: calculateSimpleSentiment(messages.filter(m => m.role === 'user')),
@@ -988,7 +1195,7 @@ export const getStudentActivitiesByClass = async (classId: string): Promise<Stud
 }
 
 // RAG Conversation operations
-export const getRAGConversationsByUser = async (userId: string, classId?: string): Promise<RAGConversation[]> => {
+export const getRAGConversationsByUser = async (userId: string, classId?: string, chatType?: 'class_material' | 'syllabus'): Promise<RAGConversation[]> => {
   const client = await pool.connect()
   try {
     let query = 'SELECT * FROM rag_conversations WHERE user_id = $1 AND status = $2'
@@ -999,6 +1206,13 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
       params.push(classId)
     }
     
+    // Filter by chat type if provided
+    if (chatType) {
+      const nextParamIndex = params.length + 1
+      query += ` AND chat_type = $${nextParamIndex}`
+      params.push(chatType)
+    }
+    
     query += ' ORDER BY updated_at DESC'
     
     const result = await client.query(query, params)
@@ -1006,6 +1220,7 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
       id: row.id.toString(),
       userId: row.user_id.toString(),
       classId: row.class_id?.toString(),
+      chatType: row.chat_type as 'class_material' | 'syllabus' | undefined,
       title: row.title,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
@@ -1022,7 +1237,8 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
       lastRetrievalTopic: row.last_retrieval_topic,
       cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
       cachedTopics: row.cached_topics || undefined,
-      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined,
+      conversationSummary: row.conversation_summary || undefined
     }))
   } finally {
     client.release()
@@ -1062,25 +1278,27 @@ export const getRAGConversationById = async (id: string): Promise<RAGConversatio
       lastRetrievalTopic: row.last_retrieval_topic,
       cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
       cachedTopics: row.cached_topics || undefined,
-      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined,
+      conversationSummary: row.conversation_summary || undefined
     }
   } finally {
     client.release()
   }
 }
 
-export const createRAGConversation = async (userId: string, title?: string, classId?: string): Promise<RAGConversation> => {
+export const createRAGConversation = async (userId: string, title?: string, classId?: string, chatType: 'class_material' | 'syllabus' = 'class_material'): Promise<RAGConversation> => {
   const client = await pool.connect()
   try {
     const conversationTitle = title || `Chat ${new Date().toLocaleDateString()}`
     const result = await client.query(
-      `INSERT INTO rag_conversations (user_id, class_id, title, checkpoint_state, message_history, student_problem_data) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
+      `INSERT INTO rag_conversations (user_id, class_id, title, chat_type, checkpoint_state, message_history, student_problem_data) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
        RETURNING *`,
       [
         userId, 
         classId || null,
         conversationTitle,
+        chatType,
         JSON.stringify({
           checkpoint_1_passed: false,
           checkpoint_2_passed: false,
@@ -1104,6 +1322,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
       id: row.id.toString(),
       userId: row.user_id.toString(),
       classId: row.class_id?.toString(),
+      chatType: row.chat_type as 'class_material' | 'syllabus' | undefined,
       title: row.title,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
@@ -1120,11 +1339,233 @@ export const createRAGConversation = async (userId: string, title?: string, clas
       lastRetrievalTopic: row.last_retrieval_topic,
       cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
       cachedTopics: row.cached_topics || undefined,
-      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined,
+      conversationSummary: row.conversation_summary || undefined
     }
     
     console.log("Formatted conversation:", conversation)
     return conversation
+  } finally {
+    client.release()
+  }
+}
+
+// Assignment operations
+export const getAssignmentsByClass = async (classId: string): Promise<Assignment[]> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      'SELECT * FROM assignments WHERE class_id = $1 ORDER BY created_at DESC',
+      [classId]
+    )
+    return result.rows.map(row => ({
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      facultyId: row.faculty_id.toString(),
+      name: row.name,
+      dueDate: new Date(row.due_date),
+      canvasLink: row.canvas_link || undefined,
+      pdfFileName: row.pdf_file_name,
+      createdAt: new Date(row.created_at)
+    }))
+  } finally {
+    client.release()
+  }
+}
+
+export const getAssignmentsByStudent = async (studentId: string): Promise<Assignment[]> => {
+  const client = await pool.connect()
+  try {
+    // Get assignments for classes where the student is enrolled
+    const result = await client.query(
+      `SELECT a.* FROM assignments a
+       INNER JOIN class_students cs ON a.class_id = cs.class_id
+       WHERE cs.student_id = $1
+       ORDER BY a.created_at DESC`,
+      [studentId]
+    )
+    return result.rows.map(row => ({
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      facultyId: row.faculty_id.toString(),
+      name: row.name,
+      dueDate: new Date(row.due_date),
+      canvasLink: row.canvas_link || undefined,
+      pdfFileName: row.pdf_file_name,
+      createdAt: new Date(row.created_at)
+    }))
+  } finally {
+    client.release()
+  }
+}
+
+export const getAssignmentsByFaculty = async (facultyId: string): Promise<Assignment[]> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      'SELECT * FROM assignments WHERE faculty_id = $1 ORDER BY created_at DESC',
+      [facultyId]
+    )
+    return result.rows.map(row => ({
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      facultyId: row.faculty_id.toString(),
+      name: row.name,
+      dueDate: new Date(row.due_date),
+      canvasLink: row.canvas_link || undefined,
+      pdfFileName: row.pdf_file_name,
+      createdAt: new Date(row.created_at)
+    }))
+  } finally {
+    client.release()
+  }
+}
+
+export const getAssignmentById = async (id: string): Promise<Assignment | null> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query('SELECT * FROM assignments WHERE id = $1', [id])
+    if (result.rows.length === 0) return null
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      facultyId: row.faculty_id.toString(),
+      name: row.name,
+      dueDate: new Date(row.due_date),
+      canvasLink: row.canvas_link || undefined,
+      pdfFileName: row.pdf_file_name,
+      createdAt: new Date(row.created_at)
+    }
+  } finally {
+    client.release()
+  }
+}
+
+export const createAssignment = async (assignment: Omit<Assignment, 'id' | 'createdAt'>): Promise<Assignment> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      `INSERT INTO assignments (class_id, faculty_id, name, due_date, canvas_link, pdf_file_name) 
+       VALUES ($1, $2, $3, $4, $5, $6) 
+       RETURNING id, created_at`,
+      [
+        assignment.classId,
+        assignment.facultyId,
+        assignment.name,
+        assignment.dueDate,
+        assignment.canvasLink || null,
+        assignment.pdfFileName
+      ]
+    )
+    
+    const row = result.rows[0]
+    return {
+      ...assignment,
+      id: row.id.toString(),
+      createdAt: new Date(row.created_at)
+    }
+  } finally {
+    client.release()
+  }
+}
+
+// Resource operations
+export const getResourcesByClass = async (classId: string): Promise<Resource[]> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      'SELECT * FROM resources WHERE class_id = $1 ORDER BY uploaded_at DESC',
+      [classId]
+    )
+    return result.rows.map(row => ({
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      facultyId: row.faculty_id.toString(),
+      fileName: row.file_name,
+      fileSize: parseInt(row.file_size),
+      uploadedAt: new Date(row.uploaded_at)
+    }))
+  } finally {
+    client.release()
+  }
+}
+
+export const getResourceById = async (id: string): Promise<Resource | null> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query('SELECT * FROM resources WHERE id = $1', [id])
+    if (result.rows.length === 0) return null
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      facultyId: row.faculty_id.toString(),
+      fileName: row.file_name,
+      fileSize: parseInt(row.file_size),
+      uploadedAt: new Date(row.uploaded_at)
+    }
+  } finally {
+    client.release()
+  }
+}
+
+export const createResource = async (resource: Omit<Resource, 'id' | 'uploadedAt'>): Promise<Resource> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      `INSERT INTO resources (class_id, faculty_id, file_name, file_size) 
+       VALUES ($1, $2, $3, $4) 
+       RETURNING id, uploaded_at`,
+      [
+        resource.classId,
+        resource.facultyId,
+        resource.fileName,
+        resource.fileSize
+      ]
+    )
+    
+    const row = result.rows[0]
+    return {
+      ...resource,
+      id: row.id.toString(),
+      uploadedAt: new Date(row.uploaded_at)
+    }
+  } finally {
+    client.release()
+  }
+}
+
+export const deleteResourceById = async (id: string): Promise<boolean> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query('DELETE FROM resources WHERE id = $1', [id])
+    return result.rowCount !== null && result.rowCount > 0
+  } finally {
+    client.release()
+  }
+}
+
+export const getResourceByFileName = async (classId: string, fileName: string): Promise<Resource | null> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      'SELECT * FROM resources WHERE class_id = $1 AND file_name = $2',
+      [classId, fileName]
+    )
+    if (result.rows.length === 0) return null
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      facultyId: row.faculty_id.toString(),
+      fileName: row.file_name,
+      fileSize: parseInt(row.file_size),
+      uploadedAt: new Date(row.uploaded_at)
+    }
   } finally {
     client.release()
   }
@@ -1192,6 +1633,11 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
       values.push(updates.analyticsLastUpdated)
       paramCount++
     }
+    if (updates.conversationSummary !== undefined) {
+      updateFields.push(`conversation_summary = $${paramCount}`)
+      values.push(updates.conversationSummary)
+      paramCount++
+    }
 
     if (updateFields.length === 0) {
       return await getRAGConversationById(id)
@@ -1228,7 +1674,8 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
       lastRetrievalTopic: row.last_retrieval_topic,
       cachedSentiment: row.cached_sentiment ? parseFloat(row.cached_sentiment) : undefined,
       cachedTopics: row.cached_topics || undefined,
-      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined
+      analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined,
+      conversationSummary: row.conversation_summary || undefined
     }
   } finally {
     client.release()
@@ -1270,22 +1717,29 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
     
     console.log(`[DB] Successfully updated conversation ${conversationId} with new message`)
 
-    // CACHE ANALYTICS: After every assistant response, analyze and cache sentiment/topics
+    // CACHE ANALYTICS & SUMMARY: After every assistant response, analyze and cache sentiment/topics/summary
     if (role === 'assistant' && updatedHistory.length >= 2) {
       console.log(`[DB] Triggering analytics cache update for conversation ${conversationId}`)
       
       // Run analysis asynchronously (don't block the response)
       setImmediate(async () => {
         try {
+          // Generate/update conversation summary first
+          const existingSummary = conversation.conversationSummary
+          const newSummary = await generateConversationSummary(updatedHistory, existingSummary)
+          
+          // Then analyze with the summary for faster processing
           const analysisResult = await analyzeLatestConversation(
             conversation.userId,
             conversation.classId,
             updatedHistory,
-            conversation.title
+            conversation.title,
+            newSummary // Pass summary for faster analysis
           )
           
-          // Cache the results
+          // Cache the results (summary + analytics)
           await updateRAGConversation(conversationId, {
+            conversationSummary: newSummary,
             cachedSentiment: analysisResult.sentiment,
             cachedTopics: analysisResult.topics,
             analyticsLastUpdated: new Date()
@@ -1293,7 +1747,8 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
           
           console.log(`[DB] ✅ Analytics cached for conversation ${conversationId}:`, {
             sentiment: analysisResult.sentiment,
-            topics: analysisResult.topics.map(t => t.topic).join(', ')
+            topics: analysisResult.topics.map(t => t.topic).join(', '),
+            summaryLength: newSummary.length
           })
         } catch (error) {
           console.error(`[DB] ❌ Failed to cache analytics for conversation ${conversationId}:`, error)

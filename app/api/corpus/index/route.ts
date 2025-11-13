@@ -7,21 +7,24 @@ import { VectorStoreManager } from "@/lib/vector-store-manager"
 
 export async function POST(request: NextRequest) {
   try {
-    const { classId } = await request.json()
-    console.log('[Corpus Index] Starting indexing for class:', classId)
+    const { classId, materialType } = await request.json()
+    const isSyllabus = materialType === "syllabus"
+    console.log('[Corpus Index] Starting indexing for class:', classId, 'Material type:', materialType)
     
     if (!classId) {
       return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
     }
 
     const cls = await getClassById(classId)
-    if (!cls?.vectorStoreFolder) {
+    const vectorStoreFolder = isSyllabus ? cls?.syllabusVectorStoreFolder : cls?.vectorStoreFolder
+    
+    if (!vectorStoreFolder) {
       return NextResponse.json({ 
-        error: "Class vector store not configured" 
+        error: `Class ${materialType || 'class_material'} vector store not configured` 
       }, { status: 400 })
     }
 
-    const storePath = VectorStoreManager.getVectorStorePathByFolder(cls.vectorStoreFolder)
+    const storePath = VectorStoreManager.getVectorStorePathByFolder(vectorStoreFolder)
     const pdfDir = path.join(storePath, "source_pdfs")
     
     if (!fs.existsSync(pdfDir)) {
@@ -71,7 +74,7 @@ print(f"[Index] Incremental mode: {HAS_EXISTING_INDEX}", file=sys.stderr)
 
 # Initialize embedding model
 print("[Index] Loading embedding model...", file=sys.stderr)
-embedding_model = SentenceTransformer("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
+embedding_model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2", trust_remote_code=True)
 
 # Load existing index and metadata if available
 existing_chunks = []
@@ -123,9 +126,16 @@ for pdf_path in PDF_PATHS:
         for page in reader.pages:
             text += page.extract_text()
         
-        # Chunk with 20% overlap
-        chunk_size = 1000
-        overlap = 200  # 20% overlap
+        # Optimize chunking for syllabus vs class materials
+        # Syllabus documents benefit from larger chunks to preserve context
+        is_syllabus = ${isSyllabus ? 'True' : 'False'}
+        if is_syllabus:
+            chunk_size = 2000  # Larger chunks for syllabus to preserve context
+            overlap = 400  # 20% overlap
+        else:
+            chunk_size = 1000  # Standard chunks for class materials
+            overlap = 200  # 20% overlap
+        
         chunks = []
         start = 0
         while start < len(text):
@@ -223,7 +233,7 @@ print(f"[Index] Saved metadata.pkl", file=sys.stderr)
 config = {
     "class_id": "${classId}",
     "class_name": "${cls.name}",
-    "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
+    "embedding_model": "sentence-transformers/all-mpnet-base-v2",
     "dimension": int(dimension),
     "total_chunks": len(all_chunks),
     "total_pdfs": len(PDF_PATHS),

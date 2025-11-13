@@ -83,9 +83,9 @@ async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partia
     }
   }
 }
-// Supports OpenAI API, Remote A6000 (Ollama), and Remote Blackwell (vLLM)
+// Supports Claude API, Remote A6000 (Ollama), and Remote Blackwell (vLLM)
 
-export type ModelBackend = 'openai' | 'remote-a6000' | 'remote-blackwell'
+export type ModelBackend = 'claude' | 'remote-a6000' | 'remote-blackwell'
 
 export interface ModelInfo {
   name: string
@@ -98,12 +98,12 @@ export interface ModelInfo {
 }
 
 export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
-  'openai': {
-    name: "OpenAI GPT-3.5 Turbo",
-    type: "openai",
-    endpoint: "https://api.openai.com/v1/chat/completions",
-    model: "gpt-3.5-turbo",
-    description: "OpenAI's GPT-3.5 Turbo model",
+  'claude': {
+    name: "Claude 3.5 Sonnet",
+    type: "claude",
+    endpoint: "https://api.anthropic.com/v1/messages",
+    model: "claude-sonnet-4-20250514",
+    description: "Anthropic's Claude 3.5 Sonnet - Best model for reasoning and instruction following",
     requiresTunnel: false,
     tunnelCommand: ""
   },
@@ -117,10 +117,10 @@ export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
     tunnelCommand: "ssh -L 5001:localhost:11434 ra_aatmaj@129.10.156.97"
   },
   'remote-blackwell': {
-    name: "Remote Blackwell (Gemma 27B)",
+    name: "Remote Blackwell (Gemma 12B)",
     type: "vllm",
     endpoint: "http://localhost:8001/v1/chat/completions",
-    model: "google/gemma-3-27b-it",
+    model: "google/gemma-3-12b-it",
     description: "vLLM on NVIDIA RTX 6000 Blackwell (96GB VRAM) - 2x faster",
     requiresTunnel: true,
     tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97"
@@ -151,31 +151,32 @@ export interface LLMConfig {
   stream?: boolean
 }
 
-// OpenAI API call
-async function callOpenAI(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
+// Claude API call
+async function callClaude(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
   const startTime = Date.now()
   
   try {
-    const apiKey = process.env.OPENAI_API_KEY
+    const apiKey = process.env.ANTHROPIC_API_KEY
     
-    if (!apiKey || apiKey.includes('your-openai-api-key')) {
-      throw new Error('OpenAI API key not configured')
+    if (!apiKey || apiKey.includes('your-anthropic-api-key')) {
+      throw new Error('Anthropic API key not configured')
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: config?.maxTokens ?? 1024,
+        system: systemPrompt,
         messages: [
-          { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt }
         ],
-        temperature: config?.temperature ?? 0.7,
-        max_tokens: config?.maxTokens ?? 1000
+        temperature: config?.temperature ?? 0.7
       })
     })
 
@@ -183,24 +184,24 @@ async function callOpenAI(prompt: string, systemPrompt: string, config?: Partial
 
     if (!response.ok) {
       const errorData = await response.text()
-      throw new Error(`OpenAI API error: ${response.status} - ${errorData}`)
+      throw new Error(`Claude API error: ${response.status} - ${errorData}`)
     }
 
     const data = await response.json()
-    const responseText = data.choices?.[0]?.message?.content || ''
+    const responseText = data.content?.[0]?.text || ''
 
     return {
       response: responseText,
-      modelUsed: 'openai',
+      modelUsed: 'claude',
       timeTaken: endTime - startTime,
       success: true
     }
   } catch (error) {
     const endTime = Date.now()
-    console.error('OpenAI API error:', error)
+    console.error('Claude API error:', error)
     return {
       response: '',
-      modelUsed: 'openai',
+      modelUsed: 'claude',
       timeTaken: endTime - startTime,
       success: false,
       error: error instanceof Error ? error.message : String(error)
@@ -382,7 +383,7 @@ async function callLocalOllama(prompt: string, systemPrompt: string, config?: Pa
  * 
  * Priority:
  * 1. Try preferred backend
- * 2. If fails, try the other backend (OpenAI <-> Remote Ollama)
+ * 2. If fails, try the other backend (Claude <-> Remote Ollama)
  * 3. If both fail, try local Ollama
  * 
  * @param prompt - The user's prompt/question
@@ -398,13 +399,13 @@ export async function generateLLMResponse(
   // Try preferred backend first
   let result: LLMResponse
   
-  if (config.preferredBackend === 'openai') {
-    result = await callOpenAI(prompt, config.systemPrompt, config)
+  if (config.preferredBackend === 'claude') {
+    result = await callClaude(prompt, config.systemPrompt, config)
     if (result.success) {
-      console.log(`[LLM Service] ✅ OpenAI succeeded in ${result.timeTaken}ms`)
+      console.log(`[LLM Service] ✅ Claude succeeded in ${result.timeTaken}ms`)
       return result
     }
-    console.log(`[LLM Service] ❌ OpenAI failed: ${result.error}`)
+    console.log(`[LLM Service] ❌ Claude failed: ${result.error}`)
     
     // Fallback to Blackwell
     console.log('[LLM Service] Falling back to Blackwell...')
@@ -441,14 +442,14 @@ export async function generateLLMResponse(
     }
     console.log(`[LLM Service] ❌ A6000 failed: ${result.error}`)
     
-    // Fallback to OpenAI
-    console.log('[LLM Service] Falling back to OpenAI...')
-    result = await callOpenAI(prompt, config.systemPrompt, config)
+    // Fallback to Claude
+    console.log('[LLM Service] Falling back to Claude...')
+    result = await callClaude(prompt, config.systemPrompt, config)
     if (result.success) {
-      console.log(`[LLM Service] ✅ OpenAI succeeded in ${result.timeTaken}ms`)
+      console.log(`[LLM Service] ✅ Claude succeeded in ${result.timeTaken}ms`)
       return result
     }
-    console.log(`[LLM Service] ❌ OpenAI failed: ${result.error}`)
+    console.log(`[LLM Service] ❌ Claude failed: ${result.error}`)
     
   } else {
     // Remote A6000
@@ -468,19 +469,19 @@ export async function generateLLMResponse(
     }
     console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
     
-    // Fallback to OpenAI
-    console.log('[LLM Service] Falling back to OpenAI...')
-    result = await callOpenAI(prompt, config.systemPrompt, config)
+    // Fallback to Claude
+    console.log('[LLM Service] Falling back to Claude...')
+    result = await callClaude(prompt, config.systemPrompt, config)
     if (result.success) {
-      console.log(`[LLM Service] ✅ OpenAI succeeded in ${result.timeTaken}ms`)
+      console.log(`[LLM Service] ✅ Claude succeeded in ${result.timeTaken}ms`)
       return result
     }
-    console.log(`[LLM Service] ❌ OpenAI failed: ${result.error}`)
+    console.log(`[LLM Service] ❌ Claude failed: ${result.error}`)
   }
 
   // All backends failed
   return {
-    response: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (OpenAI API key, A6000, or Blackwell tunnel active).",
+    response: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key, A6000, or Blackwell tunnel active).",
     modelUsed: config.preferredBackend,
     timeTaken: result?.timeTaken || 0,
     success: false,
@@ -493,42 +494,43 @@ export async function generateLLMResponse(
 // ============================================================================
 
 /**
- * Stream response from OpenAI with SSE
+ * Stream response from Claude API with SSE
  */
-async function* streamOpenAI(
+async function* streamClaude(
   prompt: string,
   systemPrompt: string,
   config?: Partial<LLMConfig>
 ): AsyncGenerator<LLMStreamChunk> {
   try {
-    const apiKey = process.env.OPENAI_API_KEY
+    const apiKey = process.env.ANTHROPIC_API_KEY
     
-    if (!apiKey || apiKey.includes('your-openai-api-key')) {
-      yield { content: '', done: true, error: 'OpenAI API key not configured', modelUsed: 'openai' }
+    if (!apiKey || apiKey.includes('your-anthropic-api-key')) {
+      yield { content: '', done: true, error: 'Anthropic API key not configured', modelUsed: 'claude' }
       return
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: config?.maxTokens ?? 1024,
+        system: systemPrompt,
         messages: [
-          { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt }
         ],
         temperature: config?.temperature ?? 0.7,
-        max_tokens: config?.maxTokens ?? 1000,
         stream: true
       })
     })
 
     if (!response.ok) {
       const errorData = await response.text()
-      yield { content: '', done: true, error: `OpenAI error: ${response.status}`, modelUsed: 'openai' }
+      yield { content: '', done: true, error: `Claude error: ${response.status}`, modelUsed: 'claude' }
       return
     }
 
@@ -536,30 +538,38 @@ async function* streamOpenAI(
     const decoder = new TextDecoder()
 
     if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: 'openai' }
+      yield { content: '', done: true, error: 'No response stream', modelUsed: 'claude' }
       return
     }
+
+    let buffer = ''
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
 
-      const chunk = decoder.decode(value)
-      const lines = chunk.split('\n').filter(line => line.trim() !== '')
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
+        if (line.trim() && line.startsWith('data: ')) {
+          const data = line.slice(6).trim()
           if (data === '[DONE]') {
-            yield { content: '', done: true, modelUsed: 'openai' }
+            yield { content: '', done: true, modelUsed: 'claude' }
             return
           }
 
           try {
             const parsed = JSON.parse(data)
-            const content = parsed.choices?.[0]?.delta?.content || ''
-            if (content) {
-              yield { content, done: false, modelUsed: 'openai' }
+            if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+              const content = parsed.delta.text || ''
+              if (content) {
+                yield { content, done: false, modelUsed: 'claude' }
+              }
+            } else if (parsed.type === 'message_stop') {
+              yield { content: '', done: true, modelUsed: 'claude' }
+              return
             }
           } catch (e) {
             // Skip invalid JSON
@@ -568,10 +578,10 @@ async function* streamOpenAI(
       }
     }
 
-    yield { content: '', done: true, modelUsed: 'openai' }
+    yield { content: '', done: true, modelUsed: 'claude' }
   } catch (error) {
-    console.error('OpenAI streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: 'openai' }
+    console.error('Claude streaming error:', error)
+    yield { content: '', done: true, error: String(error), modelUsed: 'claude' }
   }
 }
 
@@ -733,10 +743,10 @@ export async function* generateLLMStreamingResponse(
   let hasSuccess = false
 
   // Try preferred backend first
-  if (config.preferredBackend === 'openai') {
-    for await (const chunk of streamOpenAI(prompt, config.systemPrompt, config)) {
+  if (config.preferredBackend === 'claude') {
+    for await (const chunk of streamClaude(prompt, config.systemPrompt, config)) {
       if (chunk.error) {
-        console.log(`[LLM Service] ❌ OpenAI streaming failed: ${chunk.error}`)
+        console.log(`[LLM Service] ❌ Claude streaming failed: ${chunk.error}`)
         break
       }
       hasSuccess = true
@@ -802,12 +812,25 @@ export async function* generateLLMStreamingResponse(
         if (chunk.done) return
       }
     }
+
+    if (!hasSuccess) {
+      console.log('[LLM Service] Falling back to Claude...')
+      for await (const chunk of streamClaude(prompt, config.systemPrompt, config)) {
+        if (chunk.error) {
+          console.log(`[LLM Service] ❌ Claude streaming failed: ${chunk.error}`)
+          break
+        }
+        hasSuccess = true
+        yield chunk
+        if (chunk.done) return
+      }
+    }
   }
 
   // If all failed
   if (!hasSuccess) {
     yield {
-      content: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (OpenAI API key, A6000, or Blackwell tunnel).",
+      content: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key, A6000, or Blackwell tunnel).",
       done: true,
       error: 'All backends failed',
       modelUsed: config.preferredBackend

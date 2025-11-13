@@ -49,6 +49,13 @@ export const initializeDatabase = async () => {
     } catch (error) {
       console.log('vector_store_folder column already exists or could not be added')
     }
+    
+    // Add syllabus_vector_store_folder column if it doesn't exist (for existing databases)
+    try {
+      await client.query('ALTER TABLE classes ADD COLUMN IF NOT EXISTS syllabus_vector_store_folder VARCHAR(255)')
+    } catch (error) {
+      console.log('syllabus_vector_store_folder column already exists or could not be added')
+    }
 
     // Create class_students junction table
     await client.query(`
@@ -119,6 +126,96 @@ export const initializeDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `)
+    
+    // Add chat_type column if it doesn't exist (for existing databases)
+    try {
+      await client.query(`ALTER TABLE rag_conversations ADD COLUMN IF NOT EXISTS chat_type VARCHAR(50) DEFAULT 'class_material'`)
+    } catch (error) {
+      console.log('chat_type column already exists or could not be added')
+    }
+
+    // Add conversation_summary column if it doesn't exist (for existing databases)
+    try {
+      await client.query(`ALTER TABLE rag_conversations ADD COLUMN IF NOT EXISTS conversation_summary TEXT`)
+    } catch (error) {
+      console.log('conversation_summary column already exists or could not be added')
+    }
+
+    // Create pending_registrations table for email verification
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pending_registrations (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL CHECK (role IN ('student', 'faculty')),
+        nuid VARCHAR(50),
+        degree VARCHAR(255),
+        major VARCHAR(255),
+        otp_code VARCHAR(6) NOT NULL,
+        otp_expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Create indexes for pending_registrations
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pending_registrations_email 
+      ON pending_registrations(email)
+    `)
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pending_registrations_expires 
+      ON pending_registrations(otp_expires_at)
+    `)
+
+    // Create assignments table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS assignments (
+        id SERIAL PRIMARY KEY,
+        class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        due_date TIMESTAMP NOT NULL,
+        canvas_link TEXT,
+        pdf_file_name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Create indexes for assignments
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_assignments_class_id 
+      ON assignments(class_id)
+    `)
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_assignments_faculty_id 
+      ON assignments(faculty_id)
+    `)
+
+    // Create resources table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS resources (
+        id SERIAL PRIMARY KEY,
+        class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        file_name VARCHAR(255) NOT NULL,
+        file_size BIGINT NOT NULL,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Create indexes for resources
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_resources_class_id 
+      ON resources(class_id)
+    `)
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_resources_faculty_id 
+      ON resources(faculty_id)
     `)
 
     // Add unique constraint to nuid if it doesn't exist (for existing databases)

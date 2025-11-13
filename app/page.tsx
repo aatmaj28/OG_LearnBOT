@@ -6,9 +6,9 @@ import { GraduationCap, Users, Bot, BarChart3, Users2, MessageSquare, BookOpen, 
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30 flex flex-col">
       {/* Header */}
-      <header className="w-full border-b bg-white">
+      <header className="w-full border-b bg-white/80 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Image
@@ -21,12 +21,12 @@ export default function HomePage() {
             />
             <span className="text-2xl font-bold text-gray-900">LearnBot</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Link href="/login?role=student">
-              <Button variant="ghost" size="sm">Student Login</Button>
+              <Button variant="outline" size="sm" className="border-blue-200 hover:bg-blue-50">Student Login</Button>
             </Link>
             <Link href="/login?role=faculty">
-              <Button variant="ghost" size="sm">Faculty Login</Button>
+              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">Faculty Login</Button>
             </Link>
           </div>
         </div>
@@ -36,28 +36,28 @@ export default function HomePage() {
       <main className="flex-1 container mx-auto px-6 py-12">
         <div className="max-w-6xl mx-auto">
           {/* Welcome Section */}
-          <div className="text-center mb-12">
-            <h1 className="text-5xl font-bold text-gray-900 mb-4">
+          <div className="text-center mb-16">
+            <h1 className="text-5xl font-bold text-gray-900 mb-4 tracking-tight">
                   Welcome to LearnBot!
             </h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
               Explore our AI-powered applications designed to enhance your academic and professional experience.
             </p>
-            <div className="w-24 h-1 bg-blue-600 mx-auto mt-6 rounded-full"></div>
+            <div className="w-20 h-1 bg-gradient-to-r from-blue-600 to-indigo-600 mx-auto mt-6 rounded-full"></div>
           </div>
 
           {/* Application Cards */}
           <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
             {/* Student Portal Card */}
-            <Card className="border-2 border-gray-200 hover:border-blue-500 transition-all duration-300 hover:shadow-xl">
+            <Card className="border border-gray-200 hover:border-blue-400 transition-all duration-300 hover:shadow-2xl group bg-white">
               <CardContent className="p-8 flex flex-col h-full">
                 {/* Icon */}
-                <div className="w-16 h-16 bg-blue-100 rounded-xl flex items-center justify-center mb-6">
-                  <GraduationCap className="h-8 w-8 text-blue-600" />
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg group-hover:shadow-xl transition-shadow">
+                  <GraduationCap className="h-8 w-8 text-white" />
                 </div>
 
                 {/* Title */}
-                <h2 className="text-3xl font-bold text-gray-900 mb-3">Student Portal</h2>
+                <h2 className="text-3xl font-bold text-gray-900 mb-3 tracking-tight">Student Portal</h2>
                 
                 {/* Description */}
                 <p className="text-gray-600 mb-6 text-base leading-relaxed">
@@ -86,7 +86,7 @@ export default function HomePage() {
 
                 {/* Launch Button */}
                 <Link href="/login?role=student" className="mt-auto">
-                  <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-base font-semibold py-6 rounded-lg shadow-lg hover:shadow-xl transition-all">
+                  <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02]">
                     Launch Student Portal
                   </Button>
                 </Link>
@@ -94,15 +94,15 @@ export default function HomePage() {
             </Card>
 
             {/* Faculty Portal Card */}
-            <Card className="border-2 border-gray-200 hover:border-emerald-500 transition-all duration-300 hover:shadow-xl">
+            <Card className="border border-gray-200 hover:border-blue-400 transition-all duration-300 hover:shadow-2xl group bg-white">
               <CardContent className="p-8 flex flex-col h-full">
                 {/* Icon */}
-                <div className="w-16 h-16 bg-emerald-100 rounded-xl flex items-center justify-center mb-6">
-                  <Users className="h-8 w-8 text-emerald-600" />
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg group-hover:shadow-xl transition-shadow">
+                  <Users className="h-8 w-8 text-white" />
                 </div>
 
                 {/* Title */}
-                <h2 className="text-3xl font-bold text-gray-900 mb-3">Faculty Portal</h2>
+                <h2 className="text-3xl font-bold text-gray-900 mb-3 tracking-tight">Faculty Portal</h2>
                 
                 {/* Description */}
                 <p className="text-gray-600 mb-6 text-base leading-relaxed">
@@ -112,26 +112,26 @@ export default function HomePage() {
                 {/* Features */}
                 <ul className="space-y-3 mb-8 flex-1">
                   <li className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                     <span className="text-gray-700 text-sm">Class management and student enrollment</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                     <span className="text-gray-700 text-sm">Real-time student activity monitoring</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                     <span className="text-gray-700 text-sm">Advanced analytics and performance reports</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                     <span className="text-gray-700 text-sm">AI-powered insights and recommendations</span>
                   </li>
                 </ul>
 
                 {/* Launch Button */}
                 <Link href="/login?role=faculty" className="mt-auto">
-                  <Button className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-base font-semibold py-6 rounded-lg shadow-lg hover:shadow-xl transition-all">
+                  <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02]">
                     Launch Faculty Portal
                   </Button>
                 </Link>
@@ -142,7 +142,7 @@ export default function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t bg-white py-8 mt-16">
+      <footer className="border-t bg-white/80 backdrop-blur-sm py-8 mt-16">
         <div className="container mx-auto px-6">
           <div className="flex flex-col items-center justify-center gap-4">
             {/* Social Links */}

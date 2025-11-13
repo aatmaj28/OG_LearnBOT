@@ -15,6 +15,7 @@ import {
   YAxis,
   CartesianGrid,
   ResponsiveContainer,
+  Legend,
 } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Clock, MessageSquare, TrendingUp, BookOpen } from "lucide-react"
@@ -35,6 +36,7 @@ export function AnalyticsTab() {
   const [classes, setClasses] = useState<Class[]>([])
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
+  const [selectedStudent, setSelectedStudent] = useState<string>("")
 
   useEffect(() => {
     loadClasses()
@@ -43,8 +45,17 @@ export function AnalyticsTab() {
   useEffect(() => {
     if (selectedClassId) {
       loadAnalytics()
+      setSelectedStudent("") // Reset student selection when class changes
     }
   }, [selectedClassId])
+
+  useEffect(() => {
+    // Auto-select first student when analytics load
+    if (analytics && analytics.studentEngagement.length > 0 && !selectedStudent) {
+      setSelectedStudent(analytics.studentEngagement[0].name)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analytics])
 
   const loadClasses = async () => {
     const facultyId = localStorage.getItem("userId")
@@ -318,7 +329,7 @@ export function AnalyticsTab() {
                   className="h-[350px]"
                 >
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={analytics.activityOverTime} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <BarChart data={analytics.activityOverTime} margin={{ top: 50, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis 
                         dataKey="date" 
@@ -331,11 +342,47 @@ export function AnalyticsTab() {
                       />
                       <ChartTooltip 
                         content={<ChartTooltipContent 
-                          formatter={(value, name) => [
-                            name === 'sessions' ? `${value} sessions` : `${value} min`,
-                            name === 'sessions' ? 'Sessions' : ''
-                          ]}
+                          formatter={(value, name) => {
+                            if (name === 'sessions' || name === 'Sessions') {
+                              return (
+                                <>
+                                  <div className="h-2.5 w-2.5 rounded-[2px] bg-[var(--color-sessions)]" />
+                                  <div className="flex flex-1 justify-between leading-none items-center">
+                                    <span className="text-muted-foreground">Sessions</span>
+                                    <span className="text-foreground font-mono font-medium tabular-nums">
+                                      {value}
+                                    </span>
+                                  </div>
+                                </>
+                              )
+                            } else if (name === 'minutes' || name === 'Minutes') {
+                              return (
+                                <>
+                                  <div className="h-2.5 w-2.5 rounded-[2px] bg-[var(--color-minutes)]" />
+                                  <div className="flex flex-1 justify-between leading-none items-center">
+                                    <span className="text-muted-foreground">Minutes</span>
+                                    <span className="text-foreground font-mono font-medium tabular-nums">
+                                      {value}
+                                    </span>
+                                  </div>
+                                </>
+                              )
+                            }
+                            return null
+                          }}
                         />} 
+                      />
+                      <Legend 
+                        wrapperStyle={{ paddingTop: '10px', paddingBottom: '10px' }}
+                        iconType="square"
+                        align="right"
+                        verticalAlign="top"
+                        layout="horizontal"
+                        formatter={(value) => {
+                          if (value === 'sessions') return 'Sessions'
+                          if (value === 'minutes') return 'Minutes'
+                          return value
+                        }}
                       />
                       <Bar 
                         dataKey="sessions" 
@@ -358,58 +405,121 @@ export function AnalyticsTab() {
             {/* Student Engagement */}
             <Card>
               <CardHeader>
-                <CardTitle>Student Engagement</CardTitle>
-                <CardDescription>Individual student activity levels</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Student Engagement</CardTitle>
+                    <CardDescription>Individual student activity levels</CardDescription>
+                  </div>
+                  {analytics && analytics.studentEngagement.length > 0 && (
+                    <Select value={selectedStudent} onValueChange={setSelectedStudent}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Select a student" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {analytics.studentEngagement.map((student) => (
+                          <SelectItem key={student.name} value={student.name}>
+                            {student.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
-                <ChartContainer
-                  config={{
-                    sessions: {
-                      label: "Sessions",
-                      color: CHART_COLORS.success,
-                    },
-                    minutes: {
-                      label: "Minutes",
-                      color: CHART_COLORS.warning,
-                    },
-                  }}
-                  className="h-[350px]"
-                >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={analytics.studentEngagement} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis 
-                        dataKey="name" 
-                        tick={{ fontSize: 12, fill: '#6b7280' }}
-                        axisLine={{ stroke: '#d1d5db' }}
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 12, fill: '#6b7280' }}
-                        axisLine={{ stroke: '#d1d5db' }}
-                      />
-                      <ChartTooltip 
-                        content={<ChartTooltipContent 
-                          formatter={(value, name) => [
-                            name === 'sessions' ? `${value} sessions` : `${value} min`,
-                            name === 'sessions' ? 'Sessions' : ''
-                          ]}
-                        />} 
-                      />
-                      <Bar 
-                        dataKey="sessions" 
-                        fill={CHART_COLORS.success}
-                        name="Sessions"
-                        radius={[4, 4, 0, 0]}
-                      />
-                      <Bar 
-                        dataKey="minutes" 
-                        fill={CHART_COLORS.warning}
-                        name="Minutes"
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+                {selectedStudent && analytics ? (
+                  <ChartContainer
+                    config={{
+                      sessions: {
+                        label: "Sessions",
+                        color: CHART_COLORS.success,
+                      },
+                      minutes: {
+                        label: "Minutes",
+                        color: CHART_COLORS.warning,
+                      },
+                    }}
+                    className="h-[350px]"
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart 
+                        data={[analytics.studentEngagement.find(s => s.name === selectedStudent) || { name: selectedStudent, sessions: 0, minutes: 0 }]} 
+                        margin={{ top: 50, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis 
+                          dataKey="name" 
+                          tick={{ fontSize: 12, fill: '#6b7280' }}
+                          axisLine={{ stroke: '#d1d5db' }}
+                        />
+                        <YAxis 
+                          tick={{ fontSize: 12, fill: '#6b7280' }}
+                          axisLine={{ stroke: '#d1d5db' }}
+                        />
+                        <ChartTooltip 
+                          content={<ChartTooltipContent 
+                            formatter={(value, name) => {
+                              if (name === 'sessions' || name === 'Sessions') {
+                                return (
+                                  <>
+                                    <div className="h-2.5 w-2.5 rounded-[2px] bg-[var(--color-sessions)]" />
+                                    <div className="flex flex-1 justify-between leading-none items-center">
+                                      <span className="text-muted-foreground">Sessions</span>
+                                      <span className="text-foreground font-mono font-medium tabular-nums">
+                                        {value}
+                                      </span>
+                                    </div>
+                                  </>
+                                )
+                              } else if (name === 'minutes' || name === 'Minutes') {
+                                return (
+                                  <>
+                                    <div className="h-2.5 w-2.5 rounded-[2px] bg-[var(--color-minutes)]" />
+                                    <div className="flex flex-1 justify-between leading-none items-center">
+                                      <span className="text-muted-foreground">Minutes</span>
+                                      <span className="text-foreground font-mono font-medium tabular-nums">
+                                        {value}
+                                      </span>
+                                    </div>
+                                  </>
+                                )
+                              }
+                              return null
+                            }}
+                          />} 
+                        />
+                        <Legend 
+                          wrapperStyle={{ paddingTop: '10px', paddingBottom: '10px' }}
+                          iconType="square"
+                          align="right"
+                          verticalAlign="top"
+                          layout="horizontal"
+                          formatter={(value) => {
+                            if (value === 'sessions') return 'Sessions'
+                            if (value === 'minutes') return 'Minutes'
+                            return value
+                          }}
+                        />
+                        <Bar 
+                          dataKey="sessions" 
+                          fill={CHART_COLORS.success}
+                          name="Sessions"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Bar 
+                          dataKey="minutes" 
+                          fill={CHART_COLORS.warning}
+                          name="Minutes"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                ) : (
+                  <div className="h-[350px] flex items-center justify-center text-muted-foreground">
+                    Select a student to view their engagement
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

@@ -5,13 +5,21 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Upload, PlayCircle, FileText, Database, Trash2 } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Upload, PlayCircle, FileText, Database, Trash2, BookOpen, Calendar } from "lucide-react"
 import type { Class } from "@/lib/types"
 import { toast } from "sonner"
 
-export function CorpusManagementTab() {
+type MaterialType = "class_material" | "syllabus"
+
+interface CorpusManagementTabProps {
+  isDarkMode?: boolean
+}
+
+export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabProps) {
   const [classes, setClasses] = useState<Class[]>([])
   const [selectedClassId, setSelectedClassId] = useState<string>("")
+  const [materialType, setMaterialType] = useState<MaterialType>("class_material")
   const [filesOnServer, setFilesOnServer] = useState<string[]>([])
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -35,7 +43,7 @@ export function CorpusManagementTab() {
       setIndexedPdfCount(0)
       setIndexedChunkCount(0)
     }
-  }, [selectedClassId])
+  }, [selectedClassId, materialType])
 
   const loadClasses = async () => {
     const userId = localStorage.getItem("userId")
@@ -57,7 +65,7 @@ export function CorpusManagementTab() {
   const loadServerFiles = async () => {
     if (!selectedClassId) return
     try {
-      const res = await fetch(`/api/corpus/files?classId=${selectedClassId}`)
+      const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&materialType=${materialType}`)
       if (res.ok) {
         const data = await res.json()
         setFilesOnServer(data.files || [])
@@ -70,7 +78,7 @@ export function CorpusManagementTab() {
   const loadIndexStats = async () => {
     if (!selectedClassId) return
     try {
-      const res = await fetch(`/api/corpus/stats?classId=${selectedClassId}`)
+      const res = await fetch(`/api/corpus/stats?classId=${selectedClassId}&materialType=${materialType}`)
       if (res.ok) {
         const data = await res.json()
         setIndexedPdfCount(data.pdfCount || 0)
@@ -85,7 +93,7 @@ export function CorpusManagementTab() {
     if (!selectedClassId) return
     if (!confirm(`Delete ${filename}?\n\nThis will remove the PDF and its embeddings from the index.`)) return
     try {
-      const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&filename=${encodeURIComponent(filename)}`, {
+      const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&filename=${encodeURIComponent(filename)}&materialType=${materialType}`, {
         method: "DELETE"
       })
       if (res.ok) {
@@ -121,10 +129,11 @@ export function CorpusManagementTab() {
     
     try {
       // Step 1: Upload PDFs
-      toast.info(`Uploading ${selectedFiles.length} PDF(s)...`)
+      const materialLabel = materialType === "syllabus" ? "Syllabus/Schedule" : "Class Material"
+      toast.info(`Uploading ${selectedFiles.length} ${materialLabel} PDF(s)...`)
       const form = new FormData()
       selectedFiles.forEach(f => form.append("files", f))
-      const uploadRes = await fetch(`/api/corpus/upload?classId=${selectedClassId}`, {
+      const uploadRes = await fetch(`/api/corpus/upload?classId=${selectedClassId}&materialType=${materialType}`, {
         method: "POST",
         body: form,
       })
@@ -140,7 +149,7 @@ export function CorpusManagementTab() {
       const indexRes = await fetch(`/api/corpus/index`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classId: selectedClassId }),
+        body: JSON.stringify({ classId: selectedClassId, materialType }),
       })
       
       if (indexRes.ok) {
@@ -169,12 +178,12 @@ export function CorpusManagementTab() {
     <div className="h-full flex flex-col p-4 gap-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-100 dark:bg-indigo-900 rounded-lg">
-            <Database className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+          <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-md">
+            <Database className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h2 className="font-semibold">Corpus Management</h2>
-            <p className="text-sm text-muted-foreground">Upload PDFs and build FAISS index</p>
+            <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Corpus Management</h2>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Upload PDFs and build FAISS index for different content types</p>
           </div>
         </div>
         {selectedClassId && (
@@ -192,7 +201,23 @@ export function CorpusManagementTab() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <Tabs value={materialType} onValueChange={(val) => {
+        setMaterialType(val as MaterialType)
+        setSelectedFiles([]) // Clear selected files when switching tabs
+      }} className="flex-1">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="class_material" className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            Class Material
+          </TabsTrigger>
+          <TabsTrigger value="syllabus" className="flex items-center gap-2">
+            <Calendar className="h-4 w-4" />
+            Syllabus/Schedule
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="class_material" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="p-4 col-span-1">
           <div className="space-y-3">
             <label className="text-sm font-medium">Select Class</label>
@@ -216,7 +241,7 @@ export function CorpusManagementTab() {
                 className="hidden"
                 onChange={onFilesChosen}
               />
-              <Button variant="secondary" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full">
+              <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
                 <Upload className="h-4 w-4 mr-2" />
                 Upload PDFs
               </Button>
@@ -244,7 +269,7 @@ export function CorpusManagementTab() {
                   <Button 
                     onClick={onStartIndex} 
                     disabled={!selectedClassId || isIndexing || selectedFiles.length === 0}
-                    className="w-full"
+                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
                   >
                     <PlayCircle className="h-4 w-4 mr-2" />
                     {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} PDF${selectedFiles.length > 1 ? 's' : ''})`}
@@ -285,7 +310,106 @@ export function CorpusManagementTab() {
             </ScrollArea>
           )}
         </Card>
-      </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="syllabus" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card className="p-4 col-span-1">
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Select Class</label>
+                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a class..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <div className="pt-2 space-y-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    multiple
+                    className="hidden"
+                    onChange={onFilesChosen}
+                  />
+                  <Button variant="secondary" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Syllabus/Schedule PDFs
+                  </Button>
+                  
+                  {selectedFiles.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium">Selected Files ({selectedFiles.length}):</div>
+                      <div className="max-h-[150px] overflow-y-auto space-y-1">
+                        {selectedFiles.map((file, idx) => (
+                          <div key={idx} className="flex items-center justify-between gap-2 text-xs bg-muted px-2 py-1 rounded">
+                            <span className="truncate flex-1">{file.name}</span>
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="h-5 w-5 p-0 hover:bg-red-100 hover:text-red-600"
+                              onClick={() => removeSelectedFile(idx)}
+                              disabled={isIndexing}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <Button 
+                        onClick={onStartIndex} 
+                        disabled={!selectedClassId || isIndexing || selectedFiles.length === 0}
+                        className="w-full"
+                      >
+                        <PlayCircle className="h-4 w-4 mr-2" />
+                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} PDF${selectedFiles.length > 1 ? 's' : ''})`}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4 col-span-1 lg:col-span-2">
+              <h3 className="font-medium mb-3">Indexed Syllabus/Schedule PDFs ({filesOnServer.length})</h3>
+              {!selectedClassId ? (
+                <div className="text-sm text-muted-foreground">Select a class</div>
+              ) : filesOnServer.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No syllabus/schedule files indexed yet. Upload and index PDFs to get started.</div>
+              ) : (
+                <ScrollArea className="h-[360px]">
+                  <div className="space-y-2">
+                    {filesOnServer.map((f, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-2 text-sm bg-muted px-3 py-2 rounded hover:bg-muted/80">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <FileText className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{f}</span>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          className="h-7 w-7 p-0 hover:bg-red-100 hover:text-red-600"
+                          onClick={() => deleteIndexedFile(f)}
+                          disabled={isIndexing}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

@@ -13,12 +13,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
     const classId = searchParams.get('classId')
+    const chatType = searchParams.get('chatType') as 'class_material' | 'syllabus' | null
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
 
-    const conversations = await getRAGConversationsByUser(userId, classId || undefined)
+    const conversations = await getRAGConversationsByUser(userId, classId || undefined, chatType || undefined)
     return NextResponse.json({ conversations })
   } catch (error) {
     console.error("Get conversations error:", error)
@@ -29,13 +30,13 @@ export async function GET(request: NextRequest) {
 // Create new conversation
 export async function POST(request: NextRequest) {
   try {
-    const { userId, title, classId } = await request.json()
+    const { userId, title, classId, chatType } = await request.json()
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
 
-    const conversation = await createRAGConversation(userId, title, classId)
+    const conversation = await createRAGConversation(userId, title, classId, chatType || 'class_material')
     console.log("Created conversation:", conversation)
     return NextResponse.json({ conversation })
   } catch (error) {

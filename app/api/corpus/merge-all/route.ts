@@ -82,7 +82,7 @@ PDF_PATHS = ${JSON.stringify(allPdfPaths.map(p => p.replace(/\\/g, '\\\\')))}
 print(f"[Merge] Processing {len(PDF_PATHS)} PDFs for entire corpus...", file=sys.stderr)
 
 # Initialize embedding model
-embedding_model = SentenceTransformer("nomic-ai/nomic-embed-text-v1.5")
+embedding_model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
 
 all_chunks = []
 all_metadata = []
@@ -157,7 +157,7 @@ print(f"[Merge] Saved metadata.pkl", file=sys.stderr)
 
 # Save config
 config = {
-    "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
+    "embedding_model": "sentence-transformers/all-mpnet-base-v2",
     "dimension": int(dimension),
     "total_chunks": len(all_chunks),
     "total_pdfs": len(PDF_PATHS),
