@@ -64,121 +64,25 @@ export async function POST(request: NextRequest) {
       fs.mkdirSync(ENTIRE_CORPUS_PATH, { recursive: true })
     }
 
-    // Create Python script to merge all embeddings
-    const pythonScript = `
-import sys
-import os
-import json
-import pickle
-import numpy as np
-import faiss
-from sentence_transformers import SentenceTransformer
-from pypdf import PdfReader
+    // Use LlamaIndex-based indexing service for merging
+    const indexingServicePath = path.join(process.cwd(), 'lib', 'llamaindex-indexing-service.py')
+    
+    // Prepare arguments for the indexing service (merge is not syllabus, no class_id/name)
+    const args = [
+      indexingServicePath,
+      ENTIRE_CORPUS_PATH.replace(/\\/g, '/'),  // Normalize path separators
+      'false',  // is_syllabus = false for merged corpus
+      '',  // class_id = empty for merged corpus
+      'Entire Corpus',  // class_name
+      ...allPdfPaths.map(p => p.replace(/\\/g, '/'))  // Normalize path separators
+    ]
 
-# Configuration
-OUTPUT_PATH = "${ENTIRE_CORPUS_PATH.replace(/\\/g, '\\\\')}"
-PDF_PATHS = ${JSON.stringify(allPdfPaths.map(p => p.replace(/\\/g, '\\\\')))}
+    console.log('[Merge All] Using LlamaIndex indexing service')
+    console.log('[Merge All] Service path:', indexingServicePath)
 
-print(f"[Merge] Processing {len(PDF_PATHS)} PDFs for entire corpus...", file=sys.stderr)
-
-# Initialize embedding model
-embedding_model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
-
-all_chunks = []
-all_metadata = []
-
-# Process each PDF
-for pdf_path in PDF_PATHS:
-    try:
-        pdf_filename = os.path.basename(pdf_path)
-        print(f"[Merge] Processing: {pdf_filename}", file=sys.stderr)
-        
-        reader = PdfReader(pdf_path)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text()
-        
-        # Chunk with overlap
-        chunk_size = 1000
-        overlap = 200
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunk = text[start:end]
-            if chunk.strip():
-                chunks.append(chunk)
-                all_metadata.append({
-                    "source_file": pdf_filename,
-                    "chunk_index": len(chunks) - 1,
-                    "chunk_text": chunk,
-                    "section_title": f"Section from {pdf_filename}"
-                })
-            start += (chunk_size - overlap)
-        
-        all_chunks.extend(chunks)
-        print(f"[Merge] Extracted {len(chunks)} chunks from {pdf_filename}", file=sys.stderr)
-        
-    except Exception as e:
-        print(f"[Merge] Error processing {pdf_path}: {e}", file=sys.stderr)
-        continue
-
-if len(all_chunks) == 0:
-    print("[Merge] ERROR: No chunks extracted!", file=sys.stderr)
-    sys.exit(1)
-
-print(f"[Merge] Total chunks: {len(all_chunks)}", file=sys.stderr)
-print(f"[Merge] Generating embeddings...", file=sys.stderr)
-
-# Generate embeddings
-embeddings = embedding_model.encode(all_chunks, show_progress_bar=False)
-embeddings_np = np.array(embeddings).astype('float32')
-
-# Create FAISS index
-dimension = embeddings_np.shape[1]
-index = faiss.IndexFlatL2(dimension)
-index.add(embeddings_np)
-
-print(f"[Merge] Created FAISS index with {index.ntotal} vectors", file=sys.stderr)
-
-# Save everything
-os.makedirs(OUTPUT_PATH, exist_ok=True)
-
-faiss.write_index(index, os.path.join(OUTPUT_PATH, "faiss_index.bin"))
-print(f"[Merge] Saved FAISS index", file=sys.stderr)
-
-with open(os.path.join(OUTPUT_PATH, "metadata.json"), "w", encoding="utf-8") as f:
-    json.dump(all_metadata, f, ensure_ascii=False, indent=2)
-print(f"[Merge] Saved metadata.json", file=sys.stderr)
-
-with open(os.path.join(OUTPUT_PATH, "metadata.pkl"), "wb") as f:
-    pickle.dump(all_metadata, f)
-print(f"[Merge] Saved metadata.pkl", file=sys.stderr)
-
-# Save config
-config = {
-    "embedding_model": "sentence-transformers/all-mpnet-base-v2",
-    "dimension": int(dimension),
-    "total_chunks": len(all_chunks),
-    "total_pdfs": len(PDF_PATHS),
-    "created_at": "$(new Date().toISOString())"
-}
-
-with open(os.path.join(OUTPUT_PATH, "config.json"), "w") as f:
-    json.dump(config, f, indent=2)
-print(f"[Merge] Saved config.json", file=sys.stderr)
-
-print(f"[Merge] ✅ Entire corpus created successfully!", file=sys.stderr)
-print(json.dumps({"success": True, "chunks": len(all_chunks), "pdfs": len(PDF_PATHS)}))
-`
-
-    // Write Python script
-    const scriptPath = path.join(process.cwd(), 'temp_merge_corpus.py')
-    fs.writeFileSync(scriptPath, pythonScript)
-
-    // Execute Python script
+    // Execute LlamaIndex indexing service
     return new Promise<NextResponse>((resolve) => {
-      const python = spawn('python', [scriptPath])
+      const python = spawn('python', args)
 
       let stdout = ''
       let stderr = ''
@@ -194,13 +98,6 @@ print(json.dumps({"success": True, "chunks": len(all_chunks), "pdfs": len(PDF_PA
       })
 
       python.on('close', (code) => {
-        // Clean up script
-        try {
-          fs.unlinkSync(scriptPath)
-        } catch (e) {
-          // Ignore
-        }
-
         console.log(`[Merge All] Python process exited with code: ${code}`)
         console.log(`[Merge All] stderr: ${stderr}`)
 

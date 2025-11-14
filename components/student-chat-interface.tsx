@@ -70,6 +70,39 @@ export function StudentChatInterface() {
       setIsDarkMode(savedDarkMode === "true")
     }
     
+    // Preload user's classes on mount (after RAG is ready)
+    const preloadUserClasses = async () => {
+      const userId = localStorage.getItem("userId")
+      const userRole = localStorage.getItem("userRole") as 'student' | 'faculty' | null
+      
+      if (userId && userRole) {
+        // Wait a bit for RAG service to initialize
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        try {
+          const response = await fetch('/api/rag/preload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, userRole })
+          })
+          
+          if (response.ok) {
+            const result = await response.json()
+            console.log(`[Student Chat] Preload result: ${result.loaded}/${result.total} stores loaded`)
+          } else if (response.status === 503) {
+            // RAG not ready yet, retry after a delay
+            setTimeout(preloadUserClasses, 3000)
+          } else {
+            console.warn('[Student Chat] Preload failed:', await response.text())
+          }
+        } catch (error) {
+          console.error('[Student Chat] Failed to preload classes:', error)
+        }
+      }
+    }
+    
+    preloadUserClasses()
+    
     // Poll status every 5 seconds to detect when RAG becomes ready
     const statusInterval = setInterval(checkRAGStatus, 5000)
     
@@ -971,7 +1004,7 @@ export function StudentChatInterface() {
                           <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
                             <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                               <div className="flex items-center gap-2">
-                                <span className="text-xs">🧠 Claude 3.5 Sonnet</span>
+                                <span className="text-xs">🧠 Claude 4.5 Haiku</span>
                               </div>
                             </SelectItem>
                             <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>

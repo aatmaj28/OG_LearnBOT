@@ -3,6 +3,7 @@ import path from "path"
 import fs from "fs"
 import { getClassById } from "@/lib/db-service"
 import { VectorStoreManager } from "@/lib/vector-store-manager"
+import { ragService } from "@/lib/rag-service"
 
 export async function GET(request: NextRequest) {
   try {
@@ -154,6 +155,15 @@ else:
             })
           })
           
+          // Reload the vector store in memory to reflect the updated index
+          try {
+            await ragService.reloadVectorStore(basePath)
+            console.log(`[Corpus Delete] Reloaded vector store in memory: ${vectorStoreFolder}`)
+          } catch (error) {
+            console.warn('[Corpus Delete] Failed to reload vector store in memory:', error)
+            // Don't fail the deletion if reload fails
+          }
+          
           return NextResponse.json({ 
             success: true, 
             message: "PDF and its embeddings removed from index."
@@ -166,6 +176,16 @@ else:
           // Also delete metadata.json
           const metaJsonPath = path.join(basePath, "metadata.json")
           if (fs.existsSync(metaJsonPath)) fs.unlinkSync(metaJsonPath)
+          
+          // Unload the vector store from memory since index is deleted
+          try {
+            await ragService.unloadVectorStore(basePath)
+            console.log(`[Corpus Delete] Unloaded vector store from memory: ${vectorStoreFolder}`)
+          } catch (error) {
+            console.warn('[Corpus Delete] Failed to unload vector store from memory:', error)
+            // Don't fail the deletion if unload fails
+          }
+          
           return NextResponse.json({ 
             success: true, 
             message: "PDF deleted. Index cleared. Please click 'Start Index' to rebuild." 

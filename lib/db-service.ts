@@ -188,7 +188,7 @@ export const getClassesByFaculty = async (facultyId: string): Promise<Class[]> =
       FROM classes c
       LEFT JOIN class_students cs ON c.id = cs.class_id
       WHERE c.faculty_id = $1
-      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.created_at
+      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.syllabus_vector_store_folder, c.created_at
       ORDER BY c.created_at DESC
     `, [facultyId])
     
@@ -197,7 +197,8 @@ export const getClassesByFaculty = async (facultyId: string): Promise<Class[]> =
       name: row.name,
       description: row.description,
       facultyId: row.faculty_id.toString(),
-      vectorStoreFolder: row.vector_store_folder,
+      vectorStoreFolder: row.vector_store_folder || null,
+      syllabusVectorStoreFolder: row.syllabus_vector_store_folder || null,
       studentIds: row.student_ids.map((id: number) => id.toString()),
       createdAt: new Date(row.created_at)
     }))
@@ -218,7 +219,7 @@ export const getClassesByStudent = async (studentId: string): Promise<Class[]> =
       FROM classes c
       LEFT JOIN class_students cs ON c.id = cs.class_id
       WHERE cs.student_id = $1
-      GROUP BY c.id, c.name, c.description, c.faculty_id, c.created_at
+      GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, c.syllabus_vector_store_folder, c.created_at
       ORDER BY c.created_at DESC
     `, [studentId])
     
@@ -227,8 +228,9 @@ export const getClassesByStudent = async (studentId: string): Promise<Class[]> =
       name: row.name,
       description: row.description,
       facultyId: row.faculty_id.toString(),
-      studentIds: row.student_ids.map((id: number) => id.toString()),
       vectorStoreFolder: row.vector_store_folder || null,
+      syllabusVectorStoreFolder: row.syllabus_vector_store_folder || null,
+      studentIds: row.student_ids.map((id: number) => id.toString()),
       createdAt: new Date(row.created_at)
     }))
   } finally {
@@ -379,18 +381,44 @@ export const deleteClass = async (classId: string): Promise<boolean> => {
     const result = await client.query('DELETE FROM classes WHERE id = $1', [classId])
     
     if ((result.rowCount ?? 0) > 0) {
-      // Clean up vector store folder if it exists
+      // Clean up both class material and syllabus vector store folders if they exist
       try {
         const fs = require('fs')
         const path = require('path')
-        const vectorStorePath = path.join(process.cwd(), 'vector_stores', classExists.vectorStoreFolder || '')
         
-        if (fs.existsSync(vectorStorePath)) {
-          fs.rmSync(vectorStorePath, { recursive: true, force: true })
-          console.log(`🗑️ Deleted vector store folder: ${classExists.vectorStoreFolder}`)
+        // Delete class material vector store
+        if (classExists.vectorStoreFolder) {
+          const vectorStorePath = path.join(process.cwd(), 'vector_stores', classExists.vectorStoreFolder)
+          if (fs.existsSync(vectorStorePath)) {
+            // Unload from memory before deleting
+            try {
+              const { ragService } = require('./rag-service')
+              await ragService.unloadVectorStore(vectorStorePath)
+            } catch (error) {
+              console.warn('Failed to unload class material vector store from memory:', error)
+            }
+            fs.rmSync(vectorStorePath, { recursive: true, force: true })
+            console.log(`🗑️ Deleted class material vector store folder: ${classExists.vectorStoreFolder}`)
+          }
+        }
+        
+        // Delete syllabus vector store
+        if (classExists.syllabusVectorStoreFolder) {
+          const syllabusVectorStorePath = path.join(process.cwd(), 'vector_stores', classExists.syllabusVectorStoreFolder)
+          if (fs.existsSync(syllabusVectorStorePath)) {
+            // Unload from memory before deleting
+            try {
+              const { ragService } = require('./rag-service')
+              await ragService.unloadVectorStore(syllabusVectorStorePath)
+            } catch (error) {
+              console.warn('Failed to unload syllabus vector store from memory:', error)
+            }
+            fs.rmSync(syllabusVectorStorePath, { recursive: true, force: true })
+            console.log(`🗑️ Deleted syllabus vector store folder: ${classExists.syllabusVectorStoreFolder}`)
+          }
         }
       } catch (error) {
-        console.warn('Failed to delete vector store folder:', error)
+        console.warn('Failed to delete vector store folder(s):', error)
         // Don't fail the class deletion if folder cleanup fails
       }
     }

@@ -10,7 +10,9 @@ import {
   updateRAGConversation,
   addRAGMessage,
   getClassById,
-  getRAGConversationsByUser
+  getRAGConversationsByUser,
+  getClassesByFaculty,
+  getClassesByStudent
 } from './db-service'
 import type { RAGConversation, ModelBackend } from './types'
 import { VectorStoreManager } from './vector-store-manager'
@@ -650,11 +652,14 @@ export class RAGService extends EventEmitter {
       
       console.log('[RAG] Starting persistent Python process with pre-loaded models...')
       
-      const persistentScriptPath = path.join(process.cwd(), 'rag_server.py')
-      const pythonScript = this.generatePersistentPythonScript()
+      // Use LlamaIndex-based RAG service instead of embedded script
+      const persistentScriptPath = path.join(process.cwd(), 'lib', 'llamaindex-rag-service.py')
       
-      fs.writeFileSync(persistentScriptPath, pythonScript)
-      console.log('[RAG] Persistent Python script created at:', persistentScriptPath)
+      if (!fs.existsSync(persistentScriptPath)) {
+        throw new Error(`LlamaIndex RAG service not found at: ${persistentScriptPath}`)
+      }
+      
+      console.log('[RAG] Using LlamaIndex-based RAG service at:', persistentScriptPath)
       
       this.pythonProcess = spawn('python', [persistentScriptPath], {
         stdio: ['pipe', 'pipe', 'pipe']
@@ -3031,6 +3036,222 @@ if __name__ == "__main__":
 `
   }
 
+  /**
+   * Preload vector stores for a user's classes in parallel
+   * Called on login to ensure all user's classes are ready for fast queries
+   */
+  async preloadUserClasses(userId: string, userRole: 'student' | 'faculty'): Promise<{ success: boolean; loaded: number; failed: number; total: number }> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (!this.pythonProcess || !this.isInitialized) {
+          console.warn('[RAG] Python process not initialized, skipping preload')
+          resolve({ success: false, loaded: 0, failed: 0, total: 0 })
+          return
+        }
+
+        // Fetch user's classes directly from database
+        let classes
+        try {
+          if (userRole === 'faculty') {
+            classes = await getClassesByFaculty(userId)
+          } else {
+            classes = await getClassesByStudent(userId)
+          }
+        } catch (error) {
+          console.error('[RAG] Failed to fetch user classes for preload:', error)
+          resolve({ success: false, loaded: 0, failed: 0, total: 0 })
+          return
+        }
+
+        if (!classes || classes.length === 0) {
+          console.log('[RAG] User has no classes, skipping preload')
+          resolve({ success: true, loaded: 0, failed: 0, total: 0 })
+          return
+        }
+
+        // Collect all vector store paths (both class_material and syllabus)
+        // Only include stores that actually have been indexed (have faiss_index.bin)
+        const storePaths: string[] = []
+        for (const cls of classes) {
+          if (cls.vectorStoreFolder) {
+            const classMaterialPath = VectorStoreManager.getVectorStorePathByFolder(cls.vectorStoreFolder)
+            const indexPath = path.join(classMaterialPath, 'faiss_index.bin')
+            // Only add if the index file actually exists (class has been indexed)
+            if (fs.existsSync(indexPath)) {
+              storePaths.push(classMaterialPath.replace(/\\/g, '\\\\'))
+            }
+          }
+          if (cls.syllabusVectorStoreFolder) {
+            const syllabusPath = VectorStoreManager.getVectorStorePathByFolder(cls.syllabusVectorStoreFolder)
+            const syllabusIndexPath = path.join(syllabusPath, 'faiss_index.bin')
+            // Only add if the index file actually exists (syllabus has been indexed)
+            if (fs.existsSync(syllabusIndexPath)) {
+              storePaths.push(syllabusPath.replace(/\\/g, '\\\\'))
+            }
+          }
+        }
+
+        if (storePaths.length === 0) {
+          console.log('[RAG] No vector stores found for user classes')
+          resolve({ success: true, loaded: 0, failed: 0, total: 0 })
+          return
+        }
+
+        console.log(`[RAG] Preloading ${storePaths.length} vector stores for user ${userId} (${userRole})...`)
+
+        const requestId = `preload_${Date.now()}`
+        const request = {
+          command: 'preload',
+          request_id: requestId,
+          store_paths: storePaths,
+          run_warmup: true
+        }
+
+        const requestPromise = new Promise<{ success: boolean; loaded: number; failed: number; total: number }>((resolveRequest, rejectRequest) => {
+          const timeout = setTimeout(() => {
+            if (this.pendingRequests.has(requestId)) {
+              this.pendingRequests.delete(requestId)
+              rejectRequest(new Error('Preload timeout'))
+            }
+          }, 120000) // 2 minute timeout
+
+          this.pendingRequests.set(requestId, {
+            resolve: (value: any) => {
+              clearTimeout(timeout)
+              resolveRequest({
+                success: value.success || false,
+                loaded: value.loaded || 0,
+                failed: value.failed || 0,
+                total: value.total || 0
+              })
+            },
+            reject: (error: any) => {
+              clearTimeout(timeout)
+              rejectRequest(error)
+            }
+          })
+        })
+
+        const requestLine = JSON.stringify(request) + '\n'
+        this.pythonProcess.stdin?.write(requestLine)
+
+        const result = await requestPromise
+        console.log(`[RAG] Preload complete: ${result.loaded}/${result.total} stores loaded`)
+        resolve(result)
+      } catch (error) {
+        console.error('[RAG] Preload error:', error)
+        resolve({ success: false, loaded: 0, failed: 0, total: 0 })
+      }
+    })
+  }
+
+  /**
+   * Reload a specific vector store (unload old, load new)
+   * Called after indexing or file deletion to keep in-memory stores in sync
+   */
+  async reloadVectorStore(storePath: string): Promise<{ success: boolean }> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (!this.pythonProcess || !this.isInitialized) {
+          console.warn('[RAG] Python process not initialized, skipping reload')
+          resolve({ success: false })
+          return
+        }
+
+        const requestId = `reload_${Date.now()}`
+        const request = {
+          command: 'reload',
+          request_id: requestId,
+          store_path: storePath.replace(/\\/g, '\\\\'),
+          run_warmup: true
+        }
+
+        const requestPromise = new Promise<{ success: boolean }>((resolveRequest, rejectRequest) => {
+          const timeout = setTimeout(() => {
+            if (this.pendingRequests.has(requestId)) {
+              this.pendingRequests.delete(requestId)
+              rejectRequest(new Error('Reload timeout'))
+            }
+          }, 60000) // 1 minute timeout
+
+          this.pendingRequests.set(requestId, {
+            resolve: (value: any) => {
+              clearTimeout(timeout)
+              resolveRequest({ success: value.success || false })
+            },
+            reject: (error: any) => {
+              clearTimeout(timeout)
+              rejectRequest(error)
+            }
+          })
+        })
+
+        const requestLine = JSON.stringify(request) + '\n'
+        this.pythonProcess.stdin?.write(requestLine)
+
+        const result = await requestPromise
+        console.log(`[RAG] Reload complete for: ${storePath}`)
+        resolve(result)
+      } catch (error) {
+        console.error('[RAG] Reload error:', error)
+        resolve({ success: false })
+      }
+    })
+  }
+
+  /**
+   * Unload a specific vector store from memory
+   * Called when a class is deleted
+   */
+  async unloadVectorStore(storePath: string): Promise<{ success: boolean }> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (!this.pythonProcess || !this.isInitialized) {
+          console.warn('[RAG] Python process not initialized, skipping unload')
+          resolve({ success: false })
+          return
+        }
+
+        const requestId = `unload_${Date.now()}`
+        const request = {
+          command: 'unload',
+          request_id: requestId,
+          store_path: storePath.replace(/\\/g, '\\\\')
+        }
+
+        const requestPromise = new Promise<{ success: boolean }>((resolveRequest, rejectRequest) => {
+          const timeout = setTimeout(() => {
+            if (this.pendingRequests.has(requestId)) {
+              this.pendingRequests.delete(requestId)
+              rejectRequest(new Error('Unload timeout'))
+            }
+          }, 30000) // 30 second timeout
+
+          this.pendingRequests.set(requestId, {
+            resolve: (value: any) => {
+              clearTimeout(timeout)
+              resolveRequest({ success: value.success !== false })
+            },
+            reject: (error: any) => {
+              clearTimeout(timeout)
+              rejectRequest(error)
+            }
+          })
+        })
+
+        const requestLine = JSON.stringify(request) + '\n'
+        this.pythonProcess.stdin?.write(requestLine)
+
+        const result = await requestPromise
+        console.log(`[RAG] Unload complete for: ${storePath}`)
+        resolve(result)
+      } catch (error) {
+        console.error('[RAG] Unload error:', error)
+        resolve({ success: false })
+      }
+    })
+  }
+
   private async callPythonRAGSystem(
     query: string,
     conversationId: string,
@@ -3354,6 +3575,28 @@ Response:`
   }
 
   async waitForInitialization(timeoutMs: number = 5000): Promise<boolean> {
+    // If already initialized, return immediately
+    if (this.isInitialized) {
+      return true
+    }
+    
+    // If initialization is in progress, wait for it
+    if (this.initializationPromise) {
+      try {
+        await Promise.race([
+          this.initializationPromise,
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Initialization timeout')), timeoutMs)
+          )
+        ])
+        return this.isInitialized
+      } catch (error) {
+        // Timeout or initialization failed
+        return this.isInitialized
+      }
+    }
+    
+    // Otherwise, poll for initialization
     const startTime = Date.now()
     while (!this.isInitialized && (Date.now() - startTime) < timeoutMs) {
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -3371,3 +3614,7 @@ if (!global.ragServiceInstance) {
 }
 
 export const ragService = global.ragServiceInstance
+
+export function getRAGService(): RAGService {
+  return global.ragServiceInstance || new RAGService()
+}

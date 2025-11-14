@@ -3,4 +3,7 @@ sentence-transformers
 pypdf
 numpy
 requests
+llama-index
+llama-index-vector-stores-faiss
+llama-index-readers-file
 

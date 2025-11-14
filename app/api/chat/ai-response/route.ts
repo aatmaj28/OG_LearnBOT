@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
             async start(controller) {
               try {
                 let fullResponse = ''
+                let streamClosed = false
                 
                 for await (const chunk of ragService.generateRAGStreamingResponse(
                   message,
@@ -37,30 +38,60 @@ export async function POST(request: NextRequest) {
                   preferredModel as ModelBackend,
                   chatType || 'class_material' // Default to class_material if not specified
                 )) {
-                  // Send chunk to client
-                  const data = JSON.stringify(chunk)
-                  controller.enqueue(encoder.encode(`data: ${data}\n\n`))
-                  
-                  // Accumulate response
-                  if (chunk.content) {
-                    fullResponse += chunk.content
+                  // Check if controller is already closed
+                  if (streamClosed) {
+                    break
                   }
                   
-                  // If done, close the stream
-                  if (chunk.done) {
+                  try {
+                    // Send chunk to client
+                    const data = JSON.stringify(chunk)
+                    controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+                    
+                    // Accumulate response
+                    if (chunk.content) {
+                      fullResponse += chunk.content
+                    }
+                    
+                    // If done, close the stream
+                    if (chunk.done) {
+                      streamClosed = true
+                      controller.close()
+                      break
+                    }
+                  } catch (enqueueError: any) {
+                    // If controller is already closed, that's OK - just break
+                    if (enqueueError?.code === 'ERR_INVALID_STATE' || enqueueError?.message?.includes('closed')) {
+                      streamClosed = true
+                      break
+                    }
+                    // Otherwise, re-throw
+                    throw enqueueError
+                  }
+                }
+                
+                // Ensure stream is closed if we exit the loop without closing
+                if (!streamClosed) {
+                  try {
                     controller.close()
-                    break
+                  } catch (e) {
+                    // Controller might already be closed, that's OK
                   }
                 }
               } catch (error) {
                 console.error('Streaming error:', error)
-                const errorData = JSON.stringify({ 
-                  content: '', 
-                  done: true, 
-                  error: String(error) 
-                })
-                controller.enqueue(encoder.encode(`data: ${errorData}\n\n`))
-                controller.close()
+                try {
+                  const errorData = JSON.stringify({ 
+                    content: '', 
+                    done: true, 
+                    error: String(error) 
+                  })
+                  controller.enqueue(encoder.encode(`data: ${errorData}\n\n`))
+                  controller.close()
+                } catch (closeError) {
+                  // Controller might already be closed, that's OK
+                  console.error('Error closing stream:', closeError)
+                }
               }
             }
           })

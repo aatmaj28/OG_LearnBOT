@@ -41,6 +41,39 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     loadConversations()
     checkRAGStatus()
     
+    // Preload user's classes on mount (after RAG is ready)
+    const preloadUserClasses = async () => {
+      const userId = localStorage.getItem("userId")
+      const userRole = localStorage.getItem("userRole") as 'student' | 'faculty' | null
+      
+      if (userId && userRole) {
+        // Wait a bit for RAG service to initialize
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        try {
+          const response = await fetch('/api/rag/preload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, userRole })
+          })
+          
+          if (response.ok) {
+            const result = await response.json()
+            console.log(`[Faculty Chat] Preload result: ${result.loaded}/${result.total} stores loaded`)
+          } else if (response.status === 503) {
+            // RAG not ready yet, retry after a delay
+            setTimeout(preloadUserClasses, 3000)
+          } else {
+            console.warn('[Faculty Chat] Preload failed:', await response.text())
+          }
+        } catch (error) {
+          console.error('[Faculty Chat] Failed to preload classes:', error)
+        }
+      }
+    }
+    
+    preloadUserClasses()
+    
     // Poll status every 5 seconds to detect when RAG becomes ready
     const statusInterval = setInterval(checkRAGStatus, 5000)
     
@@ -670,7 +703,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 <SelectValue placeholder="Choose a model..." />
               </SelectTrigger>
               <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude 3.5 Sonnet</SelectItem>
+                <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude 4.5 Haiku</SelectItem>
                 <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🚀 Remote A6000 (Gemma 27B)</SelectItem>
                 <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>⚡ Remote Blackwell (Gemma 27B)</SelectItem>
               </SelectContent>

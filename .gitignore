@@ -122,3 +122,17 @@ public
 tmp/
 temp/
 vector_stores/
+
+# Python
+venv/
+env/
+ENV/
+.venv/
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+

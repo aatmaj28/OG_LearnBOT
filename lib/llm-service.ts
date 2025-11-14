@@ -30,7 +30,7 @@ async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partia
         content: '', 
         done: true, 
         error: `vLLM error: ${response.status}`, 
-        modelUsed: 'remote-blackwell'
+        modelUsed: REMOTE_BLACKWELL_BACKEND
       }
       return
     }
@@ -41,7 +41,7 @@ async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partia
         content: '', 
         done: true, 
         error: 'No response stream', 
-        modelUsed: 'remote-blackwell'
+        modelUsed: REMOTE_BLACKWELL_BACKEND
       }
       return
     }
@@ -53,7 +53,7 @@ async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partia
       const { done, value } = await reader.read()
       
       if (done) {
-        yield { content: '', done: true, modelUsed: 'remote-blackwell' }
+        yield { content: '', done: true, modelUsed: REMOTE_BLACKWELL_BACKEND }
         break
       }
 
@@ -68,7 +68,7 @@ async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partia
           const parsed = JSON.parse(line)
           const text = parsed.choices?.[0]?.delta?.content || ''
           if (text) {
-            yield { content: text, done: false, modelUsed: 'remote-blackwell' }
+            yield { content: text, done: false, modelUsed: REMOTE_BLACKWELL_BACKEND }
           }
         }
       }
@@ -79,7 +79,7 @@ async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partia
       content: '', 
       done: true, 
       error: String(error), 
-      modelUsed: 'remote-blackwell'
+      modelUsed: REMOTE_BLACKWELL_BACKEND
     }
   }
 }
@@ -99,11 +99,11 @@ export interface ModelInfo {
 
 export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
   'claude': {
-    name: "Claude 3.5 Sonnet",
+    name: "Claude 4.5 Haiku",
     type: "claude",
     endpoint: "https://api.anthropic.com/v1/messages",
-    model: "claude-sonnet-4-20250514",
-    description: "Anthropic's Claude 3.5 Sonnet - Best model for reasoning and instruction following",
+    model: "claude-haiku-4-5-20251001",
+    description: "Anthropic's Claude 4.5 Haiku - Fast, instruction-tuned Claude endpoint",
     requiresTunnel: false,
     tunnelCommand: ""
   },
@@ -126,6 +126,11 @@ export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
     tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97"
   }
 }
+
+const CLAUDE_MODEL_ID = process.env.CLAUDE_MODEL_ID || MODEL_CONFIGS['claude'].model
+const CLAUDE_BACKEND: ModelBackend = 'claude'
+const REMOTE_A6000_BACKEND: ModelBackend = 'remote-a6000'
+const REMOTE_BLACKWELL_BACKEND: ModelBackend = 'remote-blackwell'
 
 export interface LLMResponse {
   response: string
@@ -170,7 +175,7 @@ async function callClaude(prompt: string, systemPrompt: string, config?: Partial
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: CLAUDE_MODEL_ID,
         max_tokens: config?.maxTokens ?? 1024,
         system: systemPrompt,
         messages: [
@@ -192,7 +197,7 @@ async function callClaude(prompt: string, systemPrompt: string, config?: Partial
 
     return {
       response: responseText,
-      modelUsed: 'claude',
+      modelUsed: CLAUDE_BACKEND,
       timeTaken: endTime - startTime,
       success: true
     }
@@ -201,7 +206,7 @@ async function callClaude(prompt: string, systemPrompt: string, config?: Partial
     console.error('Claude API error:', error)
     return {
       response: '',
-      modelUsed: 'claude',
+      modelUsed: CLAUDE_BACKEND,
       timeTaken: endTime - startTime,
       success: false,
       error: error instanceof Error ? error.message : String(error)
@@ -249,7 +254,7 @@ async function callRemoteOllama(prompt: string, systemPrompt: string, config?: P
 
     return {
       response: responseText,
-      modelUsed: 'remote-a6000',
+      modelUsed: REMOTE_A6000_BACKEND,
       timeTaken: endTime - startTime,
       success: true,
       modelInfo: MODEL_CONFIGS['remote-a6000']
@@ -259,7 +264,7 @@ async function callRemoteOllama(prompt: string, systemPrompt: string, config?: P
     console.error('Remote Ollama error:', error)
     return {
       response: '',
-      modelUsed: 'remote-a6000',
+      modelUsed: REMOTE_A6000_BACKEND,
       timeTaken: endTime - startTime,
       success: false,
       error: error instanceof Error ? error.message : String(error)
@@ -303,7 +308,7 @@ async function callVLLM(prompt: string, systemPrompt: string, config?: Partial<L
 
     return {
       response: responseText,
-      modelUsed: 'remote-blackwell',
+      modelUsed: REMOTE_BLACKWELL_BACKEND,
       timeTaken: Date.now() - startTime,
       success: true,
       modelInfo: modelConfig
@@ -312,68 +317,11 @@ async function callVLLM(prompt: string, systemPrompt: string, config?: Partial<L
     console.error('vLLM error:', error)
     return {
       response: '',
-      modelUsed: 'remote-blackwell',
+      modelUsed: REMOTE_BLACKWELL_BACKEND,
       timeTaken: Date.now() - startTime,
       success: false,
       error: error instanceof Error ? error.message : String(error),
       modelInfo: modelConfig
-    }
-  }
-}
-
-// Local Ollama API call
-async function callLocalOllama(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
-  const startTime = Date.now()
-  
-  try {
-    const localUrl = process.env.LOCAL_OLLAMA_URL || 'http://localhost:11434'
-    const localModel = process.env.LOCAL_OLLAMA_MODEL || 'llama3.1:8b'
-
-    const fullPrompt = `${systemPrompt}\n\n${prompt}`
-
-    const response = await fetch(`${localUrl}/api/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: localModel,
-        prompt: fullPrompt,
-        stream: false,
-        options: {
-          temperature: config?.temperature ?? 0.2,
-          top_p: 0.95,
-          top_k: 40
-        }
-      }),
-      signal: AbortSignal.timeout(120000) // 2 minute timeout
-    })
-
-    const endTime = Date.now()
-
-    if (!response.ok) {
-      const errorData = await response.text()
-      throw new Error(`Local Ollama error: ${response.status} - ${errorData}`)
-    }
-
-    const data = await response.json()
-    const responseText = data.response || ''
-
-    return {
-      response: responseText,
-      modelUsed: 'local-ollama',
-      timeTaken: endTime - startTime,
-      success: true
-    }
-  } catch (error) {
-    const endTime = Date.now()
-    console.error('Local Ollama error:', error)
-    return {
-      response: '',
-      modelUsed: 'local-ollama',
-      timeTaken: endTime - startTime,
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
     }
   }
 }
@@ -383,8 +331,8 @@ async function callLocalOllama(prompt: string, systemPrompt: string, config?: Pa
  * 
  * Priority:
  * 1. Try preferred backend
- * 2. If fails, try the other backend (Claude <-> Remote Ollama)
- * 3. If both fail, try local Ollama
+ * 2. If fails, try the remaining remote backends (Claude ⇄ Remote Ollama ⇄ Blackwell)
+ * 3. Surface a helpful error if all fail
  * 
  * @param prompt - The user's prompt/question
  * @param config - Configuration including preferred backend and system prompt
@@ -505,7 +453,7 @@ async function* streamClaude(
     const apiKey = process.env.ANTHROPIC_API_KEY
     
     if (!apiKey || apiKey.includes('your-anthropic-api-key')) {
-      yield { content: '', done: true, error: 'Anthropic API key not configured', modelUsed: 'claude' }
+      yield { content: '', done: true, error: 'Anthropic API key not configured', modelUsed: CLAUDE_BACKEND }
       return
     }
 
@@ -517,7 +465,7 @@ async function* streamClaude(
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: CLAUDE_MODEL_ID,
         max_tokens: config?.maxTokens ?? 1024,
         system: systemPrompt,
         messages: [
@@ -530,7 +478,7 @@ async function* streamClaude(
 
     if (!response.ok) {
       const errorData = await response.text()
-      yield { content: '', done: true, error: `Claude error: ${response.status}`, modelUsed: 'claude' }
+      yield { content: '', done: true, error: `Claude error: ${response.status}`, modelUsed: CLAUDE_BACKEND }
       return
     }
 
@@ -538,7 +486,7 @@ async function* streamClaude(
     const decoder = new TextDecoder()
 
     if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: 'claude' }
+      yield { content: '', done: true, error: 'No response stream', modelUsed: CLAUDE_BACKEND }
       return
     }
 
@@ -556,7 +504,7 @@ async function* streamClaude(
         if (line.trim() && line.startsWith('data: ')) {
           const data = line.slice(6).trim()
           if (data === '[DONE]') {
-            yield { content: '', done: true, modelUsed: 'claude' }
+            yield { content: '', done: true, modelUsed: CLAUDE_BACKEND }
             return
           }
 
@@ -565,10 +513,10 @@ async function* streamClaude(
             if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
               const content = parsed.delta.text || ''
               if (content) {
-                yield { content, done: false, modelUsed: 'claude' }
+              yield { content, done: false, modelUsed: CLAUDE_BACKEND }
               }
             } else if (parsed.type === 'message_stop') {
-              yield { content: '', done: true, modelUsed: 'claude' }
+              yield { content: '', done: true, modelUsed: CLAUDE_BACKEND }
               return
             }
           } catch (e) {
@@ -578,10 +526,10 @@ async function* streamClaude(
       }
     }
 
-    yield { content: '', done: true, modelUsed: 'claude' }
+    yield { content: '', done: true, modelUsed: CLAUDE_BACKEND }
   } catch (error) {
     console.error('Claude streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: 'claude' }
+    yield { content: '', done: true, error: String(error), modelUsed: CLAUDE_BACKEND }
   }
 }
 
@@ -616,7 +564,7 @@ async function* streamRemoteOllama(
     })
 
     if (!response.ok) {
-      yield { content: '', done: true, error: `Remote A6000 error: ${response.status}`, modelUsed: 'remote-a6000' }
+      yield { content: '', done: true, error: `Remote A6000 error: ${response.status}`, modelUsed: REMOTE_A6000_BACKEND }
       return
     }
 
@@ -624,7 +572,7 @@ async function* streamRemoteOllama(
     const decoder = new TextDecoder()
 
     if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: 'remote-a6000' }
+      yield { content: '', done: true, error: 'No response stream', modelUsed: REMOTE_A6000_BACKEND }
       return
     }
 
@@ -639,10 +587,10 @@ async function* streamRemoteOllama(
         try {
           const parsed = JSON.parse(line)
           if (parsed.response) {
-            yield { content: parsed.response, done: false, modelUsed: 'remote-a6000' }
+            yield { content: parsed.response, done: false, modelUsed: REMOTE_A6000_BACKEND }
           }
           if (parsed.done) {
-            yield { content: '', done: true, modelUsed: 'remote-a6000' }
+            yield { content: '', done: true, modelUsed: REMOTE_A6000_BACKEND }
             return
           }
         } catch (e) {
@@ -651,83 +599,10 @@ async function* streamRemoteOllama(
       }
     }
 
-    yield { content: '', done: true, modelUsed: 'remote-a6000' }
+    yield { content: '', done: true, modelUsed: REMOTE_A6000_BACKEND }
   } catch (error) {
     console.error('Remote A6000 streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: 'remote-a6000' }
-  }
-}
-
-/**
- * Stream response from Local Ollama
- */
-async function* streamLocalOllama(
-  prompt: string,
-  systemPrompt: string,
-  config?: Partial<LLMConfig>
-): AsyncGenerator<LLMStreamChunk> {
-  try {
-    const localUrl = process.env.LOCAL_OLLAMA_URL || 'http://localhost:11434'
-    const localModel = process.env.LOCAL_OLLAMA_MODEL || 'llama3.1:8b'
-    const fullPrompt = `${systemPrompt}\n\n${prompt}`
-
-    const response = await fetch(`${localUrl}/api/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: localModel,
-        prompt: fullPrompt,
-        stream: true,
-        options: {
-          temperature: config?.temperature ?? 0.2,
-          top_p: 0.95,
-          top_k: 40
-        }
-      })
-    })
-
-    if (!response.ok) {
-      yield { content: '', done: true, error: `Local Ollama error: ${response.status}`, modelUsed: 'local-ollama' }
-      return
-    }
-
-    const reader = response.body?.getReader()
-    const decoder = new TextDecoder()
-
-    if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: 'local-ollama' }
-      return
-    }
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      const chunk = decoder.decode(value)
-      const lines = chunk.split('\n').filter(line => line.trim() !== '')
-
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line)
-          if (parsed.response) {
-            yield { content: parsed.response, done: false, modelUsed: 'local-ollama' }
-          }
-          if (parsed.done) {
-            yield { content: '', done: true, modelUsed: 'local-ollama' }
-            return
-          }
-        } catch (e) {
-          // Skip invalid JSON
-        }
-      }
-    }
-
-    yield { content: '', done: true, modelUsed: 'local-ollama' }
-  } catch (error) {
-    console.error('Local Ollama streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: 'local-ollama' }
+    yield { content: '', done: true, error: String(error), modelUsed: REMOTE_A6000_BACKEND }
   }
 }
 

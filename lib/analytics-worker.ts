@@ -1,7 +1,7 @@
 /**
  * Background Analytics Worker
- * Processes all conversations on server startup to pre-compute analytics
- * Runs in the background so analytics are ready instantly when users view the Analytics tab
+ * Processes all conversations continuously to keep analytics up-to-date
+ * Runs every 15 minutes to analyze all student chats and update analytics
  */
 
 import { pool } from './db'
@@ -10,17 +10,18 @@ import type { RAGConversation } from './types'
 
 let isProcessing = false
 let processingComplete = false
+let analyticsInterval: NodeJS.Timeout | null = null
 
 /**
  * Process a single conversation to generate summary and analytics
  */
-async function processConversation(conversation: RAGConversation): Promise<void> {
+async function processConversation(conversation: RAGConversation, forceUpdate: boolean = false): Promise<void> {
   try {
-    // Skip if already processed recently (within last hour)
-    if (conversation.analyticsLastUpdated) {
-      const hoursSinceUpdate = (Date.now() - conversation.analyticsLastUpdated.getTime()) / (1000 * 60 * 60)
-      if (hoursSinceUpdate < 1) {
-        console.log(`[Analytics Worker] Skipping conversation ${conversation.id} - updated ${hoursSinceUpdate.toFixed(1)}h ago`)
+    // Skip if already processed recently (within last 15 minutes) unless forced
+    if (!forceUpdate && conversation.analyticsLastUpdated) {
+      const minutesSinceUpdate = (Date.now() - conversation.analyticsLastUpdated.getTime()) / (1000 * 60)
+      if (minutesSinceUpdate < 15) {
+        console.log(`[Analytics Worker] Skipping conversation ${conversation.id} - updated ${minutesSinceUpdate.toFixed(1)}m ago`)
         return
       }
     }
@@ -44,34 +45,24 @@ async function processConversation(conversation: RAGConversation): Promise<void>
       summary = await generateConversationSummary(conversation.messageHistory, summary)
     }
 
-    // Generate analytics if missing or outdated
-    if (!conversation.cachedSentiment || !conversation.cachedTopics || conversation.cachedTopics.length === 0) {
-      const analysisResult = await analyzeLatestConversation(
-        conversation.userId,
-        conversation.classId,
-        conversation.messageHistory,
-        conversation.title,
-        summary
-      )
+    // Always regenerate analytics to keep them up-to-date with latest messages
+    const analysisResult = await analyzeLatestConversation(
+      conversation.userId,
+      conversation.classId,
+      conversation.messageHistory,
+      conversation.title,
+      summary
+    )
 
-      // Update conversation with summary and analytics
-      await updateRAGConversation(conversation.id, {
-        conversationSummary: summary,
-        cachedSentiment: analysisResult.sentiment,
-        cachedTopics: analysisResult.topics,
-        analyticsLastUpdated: new Date()
-      })
+    // Update conversation with summary and analytics
+    await updateRAGConversation(conversation.id, {
+      conversationSummary: summary,
+      cachedSentiment: analysisResult.sentiment,
+      cachedTopics: analysisResult.topics,
+      analyticsLastUpdated: new Date()
+    })
 
-      console.log(`[Analytics Worker] ✅ Processed conversation ${conversation.id}`)
-    } else {
-      // Just update summary if analytics are already cached
-      if (summary && summary !== conversation.conversationSummary) {
-        await updateRAGConversation(conversation.id, {
-          conversationSummary: summary
-        })
-        console.log(`[Analytics Worker] ✅ Updated summary for conversation ${conversation.id}`)
-      }
-    }
+    console.log(`[Analytics Worker] ✅ Processed conversation ${conversation.id}`)
   } catch (error) {
     console.error(`[Analytics Worker] ❌ Error processing conversation ${conversation.id}:`, error)
     // Continue processing other conversations
@@ -80,15 +71,16 @@ async function processConversation(conversation: RAGConversation): Promise<void>
 
 /**
  * Process all active conversations in batches
+ * @param forceUpdate - If true, process all conversations regardless of last update time
  */
-async function processAllConversations(): Promise<void> {
+async function processAllConversations(forceUpdate: boolean = false): Promise<void> {
   if (isProcessing) {
     console.log('[Analytics Worker] Already processing, skipping...')
     return
   }
 
   isProcessing = true
-  console.log('[Analytics Worker] 🚀 Starting background analytics processing...')
+  console.log(`[Analytics Worker] 🚀 Starting background analytics processing${forceUpdate ? ' (force update)' : ''}...`)
 
   try {
     const client = await pool.connect()
@@ -132,7 +124,7 @@ async function processAllConversations(): Promise<void> {
 
       for (let i = 0; i < conversations.length; i += batchSize) {
         const batch = conversations.slice(i, i + batchSize)
-        await Promise.all(batch.map(conv => processConversation(conv)))
+        await Promise.all(batch.map(conv => processConversation(conv, forceUpdate)))
         processed += batch.length
         
         // Log progress every 10 conversations
@@ -160,17 +152,38 @@ async function processAllConversations(): Promise<void> {
 
 /**
  * Start background analytics processing (non-blocking)
+ * Runs immediately on startup, then every 15 minutes continuously
  * Call this on server startup
  */
 export function startAnalyticsWorker(): void {
-  // Run in background after a short delay to let server initialize
+  // Run initial processing after a short delay to let server initialize
   setTimeout(() => {
-    processAllConversations().catch(error => {
+    processAllConversations(true).catch(error => {
       console.error('[Analytics Worker] Fatal error:', error)
     })
   }, 5000) // Start after 5 seconds
 
-  console.log('[Analytics Worker] 📋 Scheduled background analytics processing (starting in 5s)')
+  // Schedule recurring processing every 15 minutes
+  analyticsInterval = setInterval(() => {
+    processAllConversations(false).catch(error => {
+      console.error('[Analytics Worker] Fatal error in scheduled run:', error)
+    })
+  }, 15 * 60 * 1000) // 15 minutes = 900,000 ms
+
+  console.log('[Analytics Worker] 📋 Scheduled background analytics processing:')
+  console.log('[Analytics Worker]   - Initial run: starting in 5s')
+  console.log('[Analytics Worker]   - Recurring runs: every 15 minutes')
+}
+
+/**
+ * Stop the analytics worker (useful for testing or graceful shutdown)
+ */
+export function stopAnalyticsWorker(): void {
+  if (analyticsInterval) {
+    clearInterval(analyticsInterval)
+    analyticsInterval = null
+    console.log('[Analytics Worker] ⏹️ Stopped recurring analytics processing')
+  }
 }
 
 /**
