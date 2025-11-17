@@ -3170,7 +3170,9 @@ if __name__ == "__main__":
           const timeout = setTimeout(() => {
             if (this.pendingRequests.has(requestId)) {
               this.pendingRequests.delete(requestId)
-              rejectRequest(new Error('Reload timeout'))
+              // Don't reject - just resolve with success: false since it's fire-and-forget
+              // The reload will still happen in the background
+              resolveRequest({ success: false })
             }
           }, 60000) // 1 minute timeout
 
@@ -3181,7 +3183,8 @@ if __name__ == "__main__":
             },
             reject: (error: any) => {
               clearTimeout(timeout)
-              rejectRequest(error)
+              // Don't reject - just resolve with success: false since it's fire-and-forget
+              resolveRequest({ success: false })
             }
           })
         })
@@ -3190,13 +3193,45 @@ if __name__ == "__main__":
         this.pythonProcess.stdin?.write(requestLine)
 
         const result = await requestPromise
+        if (result.success) {
         console.log(`[RAG] Reload complete for: ${storePath}`)
+        } else {
+          // Silently handle timeout - reload is happening in background anyway
+          console.log(`[RAG] Reload command sent for: ${storePath} (background)`)
+        }
         resolve(result)
       } catch (error) {
-        console.error('[RAG] Reload error:', error)
+        // Silently handle errors - reload is fire-and-forget
+        console.log(`[RAG] Reload command sent for: ${storePath} (background, error ignored)`)
         resolve({ success: false })
       }
     })
+  }
+
+  /**
+   * Fire-and-forget version of reload - doesn't wait for response
+   * Use this when you don't need to wait for the reload to complete
+   */
+  reloadVectorStoreAsync(storePath: string): void {
+    if (!this.pythonProcess || !this.isInitialized) {
+      return
+    }
+
+    const requestId = `reload_${Date.now()}_async`
+    const request = {
+      command: 'reload',
+      request_id: requestId,
+      store_path: storePath.replace(/\\/g, '\\\\'),
+      run_warmup: true
+    }
+
+    try {
+      const requestLine = JSON.stringify(request) + '\n'
+      this.pythonProcess.stdin?.write(requestLine)
+      console.log(`[RAG] Reload command sent (async) for: ${storePath}`)
+    } catch (error) {
+      // Silently ignore errors - it's fire-and-forget
+    }
   }
 
   /**

@@ -103,8 +103,9 @@ async function createVectorStoreManually(folderName: string, className: string) 
       vector_store_folder: folderName,
       created_at: new Date().toISOString(),
       embedding_model: "sentence-transformers/all-mpnet-base-v2",
-      status: "ready_for_upload",
-      note: "Upload your FAISS index files (faiss_index.bin, metadata.json, metadata.pkl) to this folder"
+      vector_store_type: "chromadb",
+      status: "ready_for_indexing",
+      note: "Upload PDFs and index them using the corpus management interface. ChromaDB will store the vectors automatically."
     }
     
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2))

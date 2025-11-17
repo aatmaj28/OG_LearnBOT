@@ -142,6 +142,40 @@ export const initializeDatabase = async () => {
       console.log('conversation_summary column already exists or could not be added')
     }
 
+    // Create rag_conversations_history table - stores ALL conversations (including deleted ones) for reference only
+    // This table is NOT used by any functionality, only for historical reference
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rag_conversations_history (
+        id SERIAL PRIMARY KEY,
+        original_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL,
+        title VARCHAR(255) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        current_topic TEXT,
+        checkpoint_state JSONB,
+        message_history JSONB DEFAULT '[]',
+        student_problem_data JSONB,
+        cached_context JSONB,
+        last_retrieval_topic TEXT,
+        cached_sentiment DECIMAL(3,2) DEFAULT 0,
+        cached_topics JSONB DEFAULT '[]',
+        analytics_last_updated TIMESTAMP,
+        conversation_summary TEXT,
+        chat_type VARCHAR(50) DEFAULT 'class_material',
+        original_created_at TIMESTAMP,
+        original_updated_at TIMESTAMP,
+        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Create index for faster history queries
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_rag_conversations_history_user 
+      ON rag_conversations_history(user_id, archived_at DESC)
+    `)
+
     // Create pending_registrations table for email verification
     await client.query(`
       CREATE TABLE IF NOT EXISTS pending_registrations (

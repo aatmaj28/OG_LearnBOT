@@ -1,26 +1,45 @@
 """
 LlamaIndex-based indexing service for LearnBot
-Replaces custom Python scripts with LlamaIndex abstractions
+Uses ChromaDB for vector storage (replaces FAISS)
 """
 import sys
 import os
 import json
-import pickle
 from pathlib import Path
 from typing import List, Optional
 
 # LlamaIndex imports
 from llama_index.core import VectorStoreIndex, StorageContext, Document, Settings
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.vector_stores.faiss import FaissVectorStore
+from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.readers.file import PDFReader
-import faiss
+import chromadb
+from chromadb.config import Settings as ChromaSettings
 
 # Use sentence-transformers directly (already installed)
 from sentence_transformers import SentenceTransformer
 
 # Configuration
 EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
+CHROMA_PERSIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector-stores", "chroma")
+
+# ChromaDB Server Mode Configuration
+# Set CHROMA_SERVER_URL environment variable to use server mode (e.g., "http://localhost:8000")
+# If not set, falls back to embedded mode
+CHROMA_SERVER_URL = os.getenv("CHROMA_SERVER_URL", None)
+CHROMA_SERVER_AUTH_TOKEN = os.getenv("CHROMA_SERVER_AUTH_TOKEN", "test-token")  # Default token for local dev
+
+
+def get_collection_name(output_path: str) -> str:
+    """
+    Generate a collection name from the output path.
+    Uses the folder name as the collection name.
+    """
+    # Get the folder name from the path
+    folder_name = os.path.basename(os.path.normpath(output_path))
+    # Sanitize for ChromaDB (replace invalid chars)
+    collection_name = folder_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
+    return collection_name
 
 
 def index_pdfs(
@@ -31,11 +50,11 @@ def index_pdfs(
     class_name: Optional[str] = None
 ) -> dict:
     """
-    Index PDFs using LlamaIndex and save to FAISS
+    Index PDFs using LlamaIndex and save to ChromaDB
     
     Args:
         pdf_paths: List of PDF file paths to index
-        output_path: Directory to save the FAISS index and metadata
+        output_path: Directory path (used to generate collection name)
         is_syllabus: Whether these are syllabus documents (affects chunking)
         class_id: Optional class ID for metadata
         class_name: Optional class name for metadata
@@ -49,38 +68,30 @@ def index_pdfs(
         print(f"[LlamaIndex] Is syllabus: {is_syllabus}", file=sys.stderr)
         
         # Configure embedding model - use sentence-transformers directly
-        # Create a wrapper class that inherits from BaseEmbedding
         from llama_index.core.embeddings import BaseEmbedding
         from pydantic import PrivateAttr
         
         class SentenceTransformerEmbedding(BaseEmbedding):
-            # Use PrivateAttr to store the model (not a Pydantic field)
             _model = PrivateAttr()
             
             def __init__(self, model_name: str = EMBEDDING_MODEL, **kwargs):
                 super().__init__(**kwargs)
-                # Set private attribute after super().__init__
                 object.__setattr__(self, '_model', SentenceTransformer(model_name))
             
             def _get_query_embedding(self, query: str):
-                """Get embedding for a query string."""
                 return self._model.encode(query, convert_to_numpy=True).tolist()
             
             def _get_text_embedding(self, text: str):
-                """Get embedding for a text string."""
                 return self._model.encode(text, convert_to_numpy=True).tolist()
             
             def _get_text_embeddings(self, texts: List[str]):
-                """Get embeddings for multiple text strings."""
                 embeddings = self._model.encode(texts, convert_to_numpy=True)
                 return [emb.tolist() for emb in embeddings]
             
             async def _aget_query_embedding(self, query: str):
-                """Async get embedding for a query string."""
                 return self._get_query_embedding(query)
             
             async def _aget_text_embedding(self, text: str):
-                """Async get embedding for a text string."""
                 return self._get_text_embedding(text)
         
         embed_model = SentenceTransformerEmbedding(EMBEDDING_MODEL)
@@ -88,11 +99,9 @@ def index_pdfs(
         
         # Configure chunking based on document type
         if is_syllabus:
-            # Larger chunks for syllabus to preserve context
             chunk_size = 2000
             chunk_overlap = 400
         else:
-            # Standard chunks for class materials
             chunk_size = 1000
             chunk_overlap = 200
         
@@ -102,59 +111,158 @@ def index_pdfs(
         )
         Settings.node_parser = text_splitter
         
-        # Check if index already exists (for incremental indexing)
-        indexPath = os.path.join(output_path, "faiss_index.bin")
-        metadataPath = os.path.join(output_path, "metadata.pkl")
-        hasExistingIndex = os.path.exists(indexPath) and os.path.exists(metadataPath)
+        # Get collection name from output path
+        collection_name = get_collection_name(output_path)
+        print(f"[LlamaIndex] Using ChromaDB collection: {collection_name}", file=sys.stderr)
         
-        # Load existing index if available
-        existing_documents = []
-        existing_metadata = []
-        existing_index = None
-        already_processed_files = set()
-        
-        if hasExistingIndex:
+        # Initialize ChromaDB client (server mode or embedded mode)
+        if CHROMA_SERVER_URL:
+            # Server mode: Connect via HTTP
+            print(f"[LlamaIndex] Connecting to ChromaDB server at: {CHROMA_SERVER_URL}", file=sys.stderr)
+            # Parse URL to extract host and port
+            url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
+            if ":" in url_clean:
+                host, port_str = url_clean.split(":", 1)
+                port = int(port_str.split("/")[0])  # Handle trailing slashes
+            else:
+                host = url_clean.split("/")[0]
+                port = 8000
+            
+            # Create settings with token authentication
+            if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
+                auth_token = CHROMA_SERVER_AUTH_TOKEN
+            else:
+                auth_token = "test-token"
+            
+            print(f"[LlamaIndex] 🔐 Attempting token authentication with token: {'***' + auth_token[-4:] if len(auth_token) > 4 else '***'}", file=sys.stderr)
+            
+            # Try multiple authentication methods
+            chroma_client = None
+            auth_method_used = None
+            
+            # Method 1: Try using Settings with token auth provider
             try:
-                print("[LlamaIndex] Loading existing index...", file=sys.stderr)
-                # Load FAISS index
-                existing_faiss_index = faiss.read_index(indexPath)
-                
-                # Load metadata
-                with open(metadataPath, "rb") as f:
-                    existing_metadata = pickle.load(f)
-                
-                # Get list of already processed files
-                already_processed_files = set(
-                    meta.get("source_file") for meta in existing_metadata
+                settings = ChromaSettings(
+                    anonymized_telemetry=False,
+                    chroma_client_auth_provider="chromadb.auth.token_authn.TokenAuthClientProvider",
+                    chroma_client_auth_credentials=auth_token
                 )
+                chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
+                auth_method_used = "TokenAuthClientProvider (Settings)"
+                print(f"[LlamaIndex] ✅ Connected using {auth_method_used}", file=sys.stderr)
+            except Exception as e1:
+                print(f"[LlamaIndex] ⚠️  Method 1 failed: {str(e1)[:100]}", file=sys.stderr)
+                
+                # Method 2: Try with headers parameter (if supported)
+                try:
+                    settings = ChromaSettings(anonymized_telemetry=False)
+                    chroma_client = chromadb.HttpClient(
+                        host=host,
+                        port=port,
+                        settings=settings,
+                        headers={"Authorization": f"Bearer {auth_token}"}
+                    )
+                    auth_method_used = "Bearer token (headers)"
+                    print(f"[LlamaIndex] ✅ Connected using {auth_method_used}", file=sys.stderr)
+                except (TypeError, Exception) as e2:
+                    print(f"[LlamaIndex] ⚠️  Method 2 failed: {str(e2)[:100]}", file=sys.stderr)
+                    
+                    # Method 3: Try without auth (fallback)
+                    try:
+                        settings = ChromaSettings(anonymized_telemetry=False)
+                        chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
+                        auth_method_used = "No authentication (fallback)"
+                        print(f"[LlamaIndex] ⚠️  Connected without authentication (server may reject requests)", file=sys.stderr)
+                    except Exception as e3:
+                        raise Exception(f"All connection methods failed. Last error: {str(e3)}")
+        
+            if chroma_client is None:
+                raise Exception("Failed to create ChromaDB client")
+            
+            print(f"[LlamaIndex] 🔐 Authentication method used: {auth_method_used}", file=sys.stderr)
+        else:
+            # Embedded mode: Use local persistent storage
+            print(f"[LlamaIndex] Using ChromaDB embedded mode at: {CHROMA_PERSIST_DIR}", file=sys.stderr)
+            os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
+            chroma_client = chromadb.PersistentClient(
+                path=CHROMA_PERSIST_DIR,
+                settings=ChromaSettings(anonymized_telemetry=False)
+            )
+                
+        # Get or create collection
+        try:
+            collection = chroma_client.get_collection(name=collection_name)
+            print(f"[LlamaIndex] Found existing ChromaDB collection: {collection_name}", file=sys.stderr)
+            existing_count = collection.count()
+            print(f"[LlamaIndex] Existing collection has {existing_count} vectors", file=sys.stderr)
+        except Exception:
+            collection = chroma_client.create_collection(name=collection_name)
+            print(f"[LlamaIndex] Created new ChromaDB collection: {collection_name}", file=sys.stderr)
+            existing_count = 0
+        
+        # Check which files are already indexed (by checking metadata in collection)
+        already_processed_files = set()
+        if existing_count > 0:
+            try:
+                # Get all existing documents to check source files
+                existing_results = collection.get(include=["metadatas"])
+                if existing_results and existing_results.get("metadatas"):
+                    for metadata in existing_results["metadatas"]:
+                        if metadata and "source_file" in metadata:
+                            already_processed_files.add(metadata["source_file"])
                 print(
-                    f"[LlamaIndex] Found {len(existing_metadata)} existing chunks from "
-                    f"{len(already_processed_files)} files",
+                    f"[LlamaIndex] Found {len(already_processed_files)} already processed files",
                     file=sys.stderr
                 )
                 
-                # Reconstruct documents from metadata for incremental indexing
-                for meta in existing_metadata:
-                    doc = Document(
-                        text=meta.get("chunk_text", ""),
-                        metadata={
-                            "source_file": meta.get("source_file"),
-                            "chunk_index": meta.get("chunk_index"),
-                            "section_title": meta.get("section_title", "")
-                        }
-                    )
-                    existing_documents.append(doc)
-                
-                existing_index = existing_faiss_index
-                
+                # If we have chunks but no PDFs to process, clear all chunks
+                # This handles the case where PDFs were deleted but chunks remain
+                if len(pdf_paths) == 0 and existing_count > 0:
+                    print(f"[LlamaIndex] No PDFs to index but {existing_count} chunks exist. Clearing all chunks...", file=sys.stderr)
+                    # Get all IDs and delete everything (IDs are always returned)
+                    all_ids = existing_results.get("ids", [])
+                    if all_ids:
+                        collection.delete(ids=all_ids)
+                        print(f"[LlamaIndex] Cleared all {len(all_ids)} chunks", file=sys.stderr)
+                    else:
+                        # If no IDs in results, get them separately
+                        all_results = collection.get()
+                        all_ids = all_results.get("ids", [])
+                        if all_ids:
+                            collection.delete(ids=all_ids)
+                            print(f"[LlamaIndex] Cleared all {len(all_ids)} chunks", file=sys.stderr)
+                    # Update config
+                    config = {
+                        "class_id": class_id or "",
+                        "class_name": class_name or "",
+                        "embedding_model": EMBEDDING_MODEL,
+                        "dimension": 768,
+                        "total_chunks": 0,
+                        "total_pdfs": 0,
+                        "chunk_size": chunk_size,
+                        "overlap": chunk_overlap,
+                        "collection_name": collection_name,
+                        "chroma_persist_dir": CHROMA_PERSIST_DIR,
+                        "created_at": None
+                    }
+                    configPath = os.path.join(output_path, "config.json")
+                    with open(configPath, "w") as f:
+                        json.dump(config, f, indent=2)
+                    # Clear metadata.json
+                    metadata_json_path = os.path.join(output_path, "metadata.json")
+                    with open(metadata_json_path, "w", encoding="utf-8") as f:
+                        json.dump([], f, ensure_ascii=False, indent=2)
+                    return {
+                        "success": True,
+                        "chunks": 0,
+                        "pdfs": 0,
+                        "new_chunks": 0
+                    }
             except Exception as e:
-                print(f"[LlamaIndex] Warning: Could not load existing index: {e}", file=sys.stderr)
-                existing_index = None
-                existing_metadata = []
-                already_processed_files = set()
+                print(f"[LlamaIndex] Warning: Could not check existing files: {e}", file=sys.stderr)
         
         # Load and process PDFs
-        all_documents = existing_documents.copy()
+        all_documents = []
         new_chunks_count = 0
         pdf_reader = PDFReader()
         
@@ -176,6 +284,12 @@ def index_pdfs(
                 for doc in documents:
                     doc.metadata["source_file"] = pdf_filename
                     doc.metadata["section_title"] = f"Section from {pdf_filename}"
+                    if class_id:
+                        doc.metadata["class_id"] = class_id
+                    if class_name:
+                        doc.metadata["class_name"] = class_name
+                    if is_syllabus:
+                        doc.metadata["is_syllabus"] = "true"
                 
                 all_documents.extend(documents)
                 new_chunks_count += len(documents)
@@ -190,39 +304,31 @@ def index_pdfs(
             return {"success": False, "error": "No documents extracted"}
         
         # Check if we need to do any indexing
-        if new_chunks_count == 0 and hasExistingIndex:
-            print("[LlamaIndex] No new PDFs to index. Using existing index.", file=sys.stderr)
+        if new_chunks_count == 0 and existing_count > 0:
+            print("[LlamaIndex] No new PDFs to index. Using existing collection.", file=sys.stderr)
             return {
                 "success": True,
-                "chunks": len(existing_metadata),
+                "chunks": existing_count,
                 "pdfs": len(pdf_paths),
                 "new_chunks": 0
             }
         
         print(
-            f"[LlamaIndex] Total documents: {len(all_documents)} "
-            f"(including {len(existing_documents)} existing)",
+            f"[LlamaIndex] Total documents to index: {len(all_documents)}",
             file=sys.stderr
         )
         print(f"[LlamaIndex] New documents to index: {new_chunks_count}", file=sys.stderr)
         
-        # Create or update FAISS vector store
-        os.makedirs(output_path, exist_ok=True)
+        # Create ChromaDB vector store
+        vector_store = ChromaVectorStore(chroma_collection=collection)
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
         
-        if hasExistingIndex and existing_index is not None and new_chunks_count > 0:
+        # Create or update index
+        if existing_count > 0 and new_chunks_count > 0:
             # Incremental: add new documents to existing index
-            print(f"[LlamaIndex] Adding {new_chunks_count} new documents to existing index...", file=sys.stderr)
+            print(f"[LlamaIndex] Adding {new_chunks_count} new documents to existing collection...", file=sys.stderr)
             
-            # Keep reference to the original FAISS index
-            # FaissVectorStore modifies it in-place, so we can use the same reference
-            faiss_index = existing_index
-            dimension = existing_index.d
-            
-            # Create vector store from existing FAISS index
-            vector_store = FaissVectorStore(faiss_index=faiss_index)
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
-            
-            # Load existing index first
+            # Load existing index
             try:
                 index = VectorStoreIndex.from_vector_store(
                     vector_store=vector_store,
@@ -231,31 +337,21 @@ def index_pdfs(
             except Exception:
                 # If that fails, create new index with existing vector store
                 index = VectorStoreIndex.from_documents(
-                    [],  # Empty - we'll add documents manually
+                    [],
                     storage_context=storage_context,
                     embed_model=embed_model,
                     show_progress=False
                 )
             
-            # Add only new documents
-            new_docs = all_documents[len(existing_documents):]
-            print(f"[LlamaIndex] Inserting {len(new_docs)} new documents into index...", file=sys.stderr)
-            for doc in new_docs:
+            # Add new documents
+            print(f"[LlamaIndex] Inserting {len(all_documents)} new documents into index...", file=sys.stderr)
+            for doc in all_documents:
                 index.insert(doc)
-            print(f"[LlamaIndex] Inserted {len(new_docs)} documents (they will be chunked into nodes)", file=sys.stderr)
-            
-            # The faiss_index reference is updated in-place by FaissVectorStore
-            # No need to retrieve it - we already have the reference
+            print(f"[LlamaIndex] Inserted {len(all_documents)} documents (they will be chunked into nodes)", file=sys.stderr)
             
         else:
-            # Full rebuild
+            # Full rebuild or new collection
             print(f"[LlamaIndex] Creating new index with {len(all_documents)} documents...", file=sys.stderr)
-            
-            # Create new FAISS vector store
-            dimension = 768  # all-mpnet-base-v2 dimension
-            faiss_index = faiss.IndexFlatL2(dimension)
-            vector_store = FaissVectorStore(faiss_index=faiss_index)
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
             
             # Create index
             index = VectorStoreIndex.from_documents(
@@ -265,161 +361,54 @@ def index_pdfs(
                 show_progress=True
             )
             
-            # The faiss_index was created above and is modified in-place by FaissVectorStore
-            # No need to retrieve it - we already have the reference
+        # Get final count from collection
+        final_count = collection.count()
+        print(f"[LlamaIndex] ChromaDB collection now has {final_count} vectors", file=sys.stderr)
         
-        # Save FAISS index
-        indexPath = os.path.join(output_path, "faiss_index.bin")
-        faiss.write_index(faiss_index, indexPath)
-        print(f"[LlamaIndex] Saved FAISS index with {faiss_index.ntotal} vectors", file=sys.stderr)
-        
-        # Build metadata from index nodes (LlamaIndex chunks documents into nodes)
-        # IMPORTANT: For incremental indexing, we need to merge existing metadata with new nodes
+        # Build metadata for backward compatibility
+        # Get ALL metadata from ChromaDB collection (not just new nodes from docstore)
         all_metadata = []
-        
-        # If we're doing incremental indexing, start with existing metadata
-        if hasExistingIndex and existing_metadata:
-            all_metadata = existing_metadata.copy()
-            print(f"[LlamaIndex] Starting with {len(existing_metadata)} existing metadata entries", file=sys.stderr)
-        
         try:
-            # For incremental indexing, the docstore only contains NEW nodes
-            # We need to get ALL nodes from the index to build complete metadata
-            docstore = index.storage_context.docstore
-            new_nodes = []
-            
-            # Method 1: Try using the docs property (works for SimpleDocumentStore)
-            if hasattr(docstore, 'docs'):
-                try:
-                    docs_dict = docstore.docs
-                    all_docstore_nodes = list(docs_dict.values())
-                    
-                    # Filter out any non-node objects (documents vs nodes)
-                    all_docstore_nodes = [n for n in all_docstore_nodes if hasattr(n, 'text') and hasattr(n, 'metadata')]
-                    
-                    if hasExistingIndex and existing_metadata:
-                        # For incremental: docstore only has NEW nodes that were just added
-                        # Use ALL nodes from docstore since they're all new
-                        new_nodes = all_docstore_nodes
-                        print(f"[LlamaIndex] Found {len(new_nodes)} new nodes in docstore (incremental mode - using all)", file=sys.stderr)
-                    else:
-                        # Full rebuild - use all nodes
-                        new_nodes = all_docstore_nodes
-                        print(f"[LlamaIndex] Retrieved {len(new_nodes)} total nodes via docs property", file=sys.stderr)
-                except Exception as e:
-                    print(f"[LlamaIndex] Could not use docs property: {e}", file=sys.stderr)
-            
-            # Method 2: Try get_all_node_hashes (for newer LlamaIndex versions)
-            if not new_nodes and hasattr(docstore, 'get_all_node_hashes'):
-                try:
-                    node_hashes = docstore.get_all_node_hashes()
-                    for node_hash in node_hashes:
-                        try:
-                            node = docstore.get_node(node_hash)
-                            if node:
-                                new_nodes.append(node)
-                        except Exception:
-                            continue
-                    print(f"[LlamaIndex] Retrieved {len(new_nodes)} nodes via get_all_node_hashes", file=sys.stderr)
-                except Exception as e:
-                    print(f"[LlamaIndex] Could not use get_all_node_hashes: {e}", file=sys.stderr)
-            
-            # Method 3: Get nodes via ref_doc_ids from vector store
-            if not new_nodes:
-                try:
-                    vector_store = index.storage_context.vector_store
-                    if hasattr(vector_store, 'get_all_ref_doc_ids'):
-                        ref_doc_ids = vector_store.get_all_ref_doc_ids()
-                        for ref_doc_id in ref_doc_ids:
-                            try:
-                                # Get node refs for this document
-                                node_refs = vector_store.get(ref_doc_id)
-                                if node_refs:
-                                    for node_ref in node_refs:
-                                        try:
-                                            node = docstore.get_node(node_ref.node_id)
-                                            if node:
-                                                new_nodes.append(node)
-                                        except Exception:
-                                            continue
-                            except Exception:
-                                continue
-                        print(f"[LlamaIndex] Retrieved {len(new_nodes)} nodes via ref_doc_ids", file=sys.stderr)
-                except Exception as e:
-                    print(f"[LlamaIndex] Could not use ref_doc_ids: {e}", file=sys.stderr)
-            
-            # Add new nodes to metadata
-            if new_nodes and len(new_nodes) > 0:
-                # Sort nodes by their node_id to ensure consistent ordering
-                new_nodes.sort(key=lambda n: n.node_id if hasattr(n, 'node_id') else str(n.id_))
+            # Query ChromaDB collection directly to get all documents with metadata
+            # This ensures we get the complete picture, especially for incremental indexing
+            results = collection.get(include=["metadatas", "documents"])
+            if results and results.get("documents"):
+                documents_list = results["documents"] or []
+                metadatas_list = results["metadatas"] or []
                 
-                # Add new nodes to metadata
-                start_index = len(all_metadata)
-                for i, node in enumerate(new_nodes):
+                # Build metadata array from ChromaDB results
+                for i, (doc_text, meta) in enumerate(zip(documents_list, metadatas_list)):
                     all_metadata.append({
-                        "source_file": node.metadata.get("source_file", ""),
-                        "chunk_index": start_index + i,
-                        "chunk_text": node.text,
-                        "section_title": node.metadata.get("section_title", "")
+                        "source_file": meta.get("source_file", "") if meta else "",
+                        "chunk_index": i,
+                        "chunk_text": doc_text or "",
+                        "section_title": meta.get("section_title", "") if meta else ""
                     })
-                print(f"[LlamaIndex] Added {len(new_nodes)} new nodes to metadata (total: {len(all_metadata)})", file=sys.stderr)
-            elif not hasExistingIndex:
-                # Only raise error if this is a full rebuild (no existing metadata)
-                raise Exception("No nodes found using any method")
+                print(f"[LlamaIndex] Retrieved {len(all_metadata)} metadata entries from ChromaDB collection", file=sys.stderr)
             else:
-                # For incremental indexing, if we can't get nodes from docstore,
-                # we need to reconstruct metadata from the documents we processed
-                # But documents get chunked into multiple nodes, so we need to chunk them ourselves
-                print(f"[LlamaIndex] No nodes extracted from docstore, reconstructing from processed documents", file=sys.stderr)
-                start_index = len(all_metadata)
-                new_docs = all_documents[len(existing_documents):] if len(all_documents) > len(existing_documents) else []
-                
-                # Get the actual chunk count from FAISS index
-                total_vectors = faiss_index.ntotal
-                expected_new_chunks = total_vectors - len(existing_metadata) if hasExistingIndex else total_vectors
-                print(f"[LlamaIndex] FAISS index has {total_vectors} total vectors, {len(existing_metadata)} existing, {expected_new_chunks} new chunks expected", file=sys.stderr)
-                
-                # Chunk the new documents using the same chunking strategy
-                # This will give us the actual nodes that were created
-                chunked_nodes = []
-                for doc in new_docs:
-                    # Use the same text splitter that was configured
-                    doc_nodes = text_splitter.get_nodes_from_documents([doc])
-                    for node in doc_nodes:
-                        node.metadata["source_file"] = doc.metadata.get("source_file", "")
-                        node.metadata["section_title"] = doc.metadata.get("section_title", "")
-                    chunked_nodes.extend(doc_nodes)
-                
-                # Add chunked nodes to metadata
-                for i, node in enumerate(chunked_nodes):
+                # Fallback: try docstore if ChromaDB query fails
+                print(f"[LlamaIndex] No documents in ChromaDB collection, trying docstore...", file=sys.stderr)
+                docstore = index.storage_context.docstore
+                if hasattr(docstore, 'docs'):
+                    try:
+                        docs_dict = docstore.docs
+                        all_docstore_nodes = list(docs_dict.values())
+                        all_docstore_nodes = [n for n in all_docstore_nodes if hasattr(n, 'text') and hasattr(n, 'metadata')]
+                        all_docstore_nodes.sort(key=lambda n: n.node_id if hasattr(n, 'node_id') else str(n.id_))
+                        for i, node in enumerate(all_docstore_nodes):
                     all_metadata.append({
                         "source_file": node.metadata.get("source_file", ""),
-                        "chunk_index": start_index + i,
+                                "chunk_index": i,
                         "chunk_text": node.text,
                         "section_title": node.metadata.get("section_title", "")
                     })
-                print(f"[LlamaIndex] Added {len(chunked_nodes)} chunked nodes to metadata (total: {len(all_metadata)})", file=sys.stderr)
-                print(f"[LlamaIndex] Note: Expected {expected_new_chunks} chunks, created {len(chunked_nodes)} metadata entries", file=sys.stderr)
-                
+                        print(f"[LlamaIndex] Retrieved {len(all_metadata)} nodes from docstore", file=sys.stderr)
+                    except Exception as e:
+                        print(f"[LlamaIndex] Could not use docstore: {e}", file=sys.stderr)
         except Exception as e:
-            print(f"[LlamaIndex] Warning: Could not extract nodes from index: {e}", file=sys.stderr)
-            print(f"[LlamaIndex] Falling back to document-based metadata", file=sys.stderr)
-            # Fallback: build metadata from documents
-            # If we have existing metadata, only add new documents
-            if hasExistingIndex and existing_metadata:
-                # all_metadata already has existing_metadata, just add new documents
-                start_index = len(all_metadata)
-                new_docs = all_documents[len(existing_documents):] if len(all_documents) > len(existing_documents) else []
-                for i, doc in enumerate(new_docs):
-                    all_metadata.append({
-                        "source_file": doc.metadata.get("source_file", ""),
-                        "chunk_index": start_index + i,
-                        "chunk_text": doc.text,
-                        "section_title": doc.metadata.get("section_title", "")
-                    })
-                print(f"[LlamaIndex] Added {len(new_docs)} new documents to metadata via fallback (total: {len(all_metadata)})", file=sys.stderr)
-            else:
-                # Full rebuild - use all documents
+            print(f"[LlamaIndex] Warning: Could not extract metadata from ChromaDB: {e}", file=sys.stderr)
+            # Final fallback: build from documents (only new ones, so incomplete)
+            print(f"[LlamaIndex] Using fallback: building metadata from documents (may be incomplete)", file=sys.stderr)
                 for i, doc in enumerate(all_documents):
                     all_metadata.append({
                         "source_file": doc.metadata.get("source_file", ""),
@@ -428,25 +417,25 @@ def index_pdfs(
                         "section_title": doc.metadata.get("section_title", "")
                     })
         
-        # Save metadata
-        with open(os.path.join(output_path, "metadata.json"), "w", encoding="utf-8") as f:
+        # Save metadata.json for backward compatibility
+        os.makedirs(output_path, exist_ok=True)
+        metadata_json_path = os.path.join(output_path, "metadata.json")
+        with open(metadata_json_path, "w", encoding="utf-8") as f:
             json.dump(all_metadata, f, ensure_ascii=False, indent=2)
-        print(f"[LlamaIndex] Saved metadata.json", file=sys.stderr)
-        
-        with open(metadataPath, "wb") as f:
-            pickle.dump(all_metadata, f)
-        print(f"[LlamaIndex] Saved metadata.pkl", file=sys.stderr)
+        print(f"[LlamaIndex] Saved metadata.json for backward compatibility", file=sys.stderr)
         
         # Save config
         config = {
             "class_id": class_id or "",
             "class_name": class_name or "",
             "embedding_model": EMBEDDING_MODEL,
-            "dimension": int(faiss_index.d),
-            "total_chunks": len(all_documents),
+            "dimension": 768,  # all-mpnet-base-v2 dimension
+            "total_chunks": final_count,
             "total_pdfs": len(pdf_paths),
             "chunk_size": chunk_size,
             "overlap": chunk_overlap,
+            "collection_name": collection_name,
+            "chroma_persist_dir": CHROMA_PERSIST_DIR,
             "created_at": None  # Will be set by caller if needed
         }
         
@@ -455,20 +444,20 @@ def index_pdfs(
             json.dump(config, f, indent=2)
         print(f"[LlamaIndex] Saved config.json", file=sys.stderr)
         
-        if hasExistingIndex and new_chunks_count > 0:
+        if existing_count > 0 and new_chunks_count > 0:
             print(
                 f"[LlamaIndex] ✅ Incremental indexing completed! "
-                f"Added {new_chunks_count} new chunks.",
+                f"Added {new_chunks_count} new chunks. Total: {final_count}",
                 file=sys.stderr
             )
         else:
-            print(f"[LlamaIndex] ✅ Indexing completed successfully!", file=sys.stderr)
+            print(f"[LlamaIndex] ✅ Indexing completed successfully! Total chunks: {final_count}", file=sys.stderr)
         
         return {
             "success": True,
-            "chunks": len(all_documents),
+            "chunks": final_count,
             "pdfs": len(pdf_paths),
-            "new_chunks": new_chunks_count if hasExistingIndex else len(all_documents)
+            "new_chunks": new_chunks_count if existing_count > 0 else final_count
         }
         
     except Exception as e:
@@ -492,4 +481,3 @@ if __name__ == "__main__":
     
     result = index_pdfs(pdf_paths, output_path, is_syllabus, class_id, class_name)
     print(json.dumps(result))
-

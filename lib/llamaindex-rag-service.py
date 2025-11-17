@@ -22,10 +22,11 @@ os.environ['MKL_NUM_THREADS'] = '4'
 from llama_index.core import VectorStoreIndex, StorageContext, Settings, Document
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.retrievers import VectorIndexRetriever
-from llama_index.vector_stores.faiss import FaissVectorStore
+from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core.embeddings import BaseEmbedding
 from pydantic import PrivateAttr
-import faiss
+import chromadb
+from chromadb.config import Settings as ChromaSettings
 import requests
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -50,7 +51,16 @@ STREAM_CHUNK_DELAY = float(os.getenv('STREAM_CHUNK_DELAY', '0.05'))
 # Global models - loaded ONCE at startup
 embedder = None
 reranker = None
-vector_stores = {}  # Cache: {normalized_path: {"index": VectorStoreIndex, "metadata": list, "faiss_index": faiss.Index}}
+vector_stores = {}  # Cache: {normalized_path: {"index": VectorStoreIndex, "metadata": list, "collection": chromadb.Collection}}
+
+# ChromaDB configuration
+CHROMA_PERSIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector-stores", "chroma")
+
+# ChromaDB Server Mode Configuration
+# Set CHROMA_SERVER_URL environment variable to use server mode (e.g., "http://localhost:8000")
+# If not set, falls back to embedded mode
+CHROMA_SERVER_URL = os.getenv("CHROMA_SERVER_URL", None)
+CHROMA_SERVER_AUTH_TOKEN = os.getenv("CHROMA_SERVER_AUTH_TOKEN", "test-token")  # Default token for local dev
 
 # Connection sessions for remote LLMs (reuse connections for speed)
 a6000_session = requests.Session()
@@ -266,6 +276,18 @@ def normalize_vector_store_path(path: str) -> str:
         return path
 
 
+def get_collection_name(vector_store_path: str) -> str:
+    """
+    Generate a collection name from the vector store path.
+    Uses the folder name as the collection name.
+    """
+    # Get the folder name from the path
+    folder_name = os.path.basename(os.path.normpath(vector_store_path))
+    # Sanitize for ChromaDB (replace invalid chars)
+    collection_name = folder_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
+    return collection_name
+
+
 def summarize_older_messages(messages, is_syllabus=False):
     """Summarize older messages to preserve key context without full text"""
     if not messages or len(messages) == 0:
@@ -346,24 +368,42 @@ def summarize_older_messages(messages, is_syllabus=False):
 
 
 def discover_vector_stores(base_path: str) -> List[str]:
-    """Discover all available vector stores in the base directory"""
+    """Discover all available vector stores by checking ChromaDB collections"""
     vector_store_paths = []
     
     try:
-        if not os.path.exists(base_path):
+        # Initialize ChromaDB client to check collections
+        if not os.path.exists(CHROMA_PERSIST_DIR):
             return vector_store_paths
         
-        # Look for directories containing faiss_index.bin
-        for item in os.listdir(base_path):
-            item_path = os.path.join(base_path, item)
-            if os.path.isdir(item_path):
-                faiss_index_path = os.path.join(item_path, "faiss_index.bin")
-                metadata_path = os.path.join(item_path, "metadata.pkl")
+        chroma_client = chromadb.PersistentClient(
+            path=CHROMA_PERSIST_DIR,
+            settings=ChromaSettings(anonymized_telemetry=False)
+        )
+        
+        # Get all collections
+        collections = chroma_client.list_collections()
+        
+        # For each collection, find the corresponding folder in base_path
+        for collection in collections:
+            collection_name = collection.name
+            # Try to find matching folder (collection name might have been sanitized)
+            # Check if folder exists in base_path
+            folder_name = collection_name.replace("_", " ").replace("_", "-")  # Try to reverse sanitization
+            folder_path = os.path.join(base_path, folder_name)
+            
+            # Also try exact match
+            if not os.path.exists(folder_path):
+                folder_path = os.path.join(base_path, collection_name)
                 
-                # Check if this is a valid vector store
-                if os.path.exists(faiss_index_path) and os.path.exists(metadata_path):
-                    vector_store_paths.append(item_path)
-                    print(f"📦 Discovered vector store: {item}", file=sys.stderr)
+            # If folder exists, add it; otherwise use collection name as path identifier
+            if os.path.exists(folder_path):
+                vector_store_paths.append(folder_path)
+                print(f"📦 Discovered vector store: {folder_name} (ChromaDB collection: {collection_name})", file=sys.stderr)
+            else:
+                # Still add it - we'll use the collection name directly
+                vector_store_paths.append(os.path.join(base_path, collection_name))
+                print(f"📦 Discovered ChromaDB collection: {collection_name}", file=sys.stderr)
         
     except Exception as e:
         print(f"⚠️ Error discovering vector stores: {e}", file=sys.stderr)
@@ -375,18 +415,106 @@ def load_store_safe(store_path: str, announce: bool = True, run_warmup: bool = F
     """Safely load a single vector store with error handling"""
     start_time = time.time()
     try:
-        # Check if vector store files exist before attempting to load
-        indexPath = os.path.join(store_path, "faiss_index.bin")
-        metadataPath = os.path.join(store_path, "metadata.pkl")
+        # Check if ChromaDB collection exists
+        collection_name = get_collection_name(store_path)
         
-        if not os.path.exists(indexPath):
-            if announce:
-                print(f"⏭️  Skipping {os.path.basename(store_path)}: FAISS index not found (not indexed yet)", file=sys.stderr)
-            return False
+        # Initialize ChromaDB client (server mode or embedded mode)
+        if CHROMA_SERVER_URL:
+            # Server mode: Connect via HTTP
+            try:
+                # Parse URL to extract host and port
+                url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
+                if ":" in url_clean:
+                    host, port_str = url_clean.split(":", 1)
+                    port = int(port_str.split("/")[0])  # Handle trailing slashes
+                else:
+                    host = url_clean.split("/")[0]
+                    port = 8000
+                
+                # Create settings with token authentication
+                if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
+                    auth_token = CHROMA_SERVER_AUTH_TOKEN
+                else:
+                    auth_token = "test-token"
+                
+                if announce:
+                    print(f"[RAG] 🔐 Attempting token authentication with token: {'***' + auth_token[-4:] if len(auth_token) > 4 else '***'}", file=sys.stderr)
+                
+                # Try multiple authentication methods
+                chroma_client = None
+                auth_method_used = None
+                
+                # Method 1: Try using Settings with token auth provider
+                try:
+                    settings = ChromaSettings(
+                        anonymized_telemetry=False,
+                        chroma_client_auth_provider="chromadb.auth.token_authn.TokenAuthClientProvider",
+                        chroma_client_auth_credentials=auth_token
+                    )
+                    chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
+                    auth_method_used = "TokenAuthClientProvider (Settings)"
+                    if announce:
+                        print(f"[RAG] ✅ Connected using {auth_method_used}", file=sys.stderr)
+                except Exception as e1:
+                    if announce:
+                        print(f"[RAG] ⚠️  Method 1 failed: {str(e1)[:100]}", file=sys.stderr)
+                    
+                    # Method 2: Try with headers parameter (if supported)
+                    try:
+                        settings = ChromaSettings(anonymized_telemetry=False)
+                        chroma_client = chromadb.HttpClient(
+                            host=host,
+                            port=port,
+                            settings=settings,
+                            headers={"Authorization": f"Bearer {auth_token}"}
+                        )
+                        auth_method_used = "Bearer token (headers)"
+                        if announce:
+                            print(f"[RAG] ✅ Connected using {auth_method_used}", file=sys.stderr)
+                    except (TypeError, Exception) as e2:
+                        if announce:
+                            print(f"[RAG] ⚠️  Method 2 failed: {str(e2)[:100]}", file=sys.stderr)
+                        
+                        # Method 3: Try without auth (fallback)
+                        try:
+                            settings = ChromaSettings(anonymized_telemetry=False)
+                            chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
+                            auth_method_used = "No authentication (fallback)"
+                            if announce:
+                                print(f"[RAG] ⚠️  Connected without authentication (server may reject requests)", file=sys.stderr)
+                        except Exception as e3:
+                            raise Exception(f"All connection methods failed. Last error: {str(e3)}")
+                
+                if chroma_client is None:
+                    raise Exception("Failed to create ChromaDB client")
+                
+                if announce:
+                    print(f"[RAG] 🔐 Authentication method used: {auth_method_used}", file=sys.stderr)
+            except Exception as e:
+                if announce:
+                    print(f"⏭️  Skipping {os.path.basename(store_path)}: Failed to connect to ChromaDB server: {e}", file=sys.stderr)
+                return False
+        else:
+            # Embedded mode: Use local persistent storage
+            if not os.path.exists(CHROMA_PERSIST_DIR):
+                if announce:
+                    print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB directory not found", file=sys.stderr)
+                return False
         
-        if not os.path.exists(metadataPath):
+            chroma_client = chromadb.PersistentClient(
+                path=CHROMA_PERSIST_DIR,
+                settings=ChromaSettings(anonymized_telemetry=False)
+            )
+        
+        try:
+            collection = chroma_client.get_collection(name=collection_name)
+            if collection.count() == 0:
+                if announce:
+                    print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB collection is empty (not indexed yet)", file=sys.stderr)
+                return False
+        except Exception:
             if announce:
-                print(f"⏭️  Skipping {os.path.basename(store_path)}: Metadata not found (not indexed yet)", file=sys.stderr)
+                print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB collection '{collection_name}' not found (not indexed yet)", file=sys.stderr)
             return False
         
         load_vector_store_index(store_path)
@@ -400,8 +528,8 @@ def load_store_safe(store_path: str, announce: bool = True, run_warmup: bool = F
         # Suppress traceback for expected missing file errors
         error_msg = str(e)
         if announce:
-            if "faiss_index" in error_msg.lower():
-                print(f"⏭️  Skipping {os.path.basename(store_path)}: FAISS index not found (not indexed yet)", file=sys.stderr)
+            if "chromadb" in error_msg.lower() or "collection" in error_msg.lower():
+                print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB collection not found (not indexed yet)", file=sys.stderr)
             elif "metadata" in error_msg.lower():
                 print(f"⏭️  Skipping {os.path.basename(store_path)}: Metadata not found (not indexed yet)", file=sys.stderr)
             else:
@@ -412,7 +540,7 @@ def load_store_safe(store_path: str, announce: bool = True, run_warmup: bool = F
         error_msg = str(e)
         if "read error" in error_msg.lower() or "corrupted" in error_msg.lower():
             if announce:
-                print(f"⚠️ Skipping {os.path.basename(store_path)}: FAISS index file appears corrupted or incomplete", file=sys.stderr)
+                print(f"⚠️ Skipping {os.path.basename(store_path)}: ChromaDB collection appears corrupted or incomplete", file=sys.stderr)
         else:
             if announce:
                 print(f"⚠️ Failed to preload {os.path.basename(store_path)}: {error_msg}", file=sys.stderr)
@@ -584,28 +712,23 @@ def warmup_query(vector_store_path: str):
         # Load the vector store (if not already loaded)
         try:
             store_data = load_vector_store_index(vector_store_path)
-            faiss_index = store_data["faiss_index"]
-            metadata = store_data["metadata"]
+            index = store_data["index"]
             
-            # Run a minimal retrieval test (just embedding + FAISS search, no LLM)
+            # Run a minimal retrieval test (just embedding + ChromaDB search, no LLM)
             test_query = "test"
             query_for_embedding = f"search_query: {test_query}"
             
-            # Generate embedding (warms up the embedding model)
-            query_embedding = embedder._model.encode(
-                query_for_embedding,
-                convert_to_numpy=True,
-                normalize_embeddings=True,
-                show_progress_bar=False,
-                batch_size=1
+            # Use LlamaIndex retriever to warm up ChromaDB
+            retriever = VectorIndexRetriever(
+                index=index,
+                similarity_top_k=min(5, store_data["collection"].count())
             )
-            query_embedding = query_embedding.reshape(1, -1).astype('float32')
             
-            # Run FAISS search (warms up FAISS)
-            distances, indices = faiss_index.search(query_embedding, min(5, faiss_index.ntotal))
+            # Retrieve nodes (warms up ChromaDB and embedding model)
+            retrieved_nodes = retriever.retrieve(query_for_embedding)
             
             warmup_time = time.time() - start_time
-            print(f"✅ Warmup query complete ({warmup_time:.2f}s) - retrieval system is ready!", file=sys.stderr)
+            print(f"✅ Warmup query complete ({warmup_time:.2f}s) - retrieval system is ready! (retrieved {len(retrieved_nodes)} nodes)", file=sys.stderr)
             
         except Exception as e:
             # Don't fail on warmup errors - just log them
@@ -638,7 +761,7 @@ def initialize_models():
                 reranker = None
                 gc.collect()
         else:
-            print("⚠️ Reranking DISABLED (ENABLE_RERANKING=false) - using FAISS scores only", file=sys.stderr)
+            print("⚠️ Reranking DISABLED (ENABLE_RERANKING=false) - using ChromaDB scores only", file=sys.stderr)
             reranker = None
 
         # Preload vector stores (synchronously load first, rest in background)
@@ -691,13 +814,13 @@ def initialize_models():
 
 def load_vector_store_index(vector_store_path: str):
     """
-    Load FAISS vector store and create LlamaIndex VectorStoreIndex with nodes reconstructed from metadata
+    Load ChromaDB collection and create LlamaIndex VectorStoreIndex
     
     Args:
-        vector_store_path: Path to directory containing faiss_index.bin and metadata.pkl
+        vector_store_path: Path to directory (used to determine collection name)
     
     Returns:
-        Dictionary with "index" (VectorStoreIndex), "metadata" (list), and "faiss_index" (faiss.Index)
+        Dictionary with "index" (VectorStoreIndex), "metadata" (list), and "collection" (chromadb.Collection)
     """
     global vector_stores
     
@@ -706,121 +829,132 @@ def load_vector_store_index(vector_store_path: str):
     
     if normalized_path not in vector_stores:
         try:
-            # Load FAISS index
-            indexPath = os.path.join(actual_path, "faiss_index.bin")
-            if not os.path.exists(indexPath):
-                raise FileNotFoundError(f"FAISS index not found: {indexPath}")
+            # Get collection name from path
+            collection_name = get_collection_name(vector_store_path)
             
-            faiss_index = faiss.read_index(indexPath)
-            
-            # Load metadata
-            metadataPath = os.path.join(actual_path, "metadata.pkl")
-            if not os.path.exists(metadataPath):
-                raise FileNotFoundError(f"Metadata not found: {metadataPath}")
-            
-            with open(metadataPath, 'rb') as f:
-                metadata = pickle.load(f)
-            
-            # Reconstruct LlamaIndex nodes from metadata
-            # This is necessary because we're loading an existing FAISS index
-            from llama_index.core.schema import TextNode
-            
-            nodes = []
-            for i, meta in enumerate(metadata):
-                node = TextNode(
-                    text=meta.get('chunk_text', ''),
-                    metadata={
-                        'source_file': meta.get('source_file', ''),
-                        'section_title': meta.get('section_title', ''),
-                        'chunk_index': meta.get('chunk_index', i)
-                    }
-                )
-                # CRITICAL: Use integer node ID that matches FAISS index position
-                # LlamaIndex's retriever expects node IDs to match the FAISS index IDs
-                node.node_id = str(i)  # Use string representation of integer index
-                nodes.append(node)
-            
-            # Create LlamaIndex vector store wrapper
-            vector_store = FaissVectorStore(faiss_index=faiss_index)
-            
-            # Create storage context with docstore containing our nodes
-            from llama_index.core.storage.docstore import SimpleDocumentStore
-            docstore = SimpleDocumentStore()
-            for node in nodes:
-                docstore.add_documents([node])
-            
-            storage_context = StorageContext.from_defaults(
-                vector_store=vector_store,
-                docstore=docstore
-            )
-            
-            # Create VectorStoreIndex from storage context
-            # We need to ensure the index_struct knows about all our nodes
-            index = VectorStoreIndex(
-                nodes=nodes,
-                storage_context=storage_context,
-                embed_model=Settings.embed_model,
-                show_progress=False
-            )
-            
-            # CRITICAL FIX: The issue is that FAISS has 90 vectors but we only have 45 metadata entries
-            # This suggests the FAISS index might have duplicate vectors or was created differently
-            # We need to ensure nodes_dict maps ALL possible FAISS indices to nodes
-            # For now, we'll map indices 0 to len(metadata)-1, and handle out-of-range indices gracefully
-            
-            # First, ensure all nodes have correct IDs and are in docstore
-            for i, node in enumerate(nodes):
-                node_id_str = str(i)
-                node.node_id = node_id_str
-                if hasattr(node, 'id_'):
-                    node.id_ = node_id_str
-                # Ensure node is in docstore
-                if node_id_str not in docstore.docs:
-                    docstore.add_documents([node])
-            
-            # Now populate index_struct.nodes_dict
-            # Based on LlamaIndex source, nodes_dict maps vector IDs to node IDs (strings)
-            # But the retriever might expect node objects directly - let's try both approaches
-            if hasattr(index, 'index_struct') and hasattr(index.index_struct, 'nodes_dict'):
-                # Clear existing mappings
-                index.index_struct.nodes_dict.clear()
-                
-                # Map each FAISS index position to its corresponding node ID
-                # Note: We only have nodes for indices 0 to len(metadata)-1
-                for i in range(len(nodes)):
-                    vector_id = str(i)
-                    node_id = str(i)
+            # Initialize ChromaDB client (server mode or embedded mode)
+            if CHROMA_SERVER_URL:
+                # Server mode: Connect via HTTP
+                try:
+                    # Parse URL to extract host and port
+                    url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
+                    if ":" in url_clean:
+                        host, port_str = url_clean.split(":", 1)
+                        port = int(port_str.split("/")[0])  # Handle trailing slashes
+                    else:
+                        host = url_clean.split("/")[0]
+                        port = 8000
                     
-                    # According to IndexDict.add_node, nodes_dict maps vector_id -> node_id (both strings)
-                    index.index_struct.nodes_dict[vector_id] = node_id
+                    # Create settings with token authentication
+                    if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
+                        # If a custom token is provided, use it
+                        auth_token = CHROMA_SERVER_AUTH_TOKEN
+                    else:
+                        # Default token for local dev
+                        auth_token = "test-token"
+                    
+                    print(f"[RAG] 🔐 Using token authentication: {'Yes' if auth_token else 'No'}", file=sys.stderr)
+                    
+                    # Create HttpClient with token authentication
+                    # ChromaDB HttpClient accepts token via headers when using token auth
+                    try:
+                        # Try creating client with token in settings
+                        settings = ChromaSettings(anonymized_telemetry=False)
+                        chroma_client = chromadb.HttpClient(
+                            host=host,
+                            port=port,
+                            settings=settings,
+                            headers={"Authorization": f"Bearer {auth_token}"} if auth_token else None
+                        )
+                        print(f"[RAG] ✅ Connected to ChromaDB server with authentication", file=sys.stderr)
+                    except TypeError:
+                        # If headers parameter doesn't work, try without it and use settings
+                        print(f"[RAG] ⚠️  Headers parameter not supported, trying alternative auth method", file=sys.stderr)
+                        chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
+                        print(f"[RAG] ✅ Connected to ChromaDB server (auth may need manual configuration)", file=sys.stderr)
+                except Exception as e:
+                    raise FileNotFoundError(f"Failed to connect to ChromaDB server at {CHROMA_SERVER_URL}: {e}")
+            else:
+                # Embedded mode: Use local persistent storage
+                if not os.path.exists(CHROMA_PERSIST_DIR):
+                    raise FileNotFoundError(f"ChromaDB directory not found: {CHROMA_PERSIST_DIR}")
                 
-                # If FAISS has more vectors than we have metadata, we can't create nodes for them
-                # But we should at least log a warning
-                if faiss_index.ntotal > len(metadata):
-                    print(f"⚠️ WARNING: FAISS index has {faiss_index.ntotal} vectors but only {len(metadata)} metadata entries", file=sys.stderr)
-                    print(f"⚠️ Only indices 0-{len(metadata)-1} will be retrievable", file=sys.stderr)
+                chroma_client = chromadb.PersistentClient(
+                    path=CHROMA_PERSIST_DIR,
+                    settings=ChromaSettings(anonymized_telemetry=False)
+                )
+            
+            # Get collection
+            try:
+                collection = chroma_client.get_collection(name=collection_name)
+            except Exception as e:
+                # List available collections for debugging if collection not found
+                try:
+                    collections = chroma_client.list_collections()
+                    available_names = [c.name for c in collections]
+                    print(f"[RAG Error] ChromaDB collection '{collection_name}' not found. Available collections: {available_names}", file=sys.stderr)
+                except:
+                    pass
+                raise FileNotFoundError(f"ChromaDB collection not found: {collection_name}")
+            
+            # Check if collection is empty
+            collection_count = collection.count()
+            if collection_count == 0:
+                raise ValueError(f"ChromaDB collection '{collection_name}' is empty")
+            
+            # Create ChromaDB vector store
+            vector_store = ChromaVectorStore(chroma_collection=collection)
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            
+            # Load index from vector store
+            index = VectorStoreIndex.from_vector_store(
+                vector_store=vector_store,
+                embed_model=Settings.embed_model
+            )
+            
+            # Build metadata from collection for backward compatibility
+            # ChromaDB stores metadata internally, but we'll extract it for compatibility
+            metadata = []
+            try:
+                # Get all documents from collection
+                results = collection.get(include=["metadatas", "documents"])
+                if results and results.get("documents"):
+                    for i, (doc_text, meta) in enumerate(zip(
+                        results["documents"] or [],
+                        results["metadatas"] or []
+                    )):
+                        metadata.append({
+                            "source_file": meta.get("source_file", "") if meta else "",
+                            "chunk_index": i,
+                            "chunk_text": doc_text or "",
+                            "section_title": meta.get("section_title", "") if meta else ""
+                        })
+            except Exception as e:
+                print(f"⚠️ Warning: Could not extract metadata from ChromaDB: {e}", file=sys.stderr)
+                # Try loading from metadata.json if it exists (backward compatibility)
+                metadata_json_path = os.path.join(actual_path, "metadata.json")
+                if os.path.exists(metadata_json_path):
+                    try:
+                        with open(metadata_json_path, 'r', encoding='utf-8') as f:
+                            metadata = json.load(f)
+                        print(f"✓ Loaded metadata from metadata.json ({len(metadata)} entries)", file=sys.stderr)
+                    except Exception:
+                        print(f"⚠️ Could not load metadata.json either", file=sys.stderr)
             
             vector_stores[normalized_path] = {
                 "index": index,
                 "metadata": metadata,
-                "faiss_index": faiss_index,
+                "collection": collection,
                 "vector_store": vector_store
             }
             
-            print(f"✓ Vector store loaded ({faiss_index.ntotal} vectors, {len(metadata)} metadata entries)", file=sys.stderr)
+            print(f"✓ Vector store loaded (ChromaDB collection: {collection_name}, {collection_count} vectors, {len(metadata)} metadata entries)", file=sys.stderr)
             
         except Exception as e:
             error_msg = str(e)
-            # Check if this is a file corruption/incomplete file error
-            if "read error" in error_msg.lower() or "corrupted" in error_msg.lower():
-                print(f"❌ Failed to load vector store: FAISS index file appears corrupted or incomplete", file=sys.stderr)
-                print(f"   Path: {actual_path}", file=sys.stderr)
-                print(f"   Error: {error_msg}", file=sys.stderr)
-                print(f"   Suggestion: Re-index this vector store", file=sys.stderr)
-            else:
-                print(f"❌ Failed to load vector store: {e}", file=sys.stderr)
-                import traceback
-                traceback.print_exc(file=sys.stderr)
+            print(f"❌ Failed to load vector store: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             raise
     
     return vector_stores[normalized_path]
@@ -1628,7 +1762,7 @@ Rules:
                 else:
                     query = "Let's work through this step by step. What do you think the first step should be?"
         
-        # RAG Retrieval Stage - Use LlamaIndex retriever
+        # RAG Retrieval Stage - Use LlamaIndex retriever with ChromaDB
         embed_start = time.time()
         # Optimize query embedding prefix for syllabus queries
         if is_syllabus:
@@ -1639,41 +1773,49 @@ Rules:
         embed_time = time.time() - embed_start
         print(f"⏱️ Query embedding time: {embed_time:.3f}s", file=sys.stderr)
         
-        # Use LlamaIndex retriever, but handle the node lookup manually to avoid KeyError
-        # The issue is that FAISS might return indices that don't have corresponding nodes
+        # Use LlamaIndex retriever with ChromaDB
         search_start = time.time()
         
-        # Get the FAISS index and metadata from store_data
-        faiss_index = store_data["faiss_index"]
+        # Get the index and metadata from store_data
+        index = store_data["index"]
         metadata = store_data["metadata"]
         
-        # Use direct FAISS search (like the original code) but with LlamaIndex embedding
-        # This avoids the node lookup issue while still using LlamaIndex's embedding model
-        query_embedding = embedder._model.encode(
-            query_for_embedding,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-            batch_size=1
+        # Use LlamaIndex retriever (works with ChromaDB)
+        retriever = VectorIndexRetriever(
+            index=index,
+            similarity_top_k=top_k_initial
         )
-        query_embedding = query_embedding.reshape(1, -1).astype('float32')
         
-        # Search FAISS directly
-        distances, indices = faiss_index.search(query_embedding, top_k_initial)
+        # Retrieve nodes
+        try:
+            retrieved_nodes = retriever.retrieve(query_for_embedding)
+        except Exception as e:
+            print(f"[RAG Error] Retrieval failed: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            retrieved_nodes = []
+        
         search_time = time.time() - search_start
-        print(f"⏱️ FAISS search time: {search_time:.3f}s (retrieved {top_k_initial} chunks, syllabus={is_syllabus})", file=sys.stderr)
+        print(f"⏱️ ChromaDB search time: {search_time:.3f}s (retrieved {len(retrieved_nodes)} chunks, syllabus={is_syllabus})", file=sys.stderr)
         
-        # Convert FAISS results to the expected format using metadata
+        # Convert retrieved nodes to the expected format
         filtered_results = []
-        for idx, score in zip(indices[0], distances[0]):
-            if idx == -1:
-                continue
-            # Ensure index is within metadata bounds
-            if int(idx) >= len(metadata):
-                print(f"⚠️ WARNING: FAISS returned index {idx} but only {len(metadata)} metadata entries available, skipping", file=sys.stderr)
-                continue
+        for node in retrieved_nodes:
+            # Get metadata from node
+            node_metadata = node.metadata if hasattr(node, 'metadata') else {}
+            node_text = node.text if hasattr(node, 'text') else node.get_content() if hasattr(node, 'get_content') else ""
             
-            chunk_meta = metadata[int(idx)]
+            # Get similarity score (ChromaDB returns this in node.score)
+            score = node.score if hasattr(node, 'score') else 0.0
+            
+            # Build metadata dict matching the expected format
+            chunk_meta = {
+                "source_file": node_metadata.get("source_file", ""),
+                "chunk_index": node_metadata.get("chunk_index", 0),
+                "chunk_text": node_text,
+                "section_title": node_metadata.get("section_title", "")
+            }
+            
             filtered_results.append({
                 "metadata": chunk_meta,
                 "score": float(score),
@@ -1697,16 +1839,16 @@ Rules:
                     filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
                     rerank_method = "✅ ML Reranker" + (" (syllabus)" if is_syllabus else "")
                 except Exception as e:
-                    print(f"⚠️ Reranking failed: {e}, falling back to FAISS scores", file=sys.stderr)
+                    print(f"⚠️ Reranking failed: {e}, falling back to ChromaDB scores", file=sys.stderr)
                     for result in filtered_results:
                         result["rerank_score"] = -result["score"]
                     filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
-                    rerank_method = "⚠️ Fallback (FAISS scores)"
+                    rerank_method = "⚠️ Fallback (ChromaDB scores)"
             else:
                 for result in filtered_results:
                     result["rerank_score"] = -result["score"]
                 filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
-                rerank_method = "⚡ SKIPPED (FAISS scores only)"
+                rerank_method = "⚡ SKIPPED (ChromaDB scores only)"
             
             final_results = filtered_results[:top_k_final]
         else:
@@ -1720,6 +1862,7 @@ Rules:
             teaching_response = f"I couldn't find information about '{query}' in our course textbook."
             model_used = "none"
             time_taken = 0
+            llm_time = 0  # Initialize llm_time for logging
         else:
             # Build context from retrieved chunks
             context_text = "\n\n".join([

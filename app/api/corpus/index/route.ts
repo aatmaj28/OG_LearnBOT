@@ -48,9 +48,9 @@ export async function POST(request: NextRequest) {
     console.log(`[Corpus Index] Found ${pdfFiles.length} PDFs to index`)
 
     // Check if index already exists (for incremental indexing)
-    const indexPath = path.join(storePath, "faiss_index.bin")
-    const metadataPath = path.join(storePath, "metadata.pkl")
-    const hasExistingIndex = fs.existsSync(indexPath) && fs.existsSync(metadataPath)
+    // Check for ChromaDB collection via config.json (which indicates indexing was done)
+    const configPath = path.join(storePath, "config.json")
+    const hasExistingIndex = fs.existsSync(configPath)
     
     console.log(`[Corpus Index] Existing index found: ${hasExistingIndex}`)
 
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     console.log('[Corpus Index] Service path:', indexingServicePath)
 
     // Execute LlamaIndex indexing service
-    const result = await new Promise<{ success: boolean; chunks?: number; error?: string }>((resolve) => {
+    const result = await new Promise<{ success: boolean; chunks?: number; pdfs?: number; newChunks?: number; error?: string }>((resolve) => {
       const pythonProcess = spawn('python', args)
       let stdoutData = ''
       let stderrData = ''
@@ -91,7 +91,12 @@ export async function POST(request: NextRequest) {
           try {
             const lastLine = stdoutData.trim().split('\n').pop()
             const result = JSON.parse(lastLine || '{}')
-            resolve({ success: true, chunks: result.chunks })
+            resolve({ 
+              success: true, 
+              chunks: result.chunks,
+              pdfs: result.pdfs,
+              newChunks: result.new_chunks
+            })
           } catch (e) {
             console.error('[Corpus Index] Failed to parse result:', e)
             resolve({ success: false, error: 'Failed to parse indexing result' })
@@ -109,19 +114,20 @@ export async function POST(request: NextRequest) {
     })
 
     if (result.success) {
-      // Reload the vector store in memory to reflect the new index
-      try {
-        await ragService.reloadVectorStore(storePath)
-        console.log(`[Corpus Index] Reloaded vector store in memory: ${vectorStoreFolder}`)
-      } catch (error) {
-        console.warn('[Corpus Index] Failed to reload vector store in memory:', error)
-        // Don't fail the indexing if reload fails
-      }
+      // Use stats directly from Python script output (most accurate and immediate)
+      // The Python script already returns the correct counts from ChromaDB
+      const pdfCount = result.pdfs || 0
+      const chunkCount = result.chunks || 0
+      
+      // Return response immediately, reload vector store asynchronously in background (fire-and-forget)
+      ragService.reloadVectorStoreAsync(storePath)
       
       return NextResponse.json({ 
         success: true, 
-        chunks: result.chunks,
-        message: `Successfully indexed ${result.chunks} chunks for class: ${cls.name}`
+        chunks: result.newChunks || result.chunks || 0, // Return new chunks added
+        pdfCount,
+        chunkCount,
+        message: `Successfully indexed ${result.newChunks || result.chunks || 0} chunks for class: ${cls.name}`
       })
     } else {
       return NextResponse.json({ 

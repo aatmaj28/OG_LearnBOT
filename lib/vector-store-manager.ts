@@ -54,7 +54,7 @@ export class VectorStoreManager {
       }
 
       // Create placeholder files if they don't exist
-      const requiredFiles = ['config.json', 'faiss_index.bin', 'metadata.json', 'metadata.pkl']
+      const requiredFiles = ['config.json', 'metadata.json']
       for (const file of requiredFiles) {
         const filePath = path.join(vectorStorePath, file)
         if (!fs.existsSync(filePath)) {
@@ -64,11 +64,12 @@ export class VectorStoreManager {
               class_id: classId,
               class_name: classData.name,
               created_at: new Date().toISOString(),
-              embedding_model: "sentence-transformers/all-mpnet-base-v2"
+              embedding_model: "sentence-transformers/all-mpnet-base-v2",
+              vector_store_type: "chromadb"
             }, null, 2))
           } else {
             // Create empty placeholder files
-            fs.writeFileSync(filePath, '')
+            fs.writeFileSync(filePath, '[]')
           }
           console.log(`Created placeholder file: ${file}`)
         }

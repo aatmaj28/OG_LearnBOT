@@ -156,12 +156,13 @@ async function processAllConversations(forceUpdate: boolean = false): Promise<vo
  * Call this on server startup
  */
 export function startAnalyticsWorker(): void {
-  // Run initial processing after a short delay to let server initialize
+  // Run initial processing after a delay to let RAG initialize first
+  // RAG initialization is prioritized for better user experience
   setTimeout(() => {
     processAllConversations(true).catch(error => {
       console.error('[Analytics Worker] Fatal error:', error)
     })
-  }, 5000) // Start after 5 seconds
+  }, 10000) // Start after 10 seconds (increased to give RAG more time)
 
   // Schedule recurring processing every 15 minutes
   analyticsInterval = setInterval(() => {
@@ -170,9 +171,17 @@ export function startAnalyticsWorker(): void {
     })
   }, 15 * 60 * 1000) // 15 minutes = 900,000 ms
 
+  // Check analytics mode
+  const enableLLMAnalytics = process.env.ENABLE_LLM_ANALYTICS !== 'false'
+  const analyticsMode = enableLLMAnalytics ? 'LLM-based (accurate but slower)' : 'Keyword-based (fast)'
+  
   console.log('[Analytics Worker] 📋 Scheduled background analytics processing:')
-  console.log('[Analytics Worker]   - Initial run: starting in 5s')
+  console.log(`[Analytics Worker]   - Mode: ${analyticsMode}`)
+  console.log('[Analytics Worker]   - Initial run: starting in 10s (delayed to prioritize RAG initialization)')
   console.log('[Analytics Worker]   - Recurring runs: every 15 minutes')
+  if (!enableLLMAnalytics) {
+    console.log('[Analytics Worker]   - ⚡ LLM analytics disabled - using fast keyword-based fallback')
+  }
 }
 
 /**

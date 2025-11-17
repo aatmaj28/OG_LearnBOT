@@ -99,8 +99,16 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
       if (res.ok) {
         const data = await res.json()
         toast.success(data.message || "PDF and embeddings removed")
+        // Update stats immediately from response
+        if (data.pdfCount !== undefined) {
+          setIndexedPdfCount(data.pdfCount)
+        }
+        if (data.chunkCount !== undefined) {
+          setIndexedChunkCount(data.chunkCount)
+        }
         await loadServerFiles()
-        await loadIndexStats() // Reload stats to show updated counts
+        // Also reload stats as fallback (in case response didn't include stats)
+        await loadIndexStats()
       } else {
         toast.error("Failed to delete file")
       }
@@ -155,9 +163,17 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
       if (indexRes.ok) {
         const data = await indexRes.json()
         toast.success(`Indexed ${data.chunks || 0} chunks successfully!`)
+        // Update stats immediately from response
+        if (data.pdfCount !== undefined) {
+          setIndexedPdfCount(data.pdfCount)
+        }
+        if (data.chunkCount !== undefined) {
+          setIndexedChunkCount(data.chunkCount)
+        }
         setSelectedFiles([]) // Clear selected files after successful indexing
         await loadServerFiles() // Reload to show all indexed PDFs
-        await loadIndexStats() // Reload stats
+        // Also reload stats as fallback (in case response didn't include stats)
+        await loadIndexStats()
       } else {
         toast.error("Indexing failed")
       }
@@ -183,7 +199,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
           </div>
           <div>
             <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Corpus Management</h2>
-            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Upload PDFs and build FAISS index for different content types</p>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Upload PDFs and build vector index for different content types</p>
           </div>
         </div>
         {selectedClassId && (
@@ -285,7 +301,52 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
           {!selectedClassId ? (
             <div className="text-sm text-muted-foreground">Select a class</div>
           ) : filesOnServer.length === 0 ? (
+            <div className="space-y-2">
             <div className="text-sm text-muted-foreground">No files indexed yet. Upload and index PDFs to get started.</div>
+              {indexedChunkCount > 0 && (
+                <div className="pt-2 border-t">
+                  <div className="text-xs text-muted-foreground mb-2">
+                    Found {indexedChunkCount} orphaned chunk{indexedChunkCount !== 1 ? 's' : ''} from previous indexing.
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="w-full border-orange-300 text-orange-700 hover:bg-orange-50"
+                    onClick={async () => {
+                      if (!confirm(`Clear all ${indexedChunkCount} chunks? This will remove all indexed data but keep uploaded PDFs.`)) return
+                      try {
+                        // Trigger clear-all by trying to delete a dummy file
+                        const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&filename=__clear_all_chunks__.pdf&materialType=${materialType}`, {
+                          method: "DELETE"
+                        })
+                        const data = await res.json()
+                        if (res.ok && data.success) {
+                          toast.success(data.message || "All chunks cleared")
+                          // Update stats immediately from response
+                          if (data.pdfCount !== undefined) {
+                            setIndexedPdfCount(data.pdfCount)
+                          }
+                          if (data.chunkCount !== undefined) {
+                            setIndexedChunkCount(data.chunkCount)
+                          }
+                          await loadIndexStats()
+                        } else {
+                          const errorMsg = data.error || data.message || "Failed to clear chunks"
+                          toast.error(errorMsg)
+                          console.error("Clear chunks failed:", data)
+                        }
+                      } catch (e) {
+                        console.error("Clear chunks error", e)
+                        toast.error("Clear chunks error")
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3 mr-2" />
+                    Clear All Chunks ({indexedChunkCount})
+                  </Button>
+                </div>
+              )}
+            </div>
           ) : (
             <ScrollArea className="h-[360px]">
               <div className="space-y-2">
@@ -338,9 +399,9 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                     className="hidden"
                     onChange={onFilesChosen}
                   />
-                  <Button variant="secondary" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full">
+                  <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
                     <Upload className="h-4 w-4 mr-2" />
-                    Upload Syllabus/Schedule PDFs
+                    Upload PDFs
                   </Button>
                   
                   {selectedFiles.length > 0 && (
@@ -382,7 +443,52 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
               {!selectedClassId ? (
                 <div className="text-sm text-muted-foreground">Select a class</div>
               ) : filesOnServer.length === 0 ? (
+                <div className="space-y-2">
                 <div className="text-sm text-muted-foreground">No syllabus/schedule files indexed yet. Upload and index PDFs to get started.</div>
+                  {indexedChunkCount > 0 && (
+                    <div className="pt-2 border-t">
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Found {indexedChunkCount} orphaned chunk{indexedChunkCount !== 1 ? 's' : ''} from previous indexing.
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        className="w-full border-orange-300 text-orange-700 hover:bg-orange-50"
+                        onClick={async () => {
+                          if (!confirm(`Clear all ${indexedChunkCount} chunks? This will remove all indexed data but keep uploaded PDFs.`)) return
+                          try {
+                            // Trigger clear-all by trying to delete a dummy file
+                            const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&filename=__clear_all_chunks__.pdf&materialType=${materialType}`, {
+                              method: "DELETE"
+                            })
+                            const data = await res.json()
+                            if (res.ok && data.success) {
+                              toast.success(data.message || "All chunks cleared")
+                              // Update stats immediately from response
+                              if (data.pdfCount !== undefined) {
+                                setIndexedPdfCount(data.pdfCount)
+                              }
+                              if (data.chunkCount !== undefined) {
+                                setIndexedChunkCount(data.chunkCount)
+                              }
+                              await loadIndexStats()
+                            } else {
+                              const errorMsg = data.error || data.message || "Failed to clear chunks"
+                              toast.error(errorMsg)
+                              console.error("Clear chunks failed:", data)
+                            }
+                          } catch (e) {
+                            console.error("Clear chunks error", e)
+                            toast.error("Clear chunks error")
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3 mr-2" />
+                        Clear All Chunks ({indexedChunkCount})
+                      </Button>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <ScrollArea className="h-[360px]">
                   <div className="space-y-2">

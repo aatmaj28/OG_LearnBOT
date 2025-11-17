@@ -814,6 +814,14 @@ export const generateConversationSummary = async (messages: any[], existingSumma
     return existingSummary || ''
   }
 
+  // Check if LLM analytics is enabled (default: true for backward compatibility)
+  const enableLLMAnalytics = process.env.ENABLE_LLM_ANALYTICS !== 'false'
+  
+  // If LLM analytics is disabled, skip directly to enhanced keyword-based fallback
+  if (!enableLLMAnalytics) {
+    return generateEnhancedSummary(messages, existingSummary)
+  }
+
   try {
     // If we have an existing summary and new messages, do incremental update
     const recentMessages = existingSummary 
@@ -921,24 +929,25 @@ Summary:`
     }
   }
 
-  // Fallback: Generate simple summary from keywords
-  if (existingSummary) {
-    return existingSummary // Keep existing if generation fails
-  }
-  
-  const userMessages = messages.filter(m => m.role === 'user')
-  if (userMessages.length > 0) {
-    const firstMessage = userMessages[0].content.substring(0, 200)
-    return `Student asked about: ${firstMessage}...`
-  }
-  
-  return 'No summary available'
+  // Fallback: Use enhanced keyword-based summary
+  return generateEnhancedSummary(messages, existingSummary)
 }
 
 // Helper function to analyze latest conversation using LLM
 export const analyzeLatestConversation = async (userId: string, classId: string | undefined, messages: any[], conversationTitle: string, conversationSummary?: string): Promise<{ sentiment: number; topics: { topic: string; count: number }[] }> => {
   if (messages.length === 0) {
     return { sentiment: 0, topics: [] }
+  }
+
+  // Check if LLM analytics is enabled (default: true for backward compatibility)
+  const enableLLMAnalytics = process.env.ENABLE_LLM_ANALYTICS !== 'false'
+  
+  // If LLM analytics is disabled, skip directly to enhanced keyword-based fallback
+  if (!enableLLMAnalytics) {
+    return {
+      sentiment: calculateEnhancedSentiment(messages.filter(m => m.role === 'user')),
+      topics: extractEnhancedTopics(messages)
+    }
   }
 
   try {
@@ -1107,11 +1116,11 @@ Respond in JSON format:
       }
     }
 
-    // Fallback to simple analysis
-    console.log('LLM analysis failed, using fallback')
+    // Fallback to enhanced keyword-based analysis
+    console.log('LLM analysis failed, using enhanced keyword-based fallback')
     return {
-      sentiment: calculateSimpleSentiment(messages.filter(m => m.role === 'user')),
-      topics: extractSimpleTopics(messages)
+      sentiment: calculateEnhancedSentiment(messages.filter(m => m.role === 'user')),
+      topics: extractEnhancedTopics(messages)
     }
 
   } catch (error) {
@@ -1120,12 +1129,352 @@ Respond in JSON format:
     if (error instanceof Error && !error.message.includes('unavailable') && !error.message.includes('ECONNREFUSED')) {
       console.error('Error in LLM analysis:', error)
     }
-    // Fallback to simple analysis
+    // Fallback to enhanced keyword-based analysis
     return {
-      sentiment: calculateSimpleSentiment(messages.filter(m => m.role === 'user')),
-      topics: extractSimpleTopics(messages)
+      sentiment: calculateEnhancedSentiment(messages.filter(m => m.role === 'user')),
+      topics: extractEnhancedTopics(messages)
     }
   }
+}
+
+// =============================================================================
+// ENHANCED KEYWORD-BASED ANALYTICS (No LLM Required - Fast & Powerful)
+// =============================================================================
+
+/**
+ * Enhanced conversation summary using extractive summarization
+ * Uses sentence scoring based on word importance and position
+ */
+const generateEnhancedSummary = (messages: any[], existingSummary?: string): string => {
+  if (existingSummary && messages.length <= 5) {
+    return existingSummary // Keep existing if conversation hasn't grown much
+  }
+
+  const userMessages = messages.filter(m => m.role === 'user')
+  if (userMessages.length === 0) {
+    return 'No user messages found'
+  }
+
+  // Extract all sentences from user messages
+  const sentences: { text: string; score: number; index: number }[] = []
+  let globalIndex = 0
+
+  userMessages.forEach((msg, msgIndex) => {
+    const content = msg.content.trim()
+    // Split into sentences (simple regex - handles . ! ?)
+    const msgSentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10)
+    
+    msgSentences.forEach(sentence => {
+      const trimmed = sentence.trim()
+      if (trimmed.length > 0) {
+        sentences.push({
+          text: trimmed,
+          score: 0,
+          index: globalIndex++
+        })
+      }
+    })
+  })
+
+  if (sentences.length === 0) {
+    // Fallback to first message
+    const firstMsg = userMessages[0]?.content || ''
+    return `Student asked about: ${firstMsg.substring(0, 200)}${firstMsg.length > 200 ? '...' : ''}`
+  }
+
+  // Calculate word frequencies (TF)
+  const wordFreq = new Map<string, number>()
+  const allWords: string[] = []
+  
+  sentences.forEach(s => {
+    const words = s.text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !isStopWord(w))
+    
+    words.forEach(word => {
+      wordFreq.set(word, (wordFreq.get(word) || 0) + 1)
+      allWords.push(word)
+    })
+  })
+
+  // Calculate sentence scores
+  sentences.forEach(sentence => {
+    let score = 0
+    const words = sentence.text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !isStopWord(w))
+    
+    // Score based on important words (higher frequency = more important)
+    words.forEach(word => {
+      const freq = wordFreq.get(word) || 0
+      score += freq
+    })
+    
+    // Boost first sentences (they often contain the main question)
+    if (sentence.index < 2) {
+      score *= 1.5
+    }
+    
+    // Boost sentences with question words
+    if (/^(what|how|why|when|where|can|could|would|should|is|are|do|does)/i.test(sentence.text)) {
+      score *= 1.3
+    }
+    
+    // Normalize by sentence length
+    score = score / Math.max(words.length, 1)
+    
+    sentence.score = score
+  })
+
+  // Select top 2-3 sentences
+  const topSentences = sentences
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.min(3, sentences.length))
+    .sort((a, b) => a.index - b.index) // Maintain original order
+    .map(s => s.text)
+    .join('. ')
+
+  return topSentences.length > 0 
+    ? `${topSentences}${topSentences.endsWith('.') ? '' : '.'}`
+    : `Student asked about: ${userMessages[0]?.content.substring(0, 200)}...`
+}
+
+/**
+ * Enhanced sentiment analysis with negation handling and intensity modifiers
+ */
+const calculateEnhancedSentiment = (messages: any[]): number => {
+  if (messages.length === 0) return 0
+
+  // Expanded sentiment lexicons with weights
+  const positiveWords = new Map<string, number>([
+    // Strong positive
+    ['excellent', 1.0], ['amazing', 1.0], ['brilliant', 1.0], ['perfect', 1.0],
+    ['wonderful', 0.9], ['fantastic', 0.9], ['outstanding', 0.9], ['awesome', 0.9],
+    // Moderate positive
+    ['good', 0.7], ['great', 0.8], ['helpful', 0.7], ['useful', 0.6],
+    ['clear', 0.6], ['understand', 0.6], ['understood', 0.6], ['makes sense', 0.7],
+    ['correct', 0.7], ['right', 0.6], ['yes', 0.5], ['yeah', 0.5],
+    // Gratitude
+    ['thanks', 0.7], ['thank you', 0.8], ['appreciate', 0.7], ['grateful', 0.8],
+    // Learning positive
+    ['learned', 0.6], ['learning', 0.6], ['got it', 0.7], ['makes sense', 0.7],
+    ['clear now', 0.7], ['understand now', 0.7]
+  ])
+
+  const negativeWords = new Map<string, number>([
+    // Strong negative
+    ['terrible', -1.0], ['awful', -1.0], ['horrible', -1.0], ['hate', -1.0],
+    ['frustrated', -0.9], ['frustrating', -0.9], ['annoying', -0.8], ['useless', -0.9],
+    // Moderate negative
+    ['bad', -0.7], ['wrong', -0.7], ['incorrect', -0.7], ['unclear', -0.7],
+    ['confused', -0.8], ['confusing', -0.8], ['difficult', -0.6], ['hard', -0.6],
+    ['problem', -0.6], ['error', -0.7], ['stuck', -0.7], ['lost', -0.7],
+    // Learning negative
+    ["don't understand", -0.8], ["doesn't make sense", -0.8], ["can't understand", -0.8],
+    ['no idea', -0.7], ['not clear', -0.7], ['still confused', -0.8]
+  ])
+
+  // Intensity modifiers
+  const intensifiers = ['very', 'extremely', 'really', 'quite', 'super', 'incredibly', 'absolutely']
+  const diminishers = ['slightly', 'a bit', 'somewhat', 'kind of', 'sort of']
+
+  let totalSentiment = 0
+  let messageCount = 0
+
+  messages.forEach(message => {
+    if (message.role === 'user') {
+      const content = message.content.toLowerCase()
+      let messageSentiment = 0
+
+      // Check for positive words
+      positiveWords.forEach((weight, word) => {
+        const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+        const matches = content.match(regex)
+        if (matches) {
+          let wordSentiment = weight * matches.length
+          
+          // Check for intensifiers before the word
+          const beforeWord = content.substring(Math.max(0, content.indexOf(word) - 30), content.indexOf(word))
+          if (intensifiers.some(i => beforeWord.includes(i))) {
+            wordSentiment *= 1.3
+          } else if (diminishers.some(d => beforeWord.includes(d))) {
+            wordSentiment *= 0.7
+          }
+          
+          messageSentiment += wordSentiment
+        }
+      })
+
+      // Check for negative words
+      negativeWords.forEach((weight, word) => {
+        const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+        const matches = content.match(regex)
+        if (matches) {
+          let wordSentiment = weight * matches.length
+          
+          // Check for intensifiers
+          const beforeWord = content.substring(Math.max(0, content.indexOf(word) - 30), content.indexOf(word))
+          if (intensifiers.some(i => beforeWord.includes(i))) {
+            wordSentiment *= 1.3
+          } else if (diminishers.some(d => beforeWord.includes(d))) {
+            wordSentiment *= 0.7
+          }
+          
+          messageSentiment += wordSentiment
+        }
+      })
+
+      // Handle negations (e.g., "not good", "isn't helpful")
+      const negationPatterns = [
+        /\b(not|isn't|aren't|wasn't|weren't|don't|doesn't|didn't|can't|couldn't|won't|wouldn't|shouldn't)\s+(\w+)/gi
+      ]
+      
+      negationPatterns.forEach(pattern => {
+        const matches = Array.from(content.matchAll(pattern))
+        matches.forEach(match => {
+          const word = match[2]
+          // If negated word is positive, flip to negative
+          if (positiveWords.has(word)) {
+            messageSentiment -= positiveWords.get(word)! * 0.8
+            messageSentiment -= 0.3 // Additional negative boost
+          }
+          // If negated word is negative, it becomes less negative
+          if (negativeWords.has(word)) {
+            messageSentiment -= negativeWords.get(word)! * 0.5
+          }
+        })
+      })
+
+      totalSentiment += messageSentiment
+      messageCount++
+    }
+  })
+
+  if (messageCount === 0) return 0
+
+  // Normalize sentiment to -1 to 1 range
+  const avgSentiment = totalSentiment / messageCount
+  return Math.max(-1, Math.min(1, avgSentiment))
+}
+
+/**
+ * Enhanced topic extraction using TF-IDF-like scoring with n-grams
+ */
+const extractEnhancedTopics = (messages: any[]): { topic: string; count: number }[] => {
+  const topicScores = new Map<string, number>()
+  const allUserText: string[] = []
+
+  // Collect all user messages
+  messages.forEach(msg => {
+    if (msg.role === 'user') {
+      allUserText.push(msg.content.toLowerCase())
+    }
+  })
+
+  if (allUserText.length === 0) return []
+
+  // Extract unigrams (single words)
+  const unigrams = new Map<string, number>()
+  // Extract bigrams (2-word phrases)
+  const bigrams = new Map<string, number>()
+  // Extract trigrams (3-word phrases) for important concepts
+  const trigrams = new Map<string, number>()
+
+  allUserText.forEach(text => {
+    // Clean and tokenize
+    const words = text
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !isStopWord(w))
+
+    // Count unigrams
+    words.forEach(word => {
+      if (word.length > 4) { // Only longer words for topics
+        unigrams.set(word, (unigrams.get(word) || 0) + 1)
+      }
+    })
+
+    // Extract bigrams
+    for (let i = 0; i < words.length - 1; i++) {
+      const bigram = `${words[i]} ${words[i + 1]}`
+      if (words[i].length > 3 && words[i + 1].length > 3) {
+        bigrams.set(bigram, (bigrams.get(bigram) || 0) + 1)
+      }
+    }
+
+    // Extract trigrams for technical terms
+    for (let i = 0; i < words.length - 2; i++) {
+      const trigram = `${words[i]} ${words[i + 1]} ${words[i + 2]}`
+      if (words[i].length > 3 && words[i + 1].length > 2 && words[i + 2].length > 3) {
+        trigrams.set(trigram, (trigrams.get(trigram) || 0) + 1)
+      }
+    }
+  })
+
+  // Score topics (TF-IDF-like: frequency * importance)
+  // Bigrams and trigrams get higher scores as they're more specific
+  bigrams.forEach((count, bigram) => {
+    if (count >= 2) { // Only if appears at least twice
+      topicScores.set(bigram, count * 2) // Bigrams weighted 2x
+    }
+  })
+
+  trigrams.forEach((count, trigram) => {
+    if (count >= 2) {
+      topicScores.set(trigram, count * 3) // Trigrams weighted 3x
+    }
+  })
+
+  // Add high-frequency unigrams
+  unigrams.forEach((count, word) => {
+    if (count >= 2 && word.length > 5) {
+      // Check if word is not part of a bigram/trigram (avoid duplicates)
+      let isPartOfPhrase = false
+      bigrams.forEach((_, bigram) => {
+        if (bigram.includes(word)) isPartOfPhrase = true
+      })
+      trigrams.forEach((_, trigram) => {
+        if (trigram.includes(word)) isPartOfPhrase = true
+      })
+      
+      if (!isPartOfPhrase) {
+        topicScores.set(word, count)
+      }
+    }
+  })
+
+  // Convert to array and sort
+  return Array.from(topicScores.entries())
+    .map(([topic, score]) => ({ topic: capitalizeTopic(topic), count: Math.round(score) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3)
+}
+
+// Helper: Check if word is a stopword
+const isStopWord = (word: string): boolean => {
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+    'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had',
+    'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+    'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'her', 'its', 'our', 'their',
+    'what', 'which', 'who', 'whom', 'whose', 'where', 'when', 'why', 'how',
+    'all', 'each', 'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such',
+    'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can',
+    'just', 'about', 'into', 'through', 'during', 'including', 'against', 'among',
+    'throughout', 'despite', 'towards', 'upon', 'concerning', 'to', 'of', 'in', 'for',
+    'on', 'with', 'at', 'by', 'from', 'up', 'about', 'into', 'through', 'during'
+  ])
+  return stopWords.has(word.toLowerCase())
+}
+
+// Helper: Capitalize topic for display
+const capitalizeTopic = (topic: string): string => {
+  return topic.split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 // Helper function to extract simple topics as fallback
@@ -1369,6 +1718,43 @@ export const createRAGConversation = async (userId: string, title?: string, clas
       cachedTopics: row.cached_topics || undefined,
       analyticsLastUpdated: row.analytics_last_updated ? new Date(row.analytics_last_updated) : undefined,
       conversationSummary: row.conversation_summary || undefined
+    }
+    
+    // Copy to history table when created (non-blocking)
+    // History table always has a copy - we'll update its status to 'archived' when deleted
+    try {
+      await client.query(
+        `INSERT INTO rag_conversations_history (
+          original_id, user_id, class_id, title, status, current_topic,
+          checkpoint_state, message_history, student_problem_data, cached_context,
+          last_retrieval_topic, cached_sentiment, cached_topics, analytics_last_updated,
+          conversation_summary, chat_type, original_created_at, original_updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16, $17, $18)`,
+        [
+          parseInt(conversation.id),
+          parseInt(conversation.userId),
+          conversation.classId ? parseInt(conversation.classId) : null,
+          conversation.title,
+          conversation.status || 'active',
+          conversation.currentTopic || null,
+          toJsonString(conversation.checkpointState || {}),
+          toJsonString(conversation.messageHistory || []),
+          toJsonString(conversation.studentProblemData || {}),
+          toJsonString(conversation.cachedContext),
+          conversation.lastRetrievalTopic || null,
+          conversation.cachedSentiment || 0,
+          toJsonString(conversation.cachedTopics),
+          conversation.analyticsLastUpdated || null,
+          conversation.conversationSummary || null,
+          conversation.chatType || 'class_material',
+          conversation.createdAt,
+          conversation.updatedAt
+        ]
+      )
+      console.log(`[DB] ✅ Copied new conversation ${conversation.id} to history table`)
+    } catch (err) {
+      console.error(`[DB] Failed to copy new conversation to history:`, err)
+      // Non-critical, continue
     }
     
     console.log("Formatted conversation:", conversation)
@@ -1710,8 +2096,161 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
   }
 }
 
+/**
+ * Helper function to safely convert to JSON string for JSONB fields
+ */
+const toJsonString = (value: any): string | null => {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') {
+    // Already a string, validate it's valid JSON
+    try {
+      JSON.parse(value)
+      return value
+    } catch {
+      // Invalid JSON string, stringify it
+      return JSON.stringify(value)
+    }
+  }
+  // It's an object, stringify it
+  return JSON.stringify(value)
+}
+
+/**
+ * Helper function to sync conversation to history table
+ * Updates the history entry with latest state from main table
+ */
+const syncConversationToHistory = async (conversationId: string, client: any): Promise<void> => {
+  try {
+    // Get the full conversation using the same client
+    const result = await client.query(
+      `SELECT * FROM rag_conversations WHERE id = $1`,
+      [parseInt(conversationId)]
+    )
+    
+    if (result.rows.length === 0) {
+      console.log(`[DB] Conversation ${conversationId} not found, skipping history sync`)
+      return
+    }
+    
+    const row = result.rows[0]
+
+    // Check if this conversation already exists in history
+    const existingCheck = await client.query(
+      `SELECT id FROM rag_conversations_history WHERE original_id = $1`,
+      [parseInt(conversationId)]
+    )
+
+    if (existingCheck.rows.length > 0) {
+      // Update existing history entry with latest state
+      await client.query(
+        `UPDATE rag_conversations_history SET
+          user_id = $1,
+          class_id = $2,
+          title = $3,
+          status = $4,
+          current_topic = $5,
+          checkpoint_state = $6::jsonb,
+          message_history = $7::jsonb,
+          student_problem_data = $8::jsonb,
+          cached_context = $9::jsonb,
+          last_retrieval_topic = $10,
+          cached_sentiment = $11,
+          cached_topics = $12::jsonb,
+          analytics_last_updated = $13,
+          conversation_summary = $14,
+          chat_type = $15,
+          original_updated_at = $16
+        WHERE original_id = $17`,
+        [
+          row.user_id,
+          row.class_id,
+          row.title,
+          row.status || 'active',
+          row.current_topic,
+          toJsonString(row.checkpoint_state),
+          toJsonString(row.message_history),
+          toJsonString(row.student_problem_data),
+          toJsonString(row.cached_context),
+          row.last_retrieval_topic,
+          row.cached_sentiment || 0,
+          toJsonString(row.cached_topics),
+          row.analytics_last_updated,
+          row.conversation_summary,
+          row.chat_type || 'class_material',
+          row.updated_at,
+          parseInt(conversationId)
+        ]
+      )
+    } else {
+      // Insert new history entry (shouldn't happen if created properly, but handle it)
+      await client.query(
+        `INSERT INTO rag_conversations_history (
+          original_id, user_id, class_id, title, status, current_topic,
+          checkpoint_state, message_history, student_problem_data, cached_context,
+          last_retrieval_topic, cached_sentiment, cached_topics, analytics_last_updated,
+          conversation_summary, chat_type, original_created_at, original_updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16, $17, $18)`,
+        [
+          parseInt(conversationId),
+          row.user_id,
+          row.class_id,
+          row.title,
+          row.status || 'active',
+          row.current_topic,
+          toJsonString(row.checkpoint_state),
+          toJsonString(row.message_history),
+          toJsonString(row.student_problem_data),
+          toJsonString(row.cached_context),
+          row.last_retrieval_topic,
+          row.cached_sentiment || 0,
+          toJsonString(row.cached_topics),
+          row.analytics_last_updated,
+          row.conversation_summary,
+          row.chat_type || 'class_material',
+          row.created_at,
+          row.updated_at
+        ]
+      )
+    }
+    console.log(`[DB] ✅ Synced conversation ${conversationId} to history table`)
+  } catch (error) {
+    console.error(`[DB] ❌ Error syncing conversation ${conversationId} to history:`, error)
+    // Don't throw - history is non-critical
+  }
+}
+
+/**
+ * Delete a conversation - updates status in history to 'archived', then deletes from main table
+ * History table already has a copy (created when conversation was created)
+ * This ensures deleted conversations are preserved in history but removed from active analytics
+ */
 export const archiveRAGConversation = async (id: string): Promise<void> => {
-  await updateRAGConversation(id, { status: 'archived' })
+  const client = await pool.connect()
+  try {
+    // Sync latest state to history (in case there were updates)
+    await syncConversationToHistory(id, client)
+    
+    // Update status to 'archived' in history table
+    await client.query(
+      `UPDATE rag_conversations_history 
+       SET status = 'archived', archived_at = CURRENT_TIMESTAMP 
+       WHERE original_id = $1`,
+      [parseInt(id)]
+    )
+    
+    // Actually DELETE from main table
+    await client.query(
+      `DELETE FROM rag_conversations WHERE id = $1`,
+      [parseInt(id)]
+    )
+    
+    console.log(`[DB] ✅ Deleted conversation ${id} (marked as archived in history)`)
+  } catch (error) {
+    console.error(`[DB] ❌ Error deleting conversation ${id}:`, error)
+    throw error
+  } finally {
+    client.release()
+  }
 }
 
 export const addRAGMessage = async (conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any): Promise<void> => {

@@ -35,7 +35,28 @@ export async function GET(request: NextRequest) {
       pdfCount = files.length
     }
     
-    // Count chunks from metadata - read actual count from metadata.json
+    // Count chunks - prefer config.json (has actual ChromaDB count), fallback to metadata.json
+    const configPath = path.join(basePath, "config.json")
+    if (fs.existsSync(configPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+        // config.json has the actual count from ChromaDB (most accurate)
+        chunkCount = config.total_chunks || 0
+      } catch (e) {
+        console.error("Error reading config.json:", e)
+        // Fallback: try to read from metadata.json
+        const metaJsonPath = path.join(basePath, "metadata.json")
+        if (fs.existsSync(metaJsonPath)) {
+          try {
+            const metadata = JSON.parse(fs.readFileSync(metaJsonPath, 'utf-8'))
+            chunkCount = Array.isArray(metadata) ? metadata.length : 0
+          } catch (e2) {
+            console.error("Error reading metadata.json:", e2)
+          }
+        }
+      }
+    } else {
+      // If config.json doesn't exist, try metadata.json
     const metaJsonPath = path.join(basePath, "metadata.json")
     if (fs.existsSync(metaJsonPath)) {
       try {
@@ -43,15 +64,6 @@ export async function GET(request: NextRequest) {
         chunkCount = Array.isArray(metadata) ? metadata.length : 0
       } catch (e) {
         console.error("Error reading metadata.json:", e)
-        // Fallback: try to read from config.json
-        const configPath = path.join(basePath, "config.json")
-        if (fs.existsSync(configPath)) {
-          try {
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-            chunkCount = config.total_chunks || 0
-          } catch (e2) {
-            console.error("Error reading config.json:", e2)
-          }
         }
       }
     }

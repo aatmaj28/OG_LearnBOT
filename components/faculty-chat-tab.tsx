@@ -309,22 +309,29 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       return
     }
 
+    // Optimistically update UI immediately
+    setConversations(prev => prev.filter(conv => conv.id !== conversationId))
+    if (currentConversation?.id === conversationId) {
+      setCurrentConversation(null)
+    }
+
     try {
       const response = await fetch(`/api/chat/conversations?conversationId=${conversationId}`, {
         method: "DELETE",
       })
 
       if (response.ok) {
-        await loadConversations()
-        if (currentConversation?.id === conversationId) {
-          setCurrentConversation(null)
-        }
         console.log("[v0] Conversation deleted successfully")
+        // Don't reload - optimistic update is sufficient and maintains order
       } else {
+        // Revert optimistic update on error
         console.error("[v0] Failed to delete conversation:", response.status, response.statusText)
+        loadConversations() // Reload to restore correct state
       }
     } catch (error) {
+      // Revert optimistic update on error
       console.error("[v0] Failed to delete conversation:", error)
+      loadConversations() // Reload to restore correct state
     }
   }
 
@@ -892,10 +899,6 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 {!currentConversation || !currentConversation.messageHistory || currentConversation.messageHistory.length === 0 ? (
                   <div className="text-center py-12">
                     <p className="text-muted-foreground">Start the conversation by sending a message below</p>
-                    <div className="mt-4 text-xs text-gray-500">
-                      Debug: currentConversation={currentConversation ? 'exists' : 'null'}, 
-                      messageHistory={currentConversation?.messageHistory ? `length: ${currentConversation.messageHistory.length}` : 'null'}
-                    </div>
                   </div>
                 ) : (
                   currentConversation.messageHistory.map((message, index) => (
