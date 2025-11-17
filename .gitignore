@@ -49,6 +49,7 @@ coverage/
 tmp/
 temp/
 vector_stores/
+vector-stores/
 
 # Python virtualenv & bytecode
 venv/
