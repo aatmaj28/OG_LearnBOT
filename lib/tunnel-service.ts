@@ -94,7 +94,7 @@ async function createTunnel(modelId: 'remote-a6000' | 'remote-blackwell'): Promi
 async function pingTunnel(modelId: 'remote-a6000' | 'remote-blackwell'): Promise<boolean> {
   const endpoints = {
     'remote-a6000': 'http://localhost:5001/api/generate',
-    'remote-blackwell': 'http://localhost:8001/v1/chat/completions'
+    'remote-blackwell': 'http://129.10.156.97:8000/v1/chat/completions'
   }
 
   try {

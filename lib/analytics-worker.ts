@@ -21,18 +21,14 @@ async function processConversation(conversation: RAGConversation, forceUpdate: b
     if (!forceUpdate && conversation.analyticsLastUpdated) {
       const minutesSinceUpdate = (Date.now() - conversation.analyticsLastUpdated.getTime()) / (1000 * 60)
       if (minutesSinceUpdate < 15) {
-        console.log(`[Analytics Worker] Skipping conversation ${conversation.id} - updated ${minutesSinceUpdate.toFixed(1)}m ago`)
         return
       }
     }
 
     // Skip if no messages
     if (!conversation.messageHistory || conversation.messageHistory.length < 2) {
-      console.log(`[Analytics Worker] Skipping conversation ${conversation.id} - insufficient messages`)
       return
     }
-
-    console.log(`[Analytics Worker] Processing conversation ${conversation.id} (${conversation.messageHistory.length} messages)`)
 
     // Import functions
     const { updateRAGConversation, generateConversationSummary, analyzeLatestConversation } = await import('./db-service')
@@ -62,7 +58,7 @@ async function processConversation(conversation: RAGConversation, forceUpdate: b
       analyticsLastUpdated: new Date()
     })
 
-    console.log(`[Analytics Worker] ✅ Processed conversation ${conversation.id}`)
+    // Processed successfully (silent)
   } catch (error) {
     console.error(`[Analytics Worker] ❌ Error processing conversation ${conversation.id}:`, error)
     // Continue processing other conversations
@@ -75,12 +71,10 @@ async function processConversation(conversation: RAGConversation, forceUpdate: b
  */
 async function processAllConversations(forceUpdate: boolean = false): Promise<void> {
   if (isProcessing) {
-    console.log('[Analytics Worker] Already processing, skipping...')
     return
   }
 
   isProcessing = true
-  console.log(`[Analytics Worker] 🚀 Starting background analytics processing${forceUpdate ? ' (force update)' : ''}...`)
 
   try {
     const client = await pool.connect()
@@ -115,22 +109,14 @@ async function processAllConversations(forceUpdate: boolean = false): Promise<vo
         conversationSummary: row.conversation_summary || undefined
       }))
 
-      console.log(`[Analytics Worker] Found ${conversations.length} active conversations to process`)
-
       // Process in batches of 5 to avoid overwhelming the system
       const batchSize = 5
       let processed = 0
-      let skipped = 0
 
       for (let i = 0; i < conversations.length; i += batchSize) {
         const batch = conversations.slice(i, i + batchSize)
         await Promise.all(batch.map(conv => processConversation(conv, forceUpdate)))
         processed += batch.length
-        
-        // Log progress every 10 conversations
-        if (processed % 10 === 0) {
-          console.log(`[Analytics Worker] Progress: ${processed}/${conversations.length} conversations processed`)
-        }
 
         // Small delay between batches to avoid overwhelming the system
         if (i + batchSize < conversations.length) {
@@ -139,7 +125,6 @@ async function processAllConversations(forceUpdate: boolean = false): Promise<vo
       }
 
       processingComplete = true
-      console.log(`[Analytics Worker] ✅ Completed! Processed ${processed} conversations`)
     } finally {
       client.release()
     }
@@ -171,17 +156,7 @@ export function startAnalyticsWorker(): void {
     })
   }, 15 * 60 * 1000) // 15 minutes = 900,000 ms
 
-  // Check analytics mode
-  const enableLLMAnalytics = process.env.ENABLE_LLM_ANALYTICS !== 'false'
-  const analyticsMode = enableLLMAnalytics ? 'LLM-based (accurate but slower)' : 'Keyword-based (fast)'
-  
-  console.log('[Analytics Worker] 📋 Scheduled background analytics processing:')
-  console.log(`[Analytics Worker]   - Mode: ${analyticsMode}`)
-  console.log('[Analytics Worker]   - Initial run: starting in 10s (delayed to prioritize RAG initialization)')
-  console.log('[Analytics Worker]   - Recurring runs: every 15 minutes')
-  if (!enableLLMAnalytics) {
-    console.log('[Analytics Worker]   - ⚡ LLM analytics disabled - using fast keyword-based fallback')
-  }
+  // Analytics worker started (silent)
 }
 
 /**

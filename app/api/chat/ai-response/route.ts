@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
 
           return new Response(readable, {
             headers: {
-              'Content-Type': 'text/event-stream',
+              'Content-Type': 'text/event-stream; charset=utf-8',
               'Cache-Control': 'no-cache',
               'Connection': 'keep-alive',
             },
@@ -129,6 +129,10 @@ export async function POST(request: NextRequest) {
           contentFound: ragResponse.retrieval_result?.content_found || false,
           modelUsed: ragResponse.modelUsed,
           timeTaken: ragResponse.timeTaken
+        }, {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8'
+          }
         })
       } catch (ragError) {
         console.error('RAG system error:', ragError)

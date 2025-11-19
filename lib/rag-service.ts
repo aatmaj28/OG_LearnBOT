@@ -1232,7 +1232,7 @@ import requests
 LOCAL_OLLAMA_URL = "http://localhost:11434"
 REMOTE_OLLAMA_URL = "${process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'}"
 REMOTE_OLLAMA_MODEL = "${process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'}"
-REMOTE_BLACKWELL_URL = "${process.env.REMOTE_BLACKWELL_URL || 'http://localhost:8001/v1/chat/completions'}"
+REMOTE_BLACKWELL_URL = "${process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'}"
 REMOTE_BLACKWELL_MODEL = "${process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'}"
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = "${process.env.ENABLE_LLM_GUARDS || 'true'}".lower() == 'true'
@@ -1942,8 +1942,9 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                     "chunk": chunk
                                 }
                                 print(json.dumps(chunk_message), flush=True)
-                                if STREAM_CHUNK_DELAY > 0:
-                                    time.sleep(STREAM_CHUNK_DELAY)
+                                # No delay for vLLM - it's already fast and delay causes significant slowdown
+                                # if STREAM_CHUNK_DELAY > 0:
+                                #     time.sleep(STREAM_CHUNK_DELAY)
                         except json.JSONDecodeError:
                             continue
                 
@@ -2093,8 +2094,9 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "chunk": chunk
                                         }
                                         print(json.dumps(chunk_message), flush=True)
-                                        if STREAM_CHUNK_DELAY > 0:
-                                            time.sleep(STREAM_CHUNK_DELAY)
+                                        # No delay for vLLM - it's already fast and delay causes significant slowdown
+                                        # if STREAM_CHUNK_DELAY > 0:
+                                        #     time.sleep(STREAM_CHUNK_DELAY)
                             except json.JSONDecodeError:
                                 continue
                 
@@ -2967,9 +2969,10 @@ NOT LEAKED:
                 }
                 # json is already imported at the top of process_query function
                 print(json.dumps(chunk_message), flush=True)
-                if STREAM_CHUNK_DELAY > 0:
-                    import time
-                    time.sleep(STREAM_CHUNK_DELAY)
+                # No delay for vLLM - it's already fast and delay causes significant slowdown
+                # if STREAM_CHUNK_DELAY > 0:
+                #     import time
+                #     time.sleep(STREAM_CHUNK_DELAY)
         
         total_time = time.time() - total_start
         print(f"", file=sys.stderr)
