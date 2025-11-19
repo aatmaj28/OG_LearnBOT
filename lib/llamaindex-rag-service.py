@@ -35,7 +35,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 LOCAL_OLLAMA_URL = "http://localhost:11434"
 REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', 'http://localhost:5001/api/generate')
 REMOTE_OLLAMA_MODEL = os.getenv('REMOTE_OLLAMA_MODEL', 'gemma3:27b')
-REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://localhost:8001/v1/chat/completions')
+REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.156.97:8000/v1/chat/completions')
 REMOTE_BLACKWELL_MODEL = os.getenv('REMOTE_BLACKWELL_MODEL', 'google/gemma-3-12b-it')
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
@@ -69,6 +69,11 @@ blackwell_session = requests.Session()
 # Vector store preload state
 _preload_complete = False
 _preload_lock = threading.Lock()
+
+def mark_preload_complete():
+    global _preload_complete
+    with _preload_lock:
+        _preload_complete = True
 
 
 class SentenceTransformerEmbedding(BaseEmbedding):
@@ -213,7 +218,7 @@ def keep_alive_ping():
         try:
             time.sleep(15)  # Ping every 15 seconds
             
-            # Ping A6000 Ollama
+            # Ping A6000 Ollama (silent - expected to fail if not running)
             try:
                 a6000_session.post(
                     REMOTE_OLLAMA_URL,
@@ -225,10 +230,10 @@ def keep_alive_ping():
                     },
                     timeout=15
                 )
-            except Exception as e:
-                print(f"⚠️ A6000 Ollama keep-alive ping failed: {str(e)}", file=sys.stderr)
+            except Exception:
+                pass  # Silent - expected if service not running
             
-            # Ping Blackwell vLLM
+            # Ping Blackwell vLLM (silent - expected to fail if not running)
             try:
                 blackwell_session.post(
                     REMOTE_BLACKWELL_URL,
@@ -240,13 +245,11 @@ def keep_alive_ping():
                     },
                     timeout=15
                 )
-            except Exception as e:
-                print(f"⚠️ Blackwell vLLM keep-alive ping failed: {str(e)}", file=sys.stderr)
+            except Exception:
+                pass  # Silent - expected if service not running
             
-            # Ping Claude to keep Anthropic edge warm
-            success, _, skipped = _send_claude_ping(stream=False, max_tokens=1, label="Claude keep-alive", timeout=15)
-            if not success and not skipped:
-                print(f"⚠️ Claude keep-alive ping did not succeed", file=sys.stderr)
+            # Ping Claude to keep Anthropic edge warm (silent)
+            _send_claude_ping(stream=False, max_tokens=1, label="Claude keep-alive", timeout=15)
                 
         except Exception as e:
             print(f"⚠️ Keep-alive ping loop error: {str(e)}", file=sys.stderr)
@@ -620,11 +623,6 @@ def preload_vector_stores_parallel(store_paths: List[str], run_warmup: bool = Tr
 
 def preload_vector_stores(base_path: str):
     """Preload all discovered vector stores. Prioritizes loading one class_material and one syllabus store synchronously for fast first queries."""
-
-    def mark_preload_complete():
-        global _preload_complete
-        with _preload_lock:
-            _preload_complete = True
 
     def preload_worker(remaining_paths: List[str]):
         if not remaining_paths:
@@ -1205,8 +1203,14 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model):
                 else:
                     result = response.json()
                     return result['choices'][0]['message']['content'], 'remote-blackwell'
+            else:
+                error_text = response.text if hasattr(response, 'text') else 'No error text'
+                print(f"❌ Blackwell vLLM error {response.status_code}: {error_text}", file=sys.stderr)
+                print(f"   Request URL: {REMOTE_BLACKWELL_URL}", file=sys.stderr)
+                print(f"   Model: {REMOTE_BLACKWELL_MODEL}", file=sys.stderr)
             return None, None
         except Exception as e:
+            print(f"❌ Blackwell vLLM exception: {str(e)}", file=sys.stderr)
             return None, None
     
     if preferred_model == 'claude':
@@ -1402,8 +1406,9 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                     "chunk": chunk
                                 }
                                 print(json.dumps(chunk_message), flush=True)
-                                if STREAM_CHUNK_DELAY > 0:
-                                    time.sleep(STREAM_CHUNK_DELAY)
+                                # No delay for vLLM - it's already fast and delay causes significant slowdown
+                                # if STREAM_CHUNK_DELAY > 0:
+                                #     time.sleep(STREAM_CHUNK_DELAY)
                         except json.JSONDecodeError:
                             continue
                 
@@ -1497,8 +1502,9 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "chunk": chunk
                                         }
                                         print(json.dumps(chunk_message), flush=True)
-                                        if STREAM_CHUNK_DELAY > 0:
-                                            time.sleep(STREAM_CHUNK_DELAY)
+                                        # No delay for vLLM - it's already fast and delay causes significant slowdown
+                                        # if STREAM_CHUNK_DELAY > 0:
+                                        #     time.sleep(STREAM_CHUNK_DELAY)
                             except json.JSONDecodeError:
                                 continue
                 
@@ -2002,20 +2008,20 @@ Return ONLY a JSON object:
                     r"= \$?\d+\.\d+",
                     r"= \$?\d+,\d+",
                     r"/ \d+\.\d+ = \$",
-                    "you would need to invest \$?\d+",
+                    r"you would need to invest \$?\d+",
                     "you should deposit",
                     "you need to deposit",
                     "the result is",
-                    "present value is \$",
-                    "pv = \$?\d+",
-                    "approximately \$?\d+",
-                    "the value is \$",
-                    "equals \$",
-                    "comes to \$",
-                    "totals \$",
-                    "you get \$",
-                    "answer: \$",
-                    "solution: \$"
+                    r"present value is \$",
+                    r"pv = \$?\d+",
+                    r"approximately \$?\d+",
+                    r"the value is \$",
+                    r"equals \$",
+                    r"comes to \$",
+                    r"totals \$",
+                    r"you get \$",
+                    r"answer: \$",
+                    r"solution: \$"
                 ]
                 leak_detected = any(
                     re.search(pattern, response_lower) if '\\' in pattern else pattern in response_lower
@@ -2045,13 +2051,13 @@ Return ONLY a JSON object:
                 r"= \$?\d+\.\d+",
                 r"= \$?\d+,\d+",
                 r"/ \d+\.\d+ = \$",
-                "you would need to invest \$?\d+",
+                r"you would need to invest \$?\d+",
                 "you should deposit",
                 "you need to deposit",
                 "the result is",
-                "present value is \$",
-                "pv = \$?\d+",
-                "approximately \$?\d+"
+                r"present value is \$",
+                r"pv = \$?\d+",
+                r"approximately \$?\d+"
             ]
             leak_detected = any(
                 re.search(pattern, response_lower) if '\\' in pattern else pattern in response_lower

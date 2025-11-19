@@ -853,7 +853,7 @@ ${conversationText}
 Summary:`
 
     // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
-    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://localhost:8001/v1/chat/completions'
+    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'
     const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
     const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
     const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
@@ -982,7 +982,7 @@ Respond in JSON format:
 }`
 
     // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
-    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://localhost:8001/v1/chat/completions'
+    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'
     const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
     const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
     const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
@@ -1578,7 +1578,7 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
     let query = 'SELECT * FROM rag_conversations WHERE user_id = $1 AND status = $2'
     const params: any[] = [userId, 'active']
     
-    if (classId) {
+    if (classId && classId !== 'entire-corpus') {
       query += ' AND class_id = $3'
       params.push(classId)
     }
@@ -1673,7 +1673,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
        RETURNING *`,
       [
         userId, 
-        classId || null,
+        classId && classId !== 'entire-corpus' ? classId : null,
         conversationTitle,
         chatType,
         JSON.stringify({
@@ -2014,7 +2014,7 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
     }
     if (updates.messageHistory !== undefined) {
       updateFields.push(`message_history = $${paramCount}`)
-      values.push(JSON.stringify(updates.messageHistory))
+      values.push(JSON.stringify(updates.messageHistory, null, 0))
       paramCount++
     }
     if (updates.studentProblemData !== undefined) {
@@ -2108,11 +2108,11 @@ const toJsonString = (value: any): string | null => {
       return value
     } catch {
       // Invalid JSON string, stringify it
-      return JSON.stringify(value)
+      return JSON.stringify(value, null, 0)
     }
   }
-  // It's an object, stringify it
-  return JSON.stringify(value)
+  // It's an object, stringify it with UTF-8 support
+  return JSON.stringify(value, null, 0)
 }
 
 /**

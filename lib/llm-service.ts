@@ -119,7 +119,7 @@ export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
   'remote-blackwell': {
     name: "Remote Blackwell (Gemma 12B)",
     type: "vllm",
-    endpoint: "http://localhost:8001/v1/chat/completions",
+    endpoint: "http://129.10.156.97:8000/v1/chat/completions",
     model: "google/gemma-3-12b-it",
     description: "vLLM on NVIDIA RTX 6000 Blackwell (96GB VRAM) - 2x faster",
     requiresTunnel: true,
@@ -300,6 +300,9 @@ async function callVLLM(prompt: string, systemPrompt: string, config?: Partial<L
 
     if (!response.ok) {
       const errorData = await response.text()
+      console.error(`[LLM Service] Blackwell vLLM error ${response.status}:`, errorData)
+      console.error(`[LLM Service] Request URL: ${modelConfig.endpoint}`)
+      console.error(`[LLM Service] Request body:`, JSON.stringify({ model: modelConfig.model, messages: messages.slice(0, 1) }, null, 2))
       throw new Error(`vLLM error: ${response.status} - ${errorData}`)
     }
 
