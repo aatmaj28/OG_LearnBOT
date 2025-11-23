@@ -23,9 +23,12 @@ export interface User {
   password: string // In production, this would be hashed
   name: string
   role: UserRole
-  nuid?: string // Student ID number
+  nuid?: string // Student ID number (STRICT PII)
   degree?: string // Degree program
   major?: string // Major field of study
+  ssn?: string // Social Security Number (if present - PII)
+  dob?: string | Date // Date of Birth (if present - PII)
+  age?: number | string // Age (if present - PII)
   createdAt: Date
 }
 

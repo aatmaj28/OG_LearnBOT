@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { login, createSession } from "@/lib/auth"
 import { ensureDatabaseInitialized } from "@/lib/init-db"
+import { maskUserData, type MaskingContext } from "@/lib/pii-masking"
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 })
     }
 
-    // Try to authenticate with database
+    // Try to authenticate with database (uses internal function for real email)
     const user = await login(email, password)
     
     if (!user) {
@@ -32,21 +33,33 @@ export async function POST(request: NextRequest) {
 
     console.log("[v0] LOGIN: User authenticated successfully:", user.email, "role:", user.role)
 
-    // Create session
+    // Create session with full user data (internal use)
     const sessionId = createSession(user)
     console.log("[v0] LOGIN: Session created successfully:", sessionId)
+
+    // Apply PII masking to response (users see their own unmasked data in login response)
+    // Faculty in production see unmasked data, students always see masked (except their own)
+    const environment = process.env.NODE_ENV || 'development'
+    const context: MaskingContext = {
+      requestingUserId: user.id, // User requesting their own data
+      requestingUserRole: user.role,
+      environment
+    }
+    
+    // Users see their own unmasked data, but maskUserData handles this
+    const maskedUser = maskUserData(user, context)
 
     return NextResponse.json({
       success: true,
       sessionId,
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        nuid: user.nuid,
-        degree: user.degree,
-        major: user.major,
+        id: maskedUser.id,
+        email: maskedUser.email,
+        name: maskedUser.name,
+        role: maskedUser.role,
+        nuid: maskedUser.nuid,
+        degree: maskedUser.degree,
+        major: maskedUser.major,
       },
     })
   } catch (error) {

@@ -27,8 +27,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Get user to check role
-    const user = await getUserById(userId)
+    // Get user to check role (use internal for role check, masking applied separately if needed)
+    const user = await getUserById(userId, userId, null) // Pass userId as requesting user for role check
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User ID is required" }, { status: 401 })
     }
 
-    const user = await getUserById(userId)
+    const user = await getUserById(userId, userId, null) // Pass userId as requesting user for role check
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
@@ -176,7 +176,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "User ID is required" }, { status: 401 })
     }
 
-    const user = await getUserById(userId)
+    const user = await getUserById(userId, userId, null) // Pass userId as requesting user for role check
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }

@@ -4,6 +4,7 @@
 -- Create users table
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
+  masked_id VARCHAR(64) UNIQUE NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
   name VARCHAR(255) NOT NULL,
@@ -13,6 +14,10 @@ CREATE TABLE IF NOT EXISTS users (
   major VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Index for masked_id lookups
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_masked_id ON users(masked_id);
+CREATE INDEX IF NOT EXISTS idx_users_id_masked ON users(id, masked_id);
 
 -- Create classes table
 CREATE TABLE IF NOT EXISTS classes (
@@ -29,34 +34,51 @@ CREATE TABLE IF NOT EXISTS class_students (
   id SERIAL PRIMARY KEY,
   class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
   student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_masked_id VARCHAR(64) NOT NULL,
   enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(class_id, student_id)
 );
+
+-- Indexes for class_students
+CREATE INDEX IF NOT EXISTS idx_class_students_student_id ON class_students(student_id);
+CREATE INDEX IF NOT EXISTS idx_class_students_masked_id ON class_students(student_masked_id);
 
 -- Create chat_sessions table
 CREATE TABLE IF NOT EXISTS chat_sessions (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_masked_id VARCHAR(64) NOT NULL,
   title VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   message_count INTEGER DEFAULT 0
 );
 
+-- Indexes for chat_sessions
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_masked_id ON chat_sessions(user_masked_id);
+
 -- Create chat_messages table
 CREATE TABLE IF NOT EXISTS chat_messages (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_masked_id VARCHAR(64) NOT NULL,
   session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
   role VARCHAR(50) NOT NULL CHECK (role IN ('user', 'assistant')),
   content TEXT NOT NULL,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Indexes for chat_messages
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_masked_id ON chat_messages(user_masked_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id);
+
 -- Create chat_analytics table
 CREATE TABLE IF NOT EXISTS chat_analytics (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_masked_id VARCHAR(64) NOT NULL,
   session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
   sentiment VARCHAR(50) NOT NULL CHECK (sentiment IN ('positive', 'neutral', 'negative')),
   topics TEXT[],
@@ -65,10 +87,16 @@ CREATE TABLE IF NOT EXISTS chat_analytics (
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Indexes for chat_analytics
+CREATE INDEX IF NOT EXISTS idx_chat_analytics_user_id ON chat_analytics(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_analytics_masked_id ON chat_analytics(user_masked_id);
+CREATE INDEX IF NOT EXISTS idx_chat_analytics_session_id ON chat_analytics(session_id);
+
 -- Create rag_conversations table
 CREATE TABLE IF NOT EXISTS rag_conversations (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_masked_id VARCHAR(64) NOT NULL,
   class_id INTEGER REFERENCES classes(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
@@ -85,9 +113,14 @@ CREATE TABLE IF NOT EXISTS rag_conversations (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index for faster student activity queries
+-- Indexes for rag_conversations (both user_id and masked_id patterns)
+CREATE INDEX IF NOT EXISTS idx_rag_conversations_user_id ON rag_conversations(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_rag_conversations_masked_id ON rag_conversations(user_masked_id, status);
 CREATE INDEX IF NOT EXISTS idx_rag_conversations_user_class 
 ON rag_conversations(user_id, class_id) 
+WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_rag_conversations_masked_class 
+ON rag_conversations(user_masked_id, class_id) 
 WHERE status = 'active';
 
 -- Create pending_registrations table for email verification

@@ -5,7 +5,7 @@ import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActiv
 const users: User[] = [
   {
     id: "1",
-    email: "student@example.com",
+    email: "student@northeastern.edu",
     password: "student123",
     name: "John Student",
     role: "student",
@@ -16,7 +16,7 @@ const users: User[] = [
   },
   {
     id: "2",
-    email: "faculty@example.com",
+    email: "faculty@northeastern.edu",
     password: "faculty123",
     name: "Dr. Sarah Professor",
     role: "faculty",

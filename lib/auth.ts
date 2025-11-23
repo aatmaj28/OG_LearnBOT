@@ -1,5 +1,10 @@
 // Authentication utilities
-import { getUserByEmail, type User } from "./db-service"
+// Note: Using internal getUserByEmailInternal for authentication
+// Authentication needs real email, not masked data
+import { getUserByEmailInternal } from "./db-service"
+import type { User } from "./types"
+import { getUserByEmail as getMockUserByEmail } from "./mock-db"
+import { enableDatabaseFallback, isDatabaseFallbackEnabled } from "./init-db"
 
 export interface AuthSession {
   user: User
@@ -24,10 +29,34 @@ export const debugSessions = () => {
   })
 }
 
+const recoverableDbErrors = new Set(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'])
+
+const shouldFallbackToMock = (error: any): boolean => {
+  if (!error) return false
+  const code = error.code || error.errno
+  return recoverableDbErrors.has(code)
+}
+
 export const login = async (email: string, password: string): Promise<User | null> => {
-  const user = await getUserByEmail(email)
-  if (user && user.password === password) {
-    return user
+  if (!isDatabaseFallbackEnabled()) {
+    try {
+      const user = await getUserByEmailInternal(email, undefined)
+      if (user && user.password === password) {
+        return user
+      }
+    } catch (error) {
+      if (shouldFallbackToMock(error)) {
+        enableDatabaseFallback('Authentication query failed', error)
+      } else {
+        throw error
+      }
+    }
+  }
+
+  // Fallback to mock data for offline development
+  const mockUser = getMockUserByEmail(email)
+  if (mockUser && mockUser.password === password) {
+    return mockUser
   }
   return null
 }

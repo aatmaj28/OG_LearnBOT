@@ -4,6 +4,19 @@ import { getRAGService } from './rag-service'
 
 let isInitialized = false
 let ragInitialized = false
+let dbFallbackEnabled = false
+
+export const isDatabaseFallbackEnabled = (): boolean => dbFallbackEnabled
+
+export const enableDatabaseFallback = (reason: string, error?: unknown) => {
+  if (dbFallbackEnabled) return
+  dbFallbackEnabled = true
+  isInitialized = true
+  console.warn('[Init] ⚠️  Database unavailable - enabling mock data fallback. Reason:', reason)
+  if (error) {
+    console.warn('[Init] ⚠️  Original error:', error)
+  }
+}
 
 /**
  * Initialize RAG service eagerly - highest priority for user experience
@@ -36,6 +49,10 @@ export async function ensureDatabaseInitialized() {
   if (isInitialized) return
   
   try {
+    if (dbFallbackEnabled) {
+      console.warn('[Init] ⚠️  Skipping database initialization (fallback already enabled)')
+      return
+    }
     // Step 1: Initialize database first (required for everything)
     await initializeDatabase()
     isInitialized = true
@@ -63,7 +80,14 @@ export async function ensureDatabaseInitialized() {
       }
     }, 3000) // Give RAG 3 seconds head start before analytics begins
     
-  } catch (error) {
+  } catch (error: any) {
+    const errorCode = error?.code || error?.errno
+    const errorName = error?.name
+    const recoverableErrors = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN']
+    if (recoverableErrors.includes(errorCode) || errorName === 'FetchError') {
+      enableDatabaseFallback(`Database connection failed (${errorCode || errorName})`, error)
+      return
+    }
     console.error('[Init] ❌ Failed to initialize database:', error)
     throw error
   }

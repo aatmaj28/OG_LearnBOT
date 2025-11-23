@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Get user to check role
-    const user = await getUserById(userId);
+    // Get user to check role (pass userId as requesting user for role check)
+    const user = await getUserById(userId, userId, null);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
@@ -99,8 +99,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User ID is required" }, { status: 401 });
     }
 
-    // Get user to verify they're faculty
-    const user = await getUserById(userId);
+    // Get user to verify they're faculty (pass userId as requesting user for role check)
+    const user = await getUserById(userId, userId, null);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
@@ -190,8 +190,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Assignment not found for this class" }, { status: 404 });
     }
 
-    // Get user to verify they're faculty and created this assignment
-    const user = await getUserById(userId);
+    // Get user to verify they're faculty and created this assignment (pass userId as requesting user for role check)
+    const user = await getUserById(userId, userId, null);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }

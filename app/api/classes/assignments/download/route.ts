@@ -36,8 +36,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Assignment not found for this class" }, { status: 404 });
     }
 
-    // Get user to check access
-    const user = await getUserById(userId);
+    // Get user to check access (pass userId as requesting user for role check)
+    const user = await getUserById(userId, userId, null);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }

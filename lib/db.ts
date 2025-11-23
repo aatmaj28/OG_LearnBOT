@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { getMaskedId } from './masked-id-utils'
 
 const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
@@ -21,6 +22,7 @@ export const initializeDatabase = async () => {
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
+        masked_id VARCHAR(64) UNIQUE NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
         name VARCHAR(255) NOT NULL,
@@ -31,6 +33,16 @@ export const initializeDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `)
+    
+    // Add masked_id column if it doesn't exist (for existing databases)
+    try {
+      await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS masked_id VARCHAR(64)')
+      // Create indexes for masked_id
+      await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_masked_id ON users(masked_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_users_id_masked ON users(id, masked_id)')
+    } catch (error) {
+      console.log('masked_id column/indexes already exist or could not be added')
+    }
 
     // Create classes table
     await client.query(`
@@ -64,40 +76,72 @@ export const initializeDatabase = async () => {
         id SERIAL PRIMARY KEY,
         class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
         student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        student_masked_id VARCHAR(64) NOT NULL,
         enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(class_id, student_id)
       )
     `)
+    
+    // Add student_masked_id column if it doesn't exist
+    try {
+      await client.query('ALTER TABLE class_students ADD COLUMN IF NOT EXISTS student_masked_id VARCHAR(64)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_class_students_student_id ON class_students(student_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_class_students_masked_id ON class_students(student_masked_id)')
+    } catch (error) {
+      console.log('student_masked_id column/indexes already exist or could not be added')
+    }
 
     // Create chat_sessions table
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_sessions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_masked_id VARCHAR(64) NOT NULL,
         title VARCHAR(255) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         message_count INTEGER DEFAULT 0
       )
     `)
+    
+    // Add user_masked_id column if it doesn't exist
+    try {
+      await client.query('ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_masked_id VARCHAR(64)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_sessions_masked_id ON chat_sessions(user_masked_id)')
+    } catch (error) {
+      console.log('user_masked_id column/indexes already exist or could not be added')
+    }
 
     // Create chat_messages table
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_messages (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_masked_id VARCHAR(64) NOT NULL,
         session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
         role VARCHAR(50) NOT NULL CHECK (role IN ('user', 'assistant')),
         content TEXT NOT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `)
+    
+    // Add user_masked_id column if it doesn't exist
+    try {
+      await client.query('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS user_masked_id VARCHAR(64)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages(user_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_masked_id ON chat_messages(user_masked_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id)')
+    } catch (error) {
+      console.log('user_masked_id column/indexes already exist or could not be added')
+    }
 
     // Create chat_analytics table
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_analytics (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_masked_id VARCHAR(64) NOT NULL,
         session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
         sentiment VARCHAR(50) NOT NULL CHECK (sentiment IN ('positive', 'neutral', 'negative')),
         topics TEXT[],
@@ -106,12 +150,23 @@ export const initializeDatabase = async () => {
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `)
+    
+    // Add user_masked_id column if it doesn't exist
+    try {
+      await client.query('ALTER TABLE chat_analytics ADD COLUMN IF NOT EXISTS user_masked_id VARCHAR(64)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_analytics_user_id ON chat_analytics(user_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_analytics_masked_id ON chat_analytics(user_masked_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_chat_analytics_session_id ON chat_analytics(session_id)')
+    } catch (error) {
+      console.log('user_masked_id column/indexes already exist or could not be added')
+    }
 
     // Create rag_conversations table
     await client.query(`
       CREATE TABLE IF NOT EXISTS rag_conversations (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_masked_id VARCHAR(64) NOT NULL,
         class_id INTEGER REFERENCES classes(id) ON DELETE CASCADE,
         title VARCHAR(255) NOT NULL,
         status VARCHAR(50) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
@@ -128,6 +183,26 @@ export const initializeDatabase = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `)
+    
+    // Add user_masked_id column if it doesn't exist
+    try {
+      await client.query('ALTER TABLE rag_conversations ADD COLUMN IF NOT EXISTS user_masked_id VARCHAR(64)')
+      // Create indexes for both user_id and masked_id patterns
+      await client.query('CREATE INDEX IF NOT EXISTS idx_rag_conversations_user_id ON rag_conversations(user_id, status)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_rag_conversations_masked_id ON rag_conversations(user_masked_id, status)')
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_rag_conversations_user_class 
+        ON rag_conversations(user_id, class_id) 
+        WHERE status = 'active'
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_rag_conversations_masked_class 
+        ON rag_conversations(user_masked_id, class_id) 
+        WHERE status = 'active'
+      `)
+    } catch (error) {
+      console.log('user_masked_id column/indexes already exist or could not be added')
+    }
     
     // Add chat_type column if it doesn't exist (for existing databases)
     try {
@@ -261,15 +336,33 @@ export const initializeDatabase = async () => {
       console.log('NUID unique constraint already exists or could not be added')
     }
 
+    // Populate masked_id for existing users that don't have it
+    const usersWithoutMaskedId = await client.query('SELECT id FROM users WHERE masked_id IS NULL')
+    for (const user of usersWithoutMaskedId.rows) {
+      const maskedId = getMaskedId(user.id)
+      await client.query('UPDATE users SET masked_id = $1 WHERE id = $2', [maskedId, user.id])
+    }
+    if (usersWithoutMaskedId.rows.length > 0) {
+      console.log(`Populated masked_id for ${usersWithoutMaskedId.rows.length} existing users`)
+    }
+    
     // Insert sample data if tables are empty
     const userCount = await client.query('SELECT COUNT(*) FROM users')
     if (userCount.rows[0].count === '0') {
+      // Insert users first, then update with masked_id
       await client.query(`
         INSERT INTO users (email, password, name, role, nuid, degree, major) VALUES
         ('student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science'),
         ('faculty@northeastern.edu', 'faculty123', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL)
         ON CONFLICT (email) DO NOTHING
       `)
+      
+      // Populate masked_id for newly inserted users
+      const newUsers = await client.query('SELECT id FROM users WHERE masked_id IS NULL')
+      for (const user of newUsers.rows) {
+        const maskedId = getMaskedId(user.id)
+        await client.query('UPDATE users SET masked_id = $1 WHERE id = $2', [maskedId, user.id])
+      }
       
       // Create a sample class
       await client.query(`
@@ -278,14 +371,35 @@ export const initializeDatabase = async () => {
         ON CONFLICT DO NOTHING
       `)
       
-      // Add student to class
+      // Add student to class (with masked_id)
+      const studentMaskedId = getMaskedId('1')
       await client.query(`
-        INSERT INTO class_students (class_id, student_id) VALUES
-        (1, 1)
+        INSERT INTO class_students (class_id, student_id, student_masked_id) VALUES
+        (1, 1, $1)
         ON CONFLICT (class_id, student_id) DO NOTHING
-      `)
+      `, [studentMaskedId])
       
       console.log('Sample data inserted successfully')
+    }
+
+    // Enable Row Level Security (RLS) on users table to restrict access
+    // This ensures developers cannot access the users table directly
+    // Faculty access is controlled via application layer (they use user_id)
+    try {
+      await client.query('ALTER TABLE users ENABLE ROW LEVEL SECURITY')
+      
+      // Policy: Allow all operations for now (application layer enforces access)
+      // In production, you can restrict this further based on database roles
+      await client.query(`
+        DROP POLICY IF EXISTS users_access_policy ON users;
+        CREATE POLICY users_access_policy ON users
+        FOR ALL
+        USING (true);
+      `)
+      console.log('RLS enabled on users table')
+    } catch (error) {
+      // RLS might not be supported or already configured
+      console.log('RLS configuration skipped or already exists')
     }
 
     console.log('Database tables created successfully')

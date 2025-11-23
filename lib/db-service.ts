@@ -1,99 +1,222 @@
 import pool from './db'
-import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource } from './types'
+import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource, UserRole } from './types'
+export type { User } from './types'
+import { maskUserData, type MaskingContext } from './pii-masking'
+import { getMaskedId } from './masked-id-utils'
+
+/**
+ * Internal helper to map database row to User object
+ * Handles optional PII fields (SSN, DOB, age) if they exist in DB
+ * Note: masked_id is stored in DB but not included in User type (internal use)
+ */
+const mapRowToUser = (row: any): User => ({
+  id: row.id.toString(),
+  email: row.email,
+  password: row.password,
+  name: row.name,
+  role: row.role as 'student' | 'faculty',
+  nuid: row.nuid,
+  degree: row.degree,
+  major: row.major,
+  ssn: row.ssn || undefined, // Optional PII field
+  dob: row.dob || row.date_of_birth || undefined, // Optional PII field
+  age: row.age || undefined, // Optional PII field
+  createdAt: new Date(row.created_at)
+})
+
+// Helper function to set session variable for RLS (faculty access)
+// This allows faculty to bypass RLS restrictions on users table
+const setFacultySessionVariable = async (client: any, facultyUserId?: string): Promise<void> => {
+  if (facultyUserId) {
+    try {
+      // Set session variable to allow RLS policy to check if user is faculty
+      await client.query(`SET LOCAL app.current_user_id = $1`, [facultyUserId])
+    } catch (error) {
+      // If session variable setting fails, continue (might be using service role)
+      console.warn('Could not set session variable for RLS (may be using service role):', error)
+    }
+  }
+}
 
 // User operations
-export const getUsers = async (): Promise<User[]> => {
+// Internal functions (bypass masking for internal use like authentication)
+// Note: For RLS to work, we need to set session variable for faculty queries
+// If using Supabase service role, RLS is bypassed automatically
+const getUsersInternal = async (facultyUserId?: string): Promise<User[]> => {
   const client = await pool.connect()
   try {
+    await setFacultySessionVariable(client, facultyUserId)
     const result = await client.query('SELECT * FROM users ORDER BY created_at DESC')
-    return result.rows.map(row => ({
-      id: row.id.toString(),
-      email: row.email,
-      password: row.password,
-      name: row.name,
-      role: row.role as 'student' | 'faculty',
-      nuid: row.nuid,
-      degree: row.degree,
-      major: row.major,
-      createdAt: new Date(row.created_at)
-    }))
+    return result.rows.map(mapRowToUser)
   } finally {
     client.release()
   }
 }
 
-export const getUserById = async (id: string): Promise<User | null> => {
+const getUserByIdInternal = async (id: string, facultyUserId?: string): Promise<User | null> => {
   const client = await pool.connect()
   try {
+    await setFacultySessionVariable(client, facultyUserId)
     const result = await client.query('SELECT * FROM users WHERE id = $1', [id])
     if (result.rows.length === 0) return null
-    
-    const row = result.rows[0]
-    return {
-      id: row.id.toString(),
-      email: row.email,
-      password: row.password,
-      name: row.name,
-      role: row.role as 'student' | 'faculty',
-      nuid: row.nuid,
-      degree: row.degree,
-      major: row.major,
-      createdAt: new Date(row.created_at)
-    }
+    return mapRowToUser(result.rows[0])
   } finally {
     client.release()
   }
 }
 
-export const getUserByEmail = async (email: string): Promise<User | null> => {
+// Export internal function for authentication (needs real email, not masked)
+// Note: Authentication queries may need service role or special handling
+export const getUserByEmailInternal = async (email: string, facultyUserId?: string): Promise<User | null> => {
   const client = await pool.connect()
   try {
+    await setFacultySessionVariable(client, facultyUserId)
     const result = await client.query('SELECT * FROM users WHERE email = $1', [email])
     if (result.rows.length === 0) return null
-    
-    const row = result.rows[0]
-    return {
-      id: row.id.toString(),
-      email: row.email,
-      password: row.password,
-      name: row.name,
-      role: row.role as 'student' | 'faculty',
-      nuid: row.nuid,
-      degree: row.degree,
-      major: row.major,
-      createdAt: new Date(row.created_at)
-    }
+    return mapRowToUser(result.rows[0])
   } finally {
     client.release()
   }
 }
 
-export const getUserByNuid = async (nuid: string): Promise<User | null> => {
+// Public functions with PII masking support
+export const getUsers = async (requestingUserId?: string, requestingUserRole?: UserRole | null): Promise<User[]> => {
+  // Pass faculty user ID to internal function for RLS (only if requesting user is faculty)
+  const facultyUserId = (requestingUserRole === 'faculty' && requestingUserId) ? requestingUserId : undefined
+  const users = await getUsersInternal(facultyUserId)
+  
+  // If no requesting user context, mask everything (safety first)
+  if (!requestingUserId || !requestingUserRole) {
+    const environment = process.env.NODE_ENV || 'development'
+    const context: MaskingContext = {
+      requestingUserId: undefined,
+      requestingUserRole: null,
+      environment
+    }
+    return users.map(user => maskUserData(user, context))
+  }
+  
+  // Apply masking based on role and environment
+  // ALL faculty members in production see unmasked data
+  const environment = process.env.NODE_ENV || 'development'
+  const context: MaskingContext = {
+    requestingUserId,
+    requestingUserRole,
+    environment
+  }
+  
+  return users.map(user => maskUserData(user, context))
+}
+
+export const getUserById = async (id: string, requestingUserId?: string, requestingUserRole?: UserRole | null): Promise<User | null> => {
+  // Pass faculty user ID to internal function for RLS (only if requesting user is faculty)
+  const facultyUserId = (requestingUserRole === 'faculty' && requestingUserId) ? requestingUserId : undefined
+  const user = await getUserByIdInternal(id, facultyUserId)
+  if (!user) return null
+  
+  // If no requesting user context, mask everything (safety first)
+  if (!requestingUserId || !requestingUserRole) {
+    const environment = process.env.NODE_ENV || 'development'
+    const context: MaskingContext = {
+      requestingUserId: undefined,
+      requestingUserRole: null,
+      environment
+    }
+    return maskUserData(user, context)
+  }
+  
+  // Apply masking based on role and environment
+  // ALL faculty members in production see unmasked data
+  const environment = process.env.NODE_ENV || 'development'
+  const context: MaskingContext = {
+    requestingUserId,
+    requestingUserRole,
+    environment
+  }
+  
+  return maskUserData(user, context)
+}
+
+export const getUserByEmail = async (email: string, requestingUserId?: string, requestingUserRole?: UserRole | null): Promise<User | null> => {
+  // Pass faculty user ID to internal function for RLS (only if requesting user is faculty)
+  // Note: For authentication, we don't know role yet, so use service role or handle separately
+  const facultyUserId = (requestingUserRole === 'faculty' && requestingUserId) ? requestingUserId : undefined
+  const user = await getUserByEmailInternal(email, facultyUserId)
+  if (!user) return null
+  
+  // If no requesting user context, mask everything (safety first)
+  if (!requestingUserId || !requestingUserRole) {
+    const environment = process.env.NODE_ENV || 'development'
+    const context: MaskingContext = {
+      requestingUserId: undefined,
+      requestingUserRole: null,
+      environment
+    }
+    return maskUserData(user, context)
+  }
+  
+  // Apply masking based on role and environment
+  // ALL faculty members in production see unmasked data
+  const environment = process.env.NODE_ENV || 'development'
+  const context: MaskingContext = {
+    requestingUserId,
+    requestingUserRole,
+    environment
+  }
+  
+  return maskUserData(user, context)
+}
+
+// Export internal function for validation (needs real NUID, not masked)
+// Note: For validation queries, may need service role or special handling
+export const getUserByNuidInternal = async (nuid: string, facultyUserId?: string): Promise<User | null> => {
   const client = await pool.connect()
   try {
+    await setFacultySessionVariable(client, facultyUserId)
     const result = await client.query('SELECT * FROM users WHERE nuid = $1', [nuid])
     if (result.rows.length === 0) return null
-    
-    const row = result.rows[0]
-    return {
-      id: row.id.toString(),
-      email: row.email,
-      password: row.password,
-      name: row.name,
-      role: row.role as 'student' | 'faculty',
-      nuid: row.nuid,
-      degree: row.degree,
-      major: row.major,
-      createdAt: new Date(row.created_at)
-    }
+    return mapRowToUser(result.rows[0])
   } finally {
     client.release()
   }
+}
+
+export const getUserByNuid = async (nuid: string, requestingUserId?: string, requestingUserRole?: UserRole | null): Promise<User | null> => {
+  // Pass faculty user ID to internal function for RLS (only if requesting user is faculty)
+  const facultyUserId = (requestingUserRole === 'faculty' && requestingUserId) ? requestingUserId : undefined
+  const user = await getUserByNuidInternal(nuid, facultyUserId)
+  if (!user) return null
+  
+  // If no requesting user context, mask everything (safety first)
+  if (!requestingUserId || !requestingUserRole) {
+    const environment = process.env.NODE_ENV || 'development'
+    const context: MaskingContext = {
+      requestingUserId: undefined,
+      requestingUserRole: null,
+      environment
+    }
+    return maskUserData(user, context)
+  }
+  
+  // Apply masking based on role and environment
+  // ALL faculty members in production see unmasked data
+  const environment = process.env.NODE_ENV || 'development'
+  const context: MaskingContext = {
+    requestingUserId,
+    requestingUserRole,
+    environment
+  }
+  
+  return maskUserData(user, context)
 }
 
 export const createUser = async (user: Omit<User, 'id' | 'createdAt'>): Promise<User> => {
   const client = await pool.connect()
   try {
+    // Start transaction
+    await client.query('BEGIN')
+    
+    // Insert user (masked_id will be NULL initially, we'll update it)
     const result = await client.query(
       `INSERT INTO users (email, password, name, role, nuid, degree, major) 
        VALUES ($1, $2, $3, $4, $5, $6, $7) 
@@ -102,11 +225,27 @@ export const createUser = async (user: Omit<User, 'id' | 'createdAt'>): Promise<
     )
     
     const row = result.rows[0]
+    const userId = row.id.toString()
+    const maskedId = getMaskedId(userId)
+    
+    // Update with masked_id
+    await client.query(
+      'UPDATE users SET masked_id = $1 WHERE id = $2',
+      [maskedId, userId]
+    )
+    
+    // Commit transaction
+    await client.query('COMMIT')
+    
     return {
       ...user,
-      id: row.id.toString(),
+      id: userId,
       createdAt: new Date(row.created_at)
     }
+  } catch (error) {
+    // Rollback on error
+    await client.query('ROLLBACK')
+    throw error
   } finally {
     client.release()
   }
@@ -343,9 +482,10 @@ export const updateClassSyllabusVectorStoreFolder = async (classId: string, syll
 export const addStudentToClass = async (classId: string, studentId: string): Promise<Class | null> => {
   const client = await pool.connect()
   try {
+    const studentMaskedId = getMaskedId(studentId)
     await client.query(
-      'INSERT INTO class_students (class_id, student_id) VALUES ($1, $2) ON CONFLICT (class_id, student_id) DO NOTHING',
-      [classId, studentId]
+      'INSERT INTO class_students (class_id, student_id, student_masked_id) VALUES ($1, $2, $3) ON CONFLICT (class_id, student_id) DO NOTHING',
+      [classId, studentId, studentMaskedId]
     )
     
     return await getClassById(classId)
@@ -518,9 +658,10 @@ export const getChatSessionById = async (id: string): Promise<ChatSession | null
 export const createChatSession = async (userId: string, title = "New Chat"): Promise<ChatSession> => {
   const client = await pool.connect()
   try {
+    const userMaskedId = getMaskedId(userId)
     const result = await client.query(
-      'INSERT INTO chat_sessions (user_id, title) VALUES ($1, $2) RETURNING *',
-      [userId, title]
+      'INSERT INTO chat_sessions (user_id, user_masked_id, title) VALUES ($1, $2, $3) RETURNING *',
+      [userId, userMaskedId, title]
     )
     
     const row = result.rows[0]
@@ -628,11 +769,12 @@ export const getChatMessagesByUser = async (userId: string): Promise<ChatMessage
 export const createChatMessage = async (message: Omit<ChatMessage, 'id' | 'timestamp'>): Promise<ChatMessage> => {
   const client = await pool.connect()
   try {
+    const userMaskedId = getMaskedId(message.userId)
     const result = await client.query(
-      `INSERT INTO chat_messages (user_id, session_id, role, content) 
-       VALUES ($1, $2, $3, $4) 
+      `INSERT INTO chat_messages (user_id, user_masked_id, session_id, role, content) 
+       VALUES ($1, $2, $3, $4, $5) 
        RETURNING id, timestamp`,
-      [message.userId, message.sessionId, message.role, message.content]
+      [message.userId, userMaskedId, message.sessionId, message.role, message.content]
     )
     
     const row = result.rows[0]
@@ -696,11 +838,12 @@ export const getChatAnalyticsByUser = async (userId: string): Promise<ChatAnalyt
 export const createChatAnalytics = async (analytics: Omit<ChatAnalytics, 'timestamp'>): Promise<ChatAnalytics> => {
   const client = await pool.connect()
   try {
+    const userMaskedId = getMaskedId(analytics.userId)
     const result = await client.query(
-      `INSERT INTO chat_analytics (user_id, session_id, sentiment, topics, duration, message_count) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
+      `INSERT INTO chat_analytics (user_id, user_masked_id, session_id, sentiment, topics, duration, message_count) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
        RETURNING timestamp`,
-      [analytics.userId, analytics.sessionId, analytics.sentiment, analytics.topics, analytics.duration, analytics.messageCount]
+      [analytics.userId, userMaskedId, analytics.sessionId, analytics.sentiment, analytics.topics, analytics.duration, analytics.messageCount]
     )
     
     const row = result.rows[0]
@@ -1667,12 +1810,14 @@ export const createRAGConversation = async (userId: string, title?: string, clas
   const client = await pool.connect()
   try {
     const conversationTitle = title || `Chat ${new Date().toLocaleDateString()}`
+    const userMaskedId = getMaskedId(userId)
     const result = await client.query(
-      `INSERT INTO rag_conversations (user_id, class_id, title, chat_type, checkpoint_state, message_history, student_problem_data) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+      `INSERT INTO rag_conversations (user_id, user_masked_id, class_id, title, chat_type, checkpoint_state, message_history, student_problem_data) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
        RETURNING *`,
       [
-        userId, 
+        userId,
+        userMaskedId,
         classId && classId !== 'entire-corpus' ? classId : null,
         conversationTitle,
         chatType,

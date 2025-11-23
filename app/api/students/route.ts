@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createUser, getUserByEmail, getUserByNuid } from "@/lib/db-service"
+import { createUser, getUserByEmail, getUserByNuid, getUserByEmailInternal, getUserByNuidInternal } from "@/lib/db-service"
 import { ensureDatabaseInitialized } from "@/lib/init-db"
 
 export async function POST(request: NextRequest) {
@@ -20,15 +20,15 @@ export async function POST(request: NextRequest) {
     // Generate a default password if not provided
     const studentPassword = password || `student${Date.now()}`
 
-    // Check if user already exists by email
-    const existingUserByEmail = await getUserByEmail(email)
+    // Check if user already exists by email (use internal function for validation)
+    const existingUserByEmail = await getUserByEmailInternal(email)
     if (existingUserByEmail) {
       return NextResponse.json({ error: "User with this email already exists" }, { status: 409 })
     }
 
-    // Check if user already exists by NUID (if NUID is provided)
+    // Check if user already exists by NUID (if NUID is provided) - use internal for validation
     if (nuid) {
-      const existingUserByNuid = await getUserByNuid(nuid)
+      const existingUserByNuid = await getUserByNuidInternal(nuid)
       if (existingUserByNuid) {
         return NextResponse.json({ error: "User with this NUID already exists" }, { status: 409 })
       }

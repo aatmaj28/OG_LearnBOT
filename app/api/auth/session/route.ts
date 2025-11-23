@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSession } from "@/lib/auth"
+import { maskUserData, type MaskingContext } from "@/lib/pii-masking"
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,13 +16,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 })
     }
 
+    // Apply PII masking to session response
+    // PROD: Faculty see unmasked data, students see masked
+    // DEV: Everyone sees masked data (to protect developers from seeing sensitive PROD data)
+    const environment = process.env.NODE_ENV || 'development'
+    const context: MaskingContext = {
+      requestingUserId: session.user.id, // User requesting their own data
+      requestingUserRole: session.user.role,
+      environment
+    }
+    
+    const maskedUser = maskUserData(session.user, context)
+
     return NextResponse.json({
       success: true,
       user: {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name,
-        role: session.user.role,
+        id: maskedUser.id,
+        email: maskedUser.email,
+        name: maskedUser.name,
+        role: maskedUser.role,
       },
     })
   } catch (error) {

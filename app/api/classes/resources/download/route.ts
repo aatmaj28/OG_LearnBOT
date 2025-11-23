@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const user = await getUserById(userId)
+    const user = await getUserById(userId, userId, null) // Pass userId as requesting user for role check
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
