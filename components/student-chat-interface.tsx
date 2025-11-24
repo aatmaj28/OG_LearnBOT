@@ -17,6 +17,171 @@ import type { RAGConversation, Class, ModelBackend, Assignment } from "@/lib/typ
 
 type ChatType = "class_material" | "syllabus"
 
+// Helper function to extract a meaningful short title (2-4 words) from the first user message
+const getShortTitle = (conversation: RAGConversation): string => {
+  // Always prioritize the first user message (like ChatGPT)
+  if (conversation.messageHistory && conversation.messageHistory.length > 0) {
+    const firstUserMessage = conversation.messageHistory.find(msg => msg.role === 'user')
+    if (firstUserMessage && firstUserMessage.content) {
+      const title = extractTitleFromMessage(firstUserMessage.content)
+      if (title && title.length > 0) return title
+    }
+  }
+  
+  // Never show backend-generated summary titles (they start with "The student", etc.)
+  if (conversation.title) {
+    const lowerTitle = conversation.title.toLowerCase()
+    // Skip titles that are clearly summaries, not user-generated content
+    if (lowerTitle.startsWith('the student') || 
+        lowerTitle.startsWith('student') ||
+        lowerTitle.startsWith('here\'s') ||
+        lowerTitle.startsWith('here is') ||
+        lowerTitle.startsWith('this is') ||
+        lowerTitle.startsWith('conversation')) {
+      return 'New Chat'
+    }
+    // Only use title if it doesn't look like a summary
+    if (!conversation.title.startsWith('Chat ')) {
+      return conversation.title
+    }
+  }
+  
+  return 'New Chat'
+}
+
+// Extract 2-4 meaningful words from the first user message (ChatGPT-style)
+const extractTitleFromMessage = (message: string): string => {
+  if (!message || message.trim().length === 0) return ''
+  
+  // Remove leading question words and common phrases
+  let cleaned = message.trim()
+  
+  // Remove question starters and greetings
+  const questionStarters = [
+    /^how\s+to\s+/i,
+    /^how\s+do\s+i\s+/i,
+    /^how\s+can\s+i\s+/i,
+    /^how\s+do\s+you\s+/i,
+    /^what\s+is\s+/i,
+    /^what\s+are\s+/i,
+    /^what\s+does\s+/i,
+    /^what\s+do\s+/i,
+    /^can\s+you\s+/i,
+    /^could\s+you\s+/i,
+    /^would\s+you\s+/i,
+    /^please\s+/i,
+    /^i\s+want\s+to\s+/i,
+    /^i\s+need\s+to\s+/i,
+    /^i\s+would\s+like\s+to\s+/i,
+    /^hi\s*,?\s*/i,
+    /^hello\s*,?\s*/i,
+    /^hey\s*,?\s*/i,
+  ]
+  
+  for (const starter of questionStarters) {
+    cleaned = cleaned.replace(starter, '')
+  }
+  
+  // Remove common phrases that don't add meaning
+  cleaned = cleaned.replace(/\b(but|and|or|so|because|since|although|though)\b/gi, ' ')
+  
+  // Remove punctuation and clean up
+  cleaned = cleaned.replace(/[.,;:!?()\[\]{}'"]/g, ' ').trim()
+  
+  // Split into words and filter out very short words and common stop words
+  const stopWords = new Set([
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
+    'will', 'would', 'should', 'could', 'may', 'might', 'must',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+    'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'her', 'its', 'our', 'their',
+    'with', 'for', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'of', 'from', 'by',
+    'about', 'into', 'through', 'during', 'including', 'against', 'among',
+    'if', 'when', 'where', 'why', 'how', 'what', 'which', 'who', 'whom', 'whose',
+    'should', 'show', 'seen', 'get', 'got', 'know', 'see', 'one', 'no'
+  ])
+  
+  // First, try to find key action/object pairs (like "backdate git commits", "calculate future value")
+  const actionWords = [
+    'backdate', 'backdating', 'commit', 'commits', 'committing',
+    'calculate', 'calculation', 'find', 'solve', 'get', 'check', 'list', 
+    'create', 'update', 'delete', 'show', 'display', 'explain', 'help',
+    'invest', 'investment', 'grow', 'grows', 'compounding', 'compounded'
+  ]
+  const lowerCleaned = cleaned.toLowerCase()
+  
+  for (const action of actionWords) {
+    if (lowerCleaned.includes(action)) {
+      // Find the action word and surrounding context (30 chars before, 50 after)
+      const actionIndex = lowerCleaned.indexOf(action)
+      const contextStart = Math.max(0, actionIndex - 30)
+      const contextEnd = Math.min(cleaned.length, actionIndex + action.length + 50)
+      const context = cleaned.substring(contextStart, contextEnd)
+      
+      // Extract meaningful words from context
+      const contextWords = context.split(/\s+/)
+        .map(word => word.toLowerCase().trim().replace(/[.,;:!?()\[\]{}'"]/g, ''))
+        .filter(word => word.length >= 2 && !stopWords.has(word))
+      
+      if (contextWords.length >= 2) {
+        // Find the action word in the context
+        const actionWordIndex = contextWords.findIndex(w => w.includes(action.replace('ing', '').replace('ed', '').replace('s', '')))
+        if (actionWordIndex >= 0) {
+          // Take action word and 1-3 surrounding words
+          const start = Math.max(0, actionWordIndex - 1)
+          const end = Math.min(contextWords.length, actionWordIndex + 3)
+          const titleWords = contextWords.slice(start, end).slice(0, 4)
+          if (titleWords.length >= 2) {
+            return capitalizeTitle(titleWords.join(' '))
+          }
+        }
+      }
+    }
+  }
+  
+  // Fallback: extract meaningful words
+  const words = cleaned.split(/\s+/)
+    .map(word => word.toLowerCase().trim().replace(/[.,;:!?()\[\]{}'"]/g, ''))
+    .filter(word => {
+      // Keep words that are at least 2 characters and not stop words
+      return word.length >= 2 && !stopWords.has(word)
+    })
+  
+  // Take 2-4 meaningful words
+  if (words.length === 0) {
+    // If all words were filtered, take first 2-3 words anyway (excluding single letters)
+    const fallbackWords = cleaned.split(/\s+/)
+      .filter(w => w.length > 1)
+      .slice(0, 3)
+    if (fallbackWords.length > 0) {
+      return capitalizeTitle(fallbackWords.join(' '))
+    }
+    return ''
+  }
+  
+  const titleWords = words.slice(0, 4) // Take up to 4 words
+  return capitalizeTitle(titleWords.join(' '))
+}
+
+// Capitalize first letter of each word in title
+const capitalizeTitle = (title: string): string => {
+  if (!title) return ''
+  
+  return title.split(' ')
+    .map(word => {
+      if (word.length === 0) return word
+      // Handle special cases like acronyms (NPV, IRR, EAR, etc.)
+      const upperWord = word.toUpperCase()
+      if (upperWord === 'NPV' || upperWord === 'IRR' || upperWord === 'EAR' || upperWord === 'APR') {
+        return upperWord
+      }
+      // Capitalize first letter, lowercase rest
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    })
+    .join(' ')
+    .trim()
+}
+
 export function StudentChatInterface() {
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
@@ -637,7 +802,27 @@ export function StudentChatInterface() {
                     }
                     
                     if (data.done) {
-                      console.log("[v0] Streaming completed")
+                      console.log("[v0] Streaming completed, modelUsed from done event:", data.modelUsed, "preferredModel:", preferredModel)
+                      // Capture modelUsed from the done event and update metadata
+                      // Use modelUsed from done event if available, otherwise fallback to preferredModel
+                      const actualModelUsed = data.modelUsed || preferredModel
+                      console.log("[v0] Using modelUsed:", actualModelUsed)
+                      if (actualModelUsed) {
+                        setCurrentConversation(prev => {
+                          if (!prev) return prev
+                          const messages = [...(prev.messageHistory || [])]
+                          if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+                            messages[messages.length - 1] = {
+                              ...messages[messages.length - 1],
+                              metadata: {
+                                ...messages[messages.length - 1].metadata,
+                                modelUsed: actualModelUsed
+                              }
+                            }
+                          }
+                          return { ...prev, messageHistory: messages }
+                        })
+                      }
                       break
                     }
                   } catch (e) {
@@ -654,6 +839,21 @@ export function StudentChatInterface() {
           const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
           console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
           
+          // Capture modelUsed from the last message before reloading (from done event)
+          let capturedModelUsed: string | undefined = undefined
+          setCurrentConversation(prev => {
+            if (!prev || !prev.messageHistory) return prev
+            const messages = [...prev.messageHistory]
+            if (messages.length > 0) {
+              const lastMsg = messages[messages.length - 1]
+              if (lastMsg.role === 'assistant' && lastMsg.metadata?.modelUsed) {
+                capturedModelUsed = lastMsg.metadata.modelUsed
+                console.log("[v0] Captured modelUsed from streaming:", capturedModelUsed)
+              }
+            }
+            return prev
+          })
+          
           // Reload conversation to get the saved version from DB
           console.log("[v0] Reloading conversation:", currentConversation.id)
           await loadConversation(currentConversation.id)
@@ -661,6 +861,7 @@ export function StudentChatInterface() {
           console.log("[v0] Conversation reloaded successfully")
           
           // Merge frontend timing metrics with DB data
+          // Preserve modelUsed that was captured from streaming (it's the actual model used)
           setCurrentConversation(prev => {
             if (!prev || !prev.messageHistory) return prev
             const messages = [...prev.messageHistory]
@@ -672,7 +873,9 @@ export function StudentChatInterface() {
                   metadata: {
                     ...lastMsg.metadata,
                     timeToFirstToken: ttft,
-                    totalResponseTime: totalResponseTime
+                    totalResponseTime: totalResponseTime,
+                    // Use captured modelUsed from streaming (actual model used) or fallback to DB value
+                    modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed || preferredModel
                   }
                 }
               }
@@ -1111,7 +1314,7 @@ export function StudentChatInterface() {
                       >
                         <div className="flex items-start justify-between gap-2 min-h-[2.5rem]">
                           <p className={`text-sm flex-1 break-words leading-relaxed pr-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {conversation.conversationSummary || conversation.title}
+                            {getShortTitle(conversation)}
                           </p>
                           <Button
                             size="sm"
