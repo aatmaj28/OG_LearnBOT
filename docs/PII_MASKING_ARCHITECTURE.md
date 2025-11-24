@@ -277,3 +277,6 @@ SELECT * FROM users WHERE id = $1;
 - ❌ Different schemas (maintenance nightmare)
 
 
+
+
+

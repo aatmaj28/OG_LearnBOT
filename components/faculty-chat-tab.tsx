@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, Download } from "lucide-react"
+import { ChatMessage } from "@/components/chat-message"
 import type { RAGConversation, Class, ModelBackend } from "@/lib/types"
 
 type ChatType = "class_material" | "syllabus"
@@ -435,6 +436,9 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               messageHistory: [...(prev.messageHistory || []), assistantMessageObj]
             }
           })
+          
+          // Hide loading indicator now that we're streaming the response
+          setLoading(false)
           
           // Read the stream
           const reader = response.body?.getReader()
@@ -894,73 +898,52 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           </div>
         ) : (
           <>
-            <div className="flex-1 overflow-y-auto p-4" ref={scrollRef}>
-              <div className="max-w-3xl mx-auto space-y-4">
+            <div className={`flex-1 overflow-y-auto p-6 ${isDarkMode ? 'bg-black' : 'bg-white'}`} ref={scrollRef}>
+              <div className="max-w-4xl mx-auto space-y-6">
                 {!currentConversation || !currentConversation.messageHistory || currentConversation.messageHistory.length === 0 ? (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground">Start the conversation by sending a message below</p>
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <div className={`w-16 h-16 rounded-full ${isDarkMode ? 'bg-white/5 border border-white/10' : 'bg-gray-100'} flex items-center justify-center mb-4`}>
+                      <MessageSquare className={`w-8 h-8 ${isDarkMode ? 'text-white/40' : 'text-gray-400'}`} />
+                    </div>
+                    <p className={`text-lg font-medium ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>
+                      Start a conversation
+                    </p>
+                    <p className={`text-sm ${isDarkMode ? 'text-white/40' : 'text-gray-500'} mt-2`}>
+                      Send a message to begin
+                    </p>
                   </div>
                 ) : (
                   currentConversation.messageHistory.map((message, index) => (
-                    <div
+                    <ChatMessage
                       key={index}
-                      className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                      <div
-                        className={`max-w-[80%] rounded-lg p-4 ${
-                          message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
-                        }`}
-                      >
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                        <div className="flex items-center gap-2 mt-2 flex-wrap">
-                          <p className="text-xs opacity-70">{new Date(message.timestamp).toLocaleTimeString()}</p>
-                          {message.role === "assistant" && message.metadata?.mode && (
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                              message.metadata.mode === 'rag' 
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' 
-                                : message.metadata.mode === 'llm_fallback'
-                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                                : 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
-                            }`}>
-                              {message.metadata.mode === 'rag' ? 'RAG' : message.metadata.mode === 'llm_fallback' ? 'LLM' : 'Error'}
-                            </span>
-                          )}
-                          {message.role === "assistant" && message.metadata?.modelUsed && (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
-                              {message.metadata.modelUsed === 'claude' ? '🧠 Claude' : 
-                               message.metadata.modelUsed === 'remote-a6000' ? '🚀 A6000' :
-                               message.metadata.modelUsed === 'remote-blackwell' ? '⚡ Blackwell' :
-                               message.metadata.modelUsed === 'remote-ollama' ? '🚀 A6000' : // backward compatibility
-                               message.metadata.modelUsed}
-                            </span>
-                          )}
-                          {message.role === "assistant" && message.metadata?.timeToFirstToken && (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-                              ⚡ TTFT: {message.metadata.timeToFirstToken < 1000 ? `${message.metadata.timeToFirstToken}ms` : `${(message.metadata.timeToFirstToken / 1000).toFixed(2)}s`}
-                            </span>
-                          )}
-                          {message.role === "assistant" && message.metadata?.totalResponseTime && (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                              🏁 Total: {message.metadata.totalResponseTime < 1000 ? `${message.metadata.totalResponseTime}ms` : `${(message.metadata.totalResponseTime / 1000).toFixed(2)}s`}
-                            </span>
-                          )}
-                          {message.role === "assistant" && message.metadata?.timeTaken && (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                              ⏱️ {message.metadata.timeTaken < 1000 ? `${message.metadata.timeTaken}ms` : `${(message.metadata.timeTaken / 1000).toFixed(2)}s`}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                      role={message.role}
+                      content={message.content}
+                      timestamp={message.timestamp}
+                      metadata={message.metadata}
+                      isDarkMode={isDarkMode}
+                    />
                   ))
                 )}
                 {loading && (
-                  <div className="flex justify-start">
-                    <div className="bg-muted rounded-lg p-4">
+                  <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex-shrink-0">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        isDarkMode 
+                          ? 'bg-white/10 border border-white/20'
+                          : 'bg-gradient-to-br from-emerald-400 to-teal-500'
+                      } shadow-lg`}>
+                        <Bot className="w-4 h-4 text-white" />
+                      </div>
+                    </div>
+                    <div className={`flex-1 max-w-[85%] rounded-2xl px-5 py-4 ${
+                      isDarkMode
+                        ? 'bg-transparent'
+                        : 'bg-white border border-gray-200'
+                    } shadow-lg`}>
                       <div className="flex gap-2">
-                        <div className="w-2 h-2 bg-foreground/50 rounded-full animate-bounce"></div>
-                        <div className="w-2 h-2 bg-foreground/50 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                        <div className="w-2 h-2 bg-foreground/50 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                        <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-white/40' : 'bg-gray-400'}`}></div>
+                        <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-white/40' : 'bg-gray-400'}`} style={{ animationDelay: '0.2s' }}></div>
+                        <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-white/40' : 'bg-gray-400'}`} style={{ animationDelay: '0.4s' }}></div>
                       </div>
                     </div>
                   </div>
@@ -968,19 +951,43 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               </div>
             </div>
 
-            <div className="border-t bg-card p-4">
-              <div className="max-w-3xl mx-auto flex gap-2">
-                <Input
-                  placeholder="Type your message..."
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  disabled={loading}
-                  className="flex-1"
-                />
-                <Button onClick={sendMessage} disabled={loading || !input.trim()}>
-                  <Send className="h-4 w-4" />
-                </Button>
+            <div className={`border-t p-6 ${isDarkMode ? 'bg-black border-white/10' : 'bg-white/80 backdrop-blur-sm'}`}>
+              <div className="max-w-4xl mx-auto">
+                <div className={`flex items-center gap-4 px-5 py-3.5 rounded-3xl ${
+                  isDarkMode 
+                    ? 'bg-white/5 border border-white/10 hover:border-white/20' 
+                    : 'bg-gray-50 border border-gray-200'
+                } shadow-lg transition-all duration-300 ease-out focus-within:shadow-2xl ${isDarkMode ? 'focus-within:border-white/30 focus-within:bg-white/[0.07]' : 'focus-within:border-blue-500'}`}>
+                  <Input
+                    placeholder="Message LearnBOT..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    disabled={loading}
+                    className={`flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base ${
+                      isDarkMode ? 'text-white placeholder:text-white/50' : 'text-gray-900 placeholder:text-gray-500'
+                    }`}
+                  />
+                  <Button 
+                    onClick={sendMessage} 
+                    disabled={loading || !input.trim()} 
+                    size="icon"
+                    className={`rounded-full w-10 h-10 flex items-center justify-center transition-all duration-300 ease-out ${
+                      loading || !input.trim()
+                        ? isDarkMode
+                          ? 'bg-white/5 text-white/30 cursor-not-allowed'
+                          : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : isDarkMode
+                          ? 'bg-white text-black hover:bg-white/95 hover:scale-105 shadow-lg hover:shadow-xl'
+                          : 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:scale-105 shadow-lg hover:shadow-xl'
+                    }`}
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className={`text-xs text-center mt-3 ${isDarkMode ? 'text-white/50' : 'text-gray-500'}`}>
+                  Press Enter to send • LearnBOT can make mistakes
+                </p>
               </div>
             </div>
           </>

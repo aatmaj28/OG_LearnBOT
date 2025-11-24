@@ -88,6 +88,7 @@ export interface StudentActivity {
 export interface RAGConversation {
   id: string
   userId: string
+  userMaskedId: string // Masked user ID for PII protection
   classId?: string // New field for class-specific conversations
   chatType?: 'class_material' | 'syllabus' // Type of chat conversation
   title: string

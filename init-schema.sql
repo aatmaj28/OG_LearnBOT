@@ -109,6 +109,9 @@ CREATE TABLE IF NOT EXISTS rag_conversations (
   cached_sentiment DECIMAL(3,2) DEFAULT 0,
   cached_topics JSONB DEFAULT '[]',
   analytics_last_updated TIMESTAMP,
+  conversation_summary TEXT,
+  chat_type VARCHAR(50) DEFAULT 'class_material',
+  user_masked_id VARCHAR(100) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -122,6 +125,39 @@ WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_rag_conversations_masked_class 
 ON rag_conversations(user_masked_id, class_id) 
 WHERE status = 'active';
+
+-- Create rag_conversations_history table - stores ALL conversations (including deleted ones) for reference only
+CREATE TABLE IF NOT EXISTS rag_conversations_history (
+  id SERIAL PRIMARY KEY,
+  original_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  user_masked_id VARCHAR(100) NOT NULL,
+  class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL,
+  title VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL,
+  current_topic TEXT,
+  checkpoint_state JSONB,
+  message_history JSONB DEFAULT '[]',
+  student_problem_data JSONB,
+  cached_context JSONB,
+  last_retrieval_topic TEXT,
+  cached_sentiment DECIMAL(3,2) DEFAULT 0,
+  cached_topics JSONB DEFAULT '[]',
+  analytics_last_updated TIMESTAMP,
+  conversation_summary TEXT,
+  chat_type VARCHAR(50) DEFAULT 'class_material',
+  original_created_at TIMESTAMP,
+  original_updated_at TIMESTAMP,
+  archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index for faster history queries
+CREATE INDEX IF NOT EXISTS idx_rag_conversations_history_original_id 
+ON rag_conversations_history(original_id);
+
+CREATE INDEX IF NOT EXISTS idx_rag_conversations_history_user_id 
+ON rag_conversations_history(user_id);
 
 -- Create pending_registrations table for email verification
 CREATE TABLE IF NOT EXISTS pending_registrations (

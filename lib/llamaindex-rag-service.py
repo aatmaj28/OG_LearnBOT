@@ -13,6 +13,12 @@ import threading
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
+# Force UTF-8 encoding for stdout/stderr on Windows to handle emojis
+import codecs
+if sys.platform == 'win32':
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
 # Force CPU-only mode to avoid CUDA issues
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 os.environ['OMP_NUM_THREADS'] = '4'
@@ -1338,7 +1344,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "request_id": request_id,
                                             "chunk": chunk
                                         }
-                                        print(json.dumps(chunk_message), flush=True)
+                                        print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                                         if STREAM_CHUNK_DELAY > 0:
                                             time.sleep(STREAM_CHUNK_DELAY)
                                 elif chunk_data.get('type') == 'message_stop':
@@ -1405,7 +1411,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                     "request_id": request_id,
                                     "chunk": chunk
                                 }
-                                print(json.dumps(chunk_message), flush=True)
+                                print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                                 # No delay for vLLM - it's already fast and delay causes significant slowdown
                                 # if STREAM_CHUNK_DELAY > 0:
                                 #     time.sleep(STREAM_CHUNK_DELAY)
@@ -1501,7 +1507,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "request_id": request_id,
                                             "chunk": chunk
                                         }
-                                        print(json.dumps(chunk_message), flush=True)
+                                        print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                                         # No delay for vLLM - it's already fast and delay causes significant slowdown
                                         # if STREAM_CHUNK_DELAY > 0:
                                         #     time.sleep(STREAM_CHUNK_DELAY)
@@ -2118,7 +2124,7 @@ Return ONLY a JSON object:
                     "request_id": request_id,
                     "chunk": chunk_with_space
                 }
-                print(json.dumps(chunk_message), flush=True)
+                print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                 if STREAM_CHUNK_DELAY > 0:
                     time.sleep(STREAM_CHUNK_DELAY)
         

@@ -146,6 +146,12 @@ CORE RULES:
 - Use natural, encouraging language: acknowledge effort, celebrate progress, guide gently
 - For new problems, reset checkpoints and start fresh
 
+FORMATTING & STYLE:
+- Use emojis moderately (2-4 per response) to make responses engaging and visually appealing
+- Place emojis strategically: at checkpoint titles, to celebrate progress, or highlight key concepts
+- Examples: ✅ for correct understanding, 🤔 for thinking questions, 📊 for data/formulas, 💡 for insights, 🎯 for goals
+- Keep formatting clean and professional - emojis should enhance, not overwhelm
+
 Tone: Professional, empathetic, Socratic. Act like a real TA - conversational but focused on learning.
 `
 }
@@ -520,6 +526,12 @@ Guidelines:
 - Include specific details like percentages, numbers, and exact policy statements
 - State information definitively when it appears in the context
 - Keep responses focused but complete
+
+FORMATTING & STYLE:
+- Use emojis moderately (2-4 per response) to make responses engaging and easy to read
+- Place emojis strategically to highlight important information or sections
+- Examples: 📅 for dates/deadlines, 📚 for textbooks/materials, ✅ for requirements, ⚠️ for policies, 💯 for grades/percentages
+- Keep formatting clean and professional - emojis should enhance readability, not overwhelm
 
 Respond to the student's question using ALL relevant information from the provided syllabus context. State information confidently and directly when it appears in the sources.`
 }
@@ -1218,6 +1230,12 @@ import json
 import gc
 from typing import Dict, Any
 
+# Force UTF-8 encoding for stdout/stderr on Windows to handle emojis
+import codecs
+if sys.platform == 'win32':
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
 # Force CPU-only mode to avoid CUDA issues
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 os.environ['OMP_NUM_THREADS'] = '4'
@@ -1867,7 +1885,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "request_id": request_id,
                                             "chunk": chunk
                                         }
-                                        print(json.dumps(chunk_message), flush=True)
+                                        print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                                         if STREAM_CHUNK_DELAY > 0:
                                             time.sleep(STREAM_CHUNK_DELAY)
                                 elif chunk_data.get('type') == 'message_stop':
@@ -1941,7 +1959,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                     "request_id": request_id,
                                     "chunk": chunk
                                 }
-                                print(json.dumps(chunk_message), flush=True)
+                                print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                                 # No delay for vLLM - it's already fast and delay causes significant slowdown
                                 # if STREAM_CHUNK_DELAY > 0:
                                 #     time.sleep(STREAM_CHUNK_DELAY)
@@ -2093,7 +2111,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "request_id": request_id,
                                             "chunk": chunk
                                         }
-                                        print(json.dumps(chunk_message), flush=True)
+                                        print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                                         # No delay for vLLM - it's already fast and delay causes significant slowdown
                                         # if STREAM_CHUNK_DELAY > 0:
                                         #     time.sleep(STREAM_CHUNK_DELAY)
@@ -2968,7 +2986,7 @@ NOT LEAKED:
                     "chunk": chunk_with_space
                 }
                 # json is already imported at the top of process_query function
-                print(json.dumps(chunk_message), flush=True)
+                print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                 # No delay for vLLM - it's already fast and delay causes significant slowdown
                 # if STREAM_CHUNK_DELAY > 0:
                 #     import time
