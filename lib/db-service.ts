@@ -1739,6 +1739,7 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
     return result.rows.map(row => ({
       id: row.id.toString(),
       userId: row.user_id.toString(),
+      userMaskedId: row.user_masked_id || `USER_${row.user_id}`,
       classId: row.class_id?.toString(),
       chatType: row.chat_type as 'class_material' | 'syllabus' | undefined,
       title: row.title,
@@ -1781,6 +1782,7 @@ export const getRAGConversationById = async (id: string): Promise<RAGConversatio
     return {
       id: row.id.toString(),
       userId: row.user_id.toString(),
+      userMaskedId: row.user_masked_id || `USER_${row.user_id}`,
       classId: row.class_id?.toString(),
       title: row.title,
       createdAt: new Date(row.created_at),
@@ -1843,6 +1845,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
     const conversation = {
       id: row.id.toString(),
       userId: row.user_id.toString(),
+      userMaskedId: row.user_masked_id || `USER_${row.user_id}`,
       classId: row.class_id?.toString(),
       chatType: row.chat_type as 'class_material' | 'syllabus' | undefined,
       title: row.title,
@@ -1870,14 +1873,15 @@ export const createRAGConversation = async (userId: string, title?: string, clas
     try {
       await client.query(
         `INSERT INTO rag_conversations_history (
-          original_id, user_id, class_id, title, status, current_topic,
+          original_id, user_id, user_masked_id, class_id, title, status, current_topic,
           checkpoint_state, message_history, student_problem_data, cached_context,
           last_retrieval_topic, cached_sentiment, cached_topics, analytics_last_updated,
           conversation_summary, chat_type, original_created_at, original_updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16, $17, $18)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14::jsonb, $15, $16, $17, $18, $19)`,
         [
           parseInt(conversation.id),
           parseInt(conversation.userId),
+          conversation.userMaskedId,
           conversation.classId ? parseInt(conversation.classId) : null,
           conversation.title,
           conversation.status || 'active',
@@ -2216,6 +2220,7 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
     return {
       id: row.id.toString(),
       userId: row.user_id.toString(),
+      userMaskedId: row.user_masked_id || `USER_${row.user_id}`,
       classId: row.class_id?.toString(),
       title: row.title,
       createdAt: new Date(row.created_at),
@@ -2290,24 +2295,26 @@ const syncConversationToHistory = async (conversationId: string, client: any): P
       await client.query(
         `UPDATE rag_conversations_history SET
           user_id = $1,
-          class_id = $2,
-          title = $3,
-          status = $4,
-          current_topic = $5,
-          checkpoint_state = $6::jsonb,
-          message_history = $7::jsonb,
-          student_problem_data = $8::jsonb,
-          cached_context = $9::jsonb,
-          last_retrieval_topic = $10,
-          cached_sentiment = $11,
-          cached_topics = $12::jsonb,
-          analytics_last_updated = $13,
-          conversation_summary = $14,
-          chat_type = $15,
-          original_updated_at = $16
-        WHERE original_id = $17`,
+          user_masked_id = $2,
+          class_id = $3,
+          title = $4,
+          status = $5,
+          current_topic = $6,
+          checkpoint_state = $7::jsonb,
+          message_history = $8::jsonb,
+          student_problem_data = $9::jsonb,
+          cached_context = $10::jsonb,
+          last_retrieval_topic = $11,
+          cached_sentiment = $12,
+          cached_topics = $13::jsonb,
+          analytics_last_updated = $14,
+          conversation_summary = $15,
+          chat_type = $16,
+          original_updated_at = $17
+        WHERE original_id = $18`,
         [
           row.user_id,
+          row.user_masked_id,
           row.class_id,
           row.title,
           row.status || 'active',
@@ -2330,14 +2337,15 @@ const syncConversationToHistory = async (conversationId: string, client: any): P
       // Insert new history entry (shouldn't happen if created properly, but handle it)
       await client.query(
         `INSERT INTO rag_conversations_history (
-          original_id, user_id, class_id, title, status, current_topic,
+          original_id, user_id, user_masked_id, class_id, title, status, current_topic,
           checkpoint_state, message_history, student_problem_data, cached_context,
           last_retrieval_topic, cached_sentiment, cached_topics, analytics_last_updated,
           conversation_summary, chat_type, original_created_at, original_updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16, $17, $18)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14::jsonb, $15, $16, $17, $18, $19)`,
         [
           parseInt(conversationId),
           row.user_id,
+          row.user_masked_id,
           row.class_id,
           row.title,
           row.status || 'active',

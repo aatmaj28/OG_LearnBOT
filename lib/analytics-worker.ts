@@ -91,6 +91,7 @@ async function processAllConversations(forceUpdate: boolean = false): Promise<vo
       const conversations: RAGConversation[] = result.rows.map(row => ({
         id: row.id.toString(),
         userId: row.user_id.toString(),
+        userMaskedId: row.user_masked_id || `USER_${row.user_id}`,
         classId: row.class_id?.toString(),
         chatType: row.chat_type as 'class_material' | 'syllabus' | undefined,
         title: row.title,

@@ -218,6 +218,28 @@ export const initializeDatabase = async () => {
       console.log('conversation_summary column already exists or could not be added')
     }
 
+    // Add user_masked_id column if it doesn't exist (for PII masking)
+    try {
+      await client.query(`ALTER TABLE rag_conversations ADD COLUMN IF NOT EXISTS user_masked_id VARCHAR(100)`)
+      // Update existing rows to have a masked ID based on their user_id
+      await client.query(`UPDATE rag_conversations SET user_masked_id = CONCAT('USER_', user_id) WHERE user_masked_id IS NULL`)
+      // Make it NOT NULL after updating existing rows
+      await client.query(`ALTER TABLE rag_conversations ALTER COLUMN user_masked_id SET NOT NULL`)
+    } catch (error) {
+      console.log('user_masked_id column already exists or could not be added')
+    }
+
+    // Add user_masked_id column to history table if it doesn't exist (for PII masking)
+    try {
+      await client.query(`ALTER TABLE rag_conversations_history ADD COLUMN IF NOT EXISTS user_masked_id VARCHAR(100)`)
+      // Update existing rows to have a masked ID based on their user_id
+      await client.query(`UPDATE rag_conversations_history SET user_masked_id = CONCAT('USER_', user_id) WHERE user_masked_id IS NULL`)
+      // Make it NOT NULL after updating existing rows
+      await client.query(`ALTER TABLE rag_conversations_history ALTER COLUMN user_masked_id SET NOT NULL`)
+    } catch (error) {
+      console.log('user_masked_id column in history table already exists or could not be added')
+    }
+
     // Create rag_conversations_history table - stores ALL conversations (including deleted ones) for reference only
     // This table is NOT used by any functionality, only for historical reference
     await client.query(`
@@ -225,6 +247,7 @@ export const initializeDatabase = async () => {
         id SERIAL PRIMARY KEY,
         original_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
+        user_masked_id VARCHAR(100) NOT NULL,
         class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL,
         title VARCHAR(255) NOT NULL,
         status VARCHAR(50) NOT NULL,
