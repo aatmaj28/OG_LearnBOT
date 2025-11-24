@@ -222,6 +222,43 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     }
   }
 
+  // Helper function to sanitize content chunks during streaming (optimized character whitelist)
+  const sanitizeContentChunk = (content: string): string => {
+    if (!content) return content
+    
+    // Fast path: check if all ASCII (most common case)
+    let hasNonASCII = false
+    for (let i = 0; i < content.length; i++) {
+      if (content.charCodeAt(i) > 127) {
+        hasNonASCII = true
+        break
+      }
+    }
+    if (!hasNonASCII) return content // Early exit for ASCII-only
+    
+    // Character whitelist filter (same as Python side)
+    let result = ''
+    for (let i = 0; i < content.length; i++) {
+      const code = content.charCodeAt(i)
+      // Allow: ASCII (0-127), safe Unicode ranges only
+      if (code <= 127 || 
+          (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
+          (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
+          (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
+          (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
+          (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
+          (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
+          (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
+          (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
+          (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
+          (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
+        result += content[i]
+      }
+      // Skip all other characters (emojis, complex Unicode, corrupted sequences)
+    }
+    return result
+  }
+
   const loadConversations = async () => {
     const userId = localStorage.getItem("userId")
     if (!userId) return
@@ -240,9 +277,22 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         const data = await response.json()
         console.log("[v0] Conversations API response:", data)
         
-        // Ensure conversations is an array
+        // Ensure conversations is an array and sort by updatedAt (newest first)
         const conversations = Array.isArray(data.conversations) ? data.conversations : []
-        setConversations(conversations)
+        // Sort in reverse chronological order (newest first) - ChatGPT style
+        // Ensure dates are Date objects, not strings
+        const sortedConversations = [...conversations].sort((a, b) => {
+          const dateA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : 
+                       (a.updatedAt ? new Date(a.updatedAt).getTime() : 
+                       (a.createdAt instanceof Date ? a.createdAt.getTime() : 
+                       (a.createdAt ? new Date(a.createdAt).getTime() : 0)))
+          const dateB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : 
+                       (b.updatedAt ? new Date(b.updatedAt).getTime() : 
+                       (b.createdAt instanceof Date ? b.createdAt.getTime() : 
+                       (b.createdAt ? new Date(b.createdAt).getTime() : 0)))
+          return dateB - dateA // Descending order (newest first)
+        })
+        setConversations(sortedConversations)
       } else {
         console.error("[v0] Failed to load conversations:", response.status, response.statusText)
         setConversations([])
@@ -459,14 +509,17 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     const data = JSON.parse(line.slice(6))
                     
                     if (data.content) {
+                      // Sanitize content immediately to remove corrupted emojis
+                      const sanitizedChunk = sanitizeContentChunk(data.content)
+                      
                       // Track time to first token (only once)
-                      if (firstTokenTimestamp === null && data.content.trim()) {
+                      if (firstTokenTimestamp === null && sanitizedChunk.trim()) {
                         firstTokenTimestamp = Date.now()
                         const ttft = firstTokenTimestamp - sendTimestamp
                         console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
                       }
                       
-                      accumulatedResponse += data.content
+                      accumulatedResponse += sanitizedChunk
                       
                       // Update the last message (assistant) with new content
                       setCurrentConversation(prev => {

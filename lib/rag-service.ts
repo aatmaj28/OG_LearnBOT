@@ -146,11 +146,18 @@ CORE RULES:
 - Use natural, encouraging language: acknowledge effort, celebrate progress, guide gently
 - For new problems, reset checkpoints and start fresh
 
+CRITICAL: TEXT ENCODING & CHARACTER RULES:
+- ALWAYS output text in clean, standard UTF-8 encoding
+- NEVER use emojis, emoticons, or any non-ASCII decorative characters
+- Use ONLY plain ASCII text (letters, numbers, punctuation) plus standard mathematical symbols
+- Your response must be readable as plain text without any encoding errors
+- If you want to express emphasis, use words like "important", "note", "key point" instead of symbols
+
 FORMATTING & STYLE:
-- Use emojis moderately (2-4 per response) to make responses engaging and visually appealing
-- Place emojis strategically: at checkpoint titles, to celebrate progress, or highlight key concepts
-- Examples: ✅ for correct understanding, 🤔 for thinking questions, 📊 for data/formulas, 💡 for insights, 🎯 for goals
-- Keep formatting clean and professional - emojis should enhance, not overwhelm
+- Use plain text formatting only: bold (**text**), italics (*text*), lists, code blocks
+- NEVER use emojis, special Unicode characters, or decorative symbols
+- Keep formatting clean and professional - use words to convey tone, not symbols
+- Express enthusiasm or emphasis through language, not visual symbols
 
 Tone: Professional, empathetic, Socratic. Act like a real TA - conversational but focused on learning.
 `
@@ -527,11 +534,18 @@ Guidelines:
 - State information definitively when it appears in the context
 - Keep responses focused but complete
 
+CRITICAL: TEXT ENCODING & CHARACTER RULES:
+- ALWAYS output text in clean, standard UTF-8 encoding
+- NEVER use emojis, emoticons, or any non-ASCII decorative characters
+- Use ONLY plain ASCII text (letters, numbers, punctuation) plus standard mathematical symbols
+- Your response must be readable as plain text without any encoding errors
+- If you want to express emphasis, use words like "important", "note", "key point" instead of symbols
+
 FORMATTING & STYLE:
-- Use emojis moderately (2-4 per response) to make responses engaging and easy to read
-- Place emojis strategically to highlight important information or sections
-- Examples: 📅 for dates/deadlines, 📚 for textbooks/materials, ✅ for requirements, ⚠️ for policies, 💯 for grades/percentages
-- Keep formatting clean and professional - emojis should enhance readability, not overwhelm
+- Use plain text formatting only: bold (**text**), italics (*text*), lists, code blocks
+- NEVER use emojis, special Unicode characters, or decorative symbols
+- Keep formatting clean and professional - use words to convey tone, not symbols
+- Express emphasis through language, not visual symbols
 
 Respond to the student's question using ALL relevant information from the provided syllabus context. State information confidently and directly when it appears in the sources.`
 }
@@ -1236,6 +1250,44 @@ if sys.platform == 'win32':
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
+# Fast character whitelist filter - removes problematic characters efficiently
+def clean_text_chunk(text):
+    """Remove problematic characters using fast character code checks.
+    Allows: ASCII (0-127), basic punctuation, safe Unicode ranges.
+    Performance: O(n) where n is text length, optimized for small chunks."""
+    if not text or not isinstance(text, str):
+        return text
+    
+    # Fast path: check if all ASCII (most common case)
+    try:
+        text.encode('ascii')
+        return text  # Early exit for ASCII-only text
+    except UnicodeEncodeError:
+        pass
+    
+    # Filter character by character (fast for small chunks)
+    result = []
+    for char in text:
+        code = ord(char)
+        # Allow: ASCII (0-127), common punctuation, safe Unicode ranges
+        if (code <= 127 or  # ASCII
+            (0x2000 <= code <= 0x206F) or  # General Punctuation (spaces, dashes)
+            (0x20A0 <= code <= 0x20CF) or  # Currency symbols
+            (0x2100 <= code <= 0x214F) or  # Letterlike Symbols
+            (0x2190 <= code <= 0x21FF) or  # Arrows
+            (0x2200 <= code <= 0x22FF) or  # Mathematical Operators
+            (0x2300 <= code <= 0x23FF) or  # Miscellaneous Technical
+            (0x2400 <= code <= 0x243F) or  # Control Pictures
+            (0x25A0 <= code <= 0x25FF) or  # Geometric Shapes
+            (0x2600 <= code <= 0x26FF) or  # Miscellaneous Symbols (safe subset)
+            (0x2700 <= code <= 0x27BF) or  # Dingbats (safe subset)
+            (0xFE00 <= code <= 0xFE0F) or  # Variation Selectors
+            (0xFE20 <= code <= 0xFE2F)):   # Combining Half Marks
+            result.append(char)
+        # Skip all other characters (emojis, complex Unicode, etc.)
+    
+    return ''.join(result)
+
 # Force CPU-only mode to avoid CUDA issues
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 os.environ['OMP_NUM_THREADS'] = '4'
@@ -1872,6 +1924,15 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                 if chunk_data.get('type') == 'content_block_delta' and chunk_data.get('delta', {}).get('type') == 'text_delta':
                                     chunk = chunk_data.get('delta', {}).get('text', '')
                                     if chunk:
+                                        # Ensure chunk is properly UTF-8 encoded
+                                        if isinstance(chunk, str):
+                                            try:
+                                                # Re-encode and decode to ensure valid UTF-8
+                                                chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                                # Clean problematic characters using whitelist
+                                                chunk = clean_text_chunk(chunk)
+                                            except:
+                                                pass
                                         chunk_count += 1
                                         
                                         if not first_chunk_received:
@@ -1946,6 +2007,15 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                             chunk_data = json.loads(line)
                             if 'response' in chunk_data:
                                 chunk = chunk_data['response']
+                                # Ensure chunk is properly UTF-8 encoded
+                                if isinstance(chunk, str):
+                                    try:
+                                        # Re-encode and decode to ensure valid UTF-8
+                                        chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                        # Clean problematic characters using whitelist
+                                        chunk = clean_text_chunk(chunk)
+                                    except:
+                                        pass
                                 chunk_count += 1
                                 
                                 if not first_chunk_received:
@@ -2098,6 +2168,15 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                     delta = chunk_data['choices'][0].get('delta', {})
                                     if 'content' in delta:
                                         chunk = delta['content']
+                                        # Ensure chunk is properly UTF-8 encoded
+                                        if isinstance(chunk, str):
+                                            try:
+                                                # Re-encode and decode to ensure valid UTF-8
+                                                chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                                # Clean problematic characters using whitelist
+                                                chunk = clean_text_chunk(chunk)
+                                            except:
+                                                pass
                                         chunk_count += 1
                                         
                                         if not first_chunk_received:

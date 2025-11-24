@@ -16,7 +16,6 @@ import { toast } from "sonner"
 import type { RAGConversation, Class, ModelBackend, Assignment } from "@/lib/types"
 
 type ChatType = "class_material" | "syllabus"
-type SidebarTab = "chatHistory" | "assignments" | "resources"
 
 export function StudentChatInterface() {
   const [conversations, setConversations] = useState<RAGConversation[]>([])
@@ -34,24 +33,13 @@ export function StudentChatInterface() {
   }>({ isAvailable: false, ollamaAvailable: false })
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
-  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>("chatHistory")
-  const [isSettingsExpanded, setIsSettingsExpanded] = useState(true)
-  const [resourcesClassId, setResourcesClassId] = useState<string>("")
-  const [resources, setResources] = useState<Array<{ name: string; size: number; uploadedAt: Date | string }>>([])
-  const [showPreviewDialog, setShowPreviewDialog] = useState(false)
-  const [previewResourceIndex, setPreviewResourceIndex] = useState<number | null>(null)
-  const [isDownloading, setIsDownloading] = useState(false)
-  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null)
-  const [assignmentsClassId, setAssignmentsClassId] = useState<string>("")
-  const [assignments, setAssignments] = useState<Array<{ id: string; name: string; pdfUrl: string; dueDate: string; canvasLink: string; createdAt: string }>>([])
-  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
-  const [selectedAssignment, setSelectedAssignment] = useState<{ id: string; name: string } | null>(null)
-  const [submissionFile, setSubmissionFile] = useState<File | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const submissionFileInputRef = useRef<HTMLInputElement | null>(null)
+  const [sidebarWidth, setSidebarWidth] = useState(256) // Default 256px (w-64)
+  const [isResizing, setIsResizing] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true) // Track if we should auto-scroll
   const isScrollingProgrammaticallyRef = useRef(false) // Track if we're programmatically scrolling
+  const prevConversationIdsRef = useRef<string>('') // Track previous conversation IDs for auto-resort
+  const sidebarRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadUserData()
@@ -63,6 +51,15 @@ export function StudentChatInterface() {
     const savedSidebarState = localStorage.getItem("studentSidebarCollapsed")
     if (savedSidebarState !== null) {
       setIsSidebarCollapsed(savedSidebarState === "true")
+    }
+    
+    // Load sidebar width from localStorage
+    const savedWidth = localStorage.getItem("studentSidebarWidth")
+    if (savedWidth !== null) {
+      const width = parseInt(savedWidth, 10)
+      if (width >= 200 && width <= 500) { // Valid range
+        setSidebarWidth(width)
+      }
     }
     
     // Load dark mode state from localStorage
@@ -116,29 +113,47 @@ export function StudentChatInterface() {
     }
   }, [selectedClassId])
 
+  // Auto-resort conversations when they change (e.g., after updates)
   useEffect(() => {
-    if (resourcesClassId && activeSidebarTab === "resources") {
-      loadStudentResources()
+    if (conversations.length > 0) {
+      const getDateValue = (date: Date | string | undefined): number => {
+        if (!date) return 0
+        if (date instanceof Date) {
+          const time = date.getTime()
+          return isNaN(time) ? 0 : time
+        }
+        const parsed = new Date(date)
+        const time = parsed.getTime()
+        return isNaN(time) ? 0 : time
+      }
+      
+      const sorted = [...conversations].sort((a, b) => {
+        const dateA = getDateValue(a.updatedAt) || getDateValue(a.createdAt) || 0
+        const dateB = getDateValue(b.updatedAt) || getDateValue(b.createdAt) || 0
+        
+        // If dates are equal, sort by ID as tiebreaker (newer IDs first)
+        if (dateB === dateA) {
+          return parseInt(b.id) - parseInt(a.id)
+        }
+        
+        return dateB - dateA
+      })
+      
+      // Only update if order actually changed (avoid infinite loops)
+      const currentOrder = conversations.map(c => c.id).join(',')
+      const sortedOrder = sorted.map(c => c.id).join(',')
+      const currentIds = conversations.map(c => c.id).sort().join(',')
+      
+      // Only resort if IDs changed or order is different
+      if (currentIds !== prevConversationIdsRef.current || currentOrder !== sortedOrder) {
+        prevConversationIdsRef.current = currentIds
+        if (currentOrder !== sortedOrder) {
+          setConversations(sorted)
+        }
+      }
     }
-  }, [resourcesClassId, activeSidebarTab])
+  }, [conversations])
 
-  useEffect(() => {
-    if (classes.length > 0 && !resourcesClassId && activeSidebarTab === "resources") {
-      setResourcesClassId(classes[0].id)
-    }
-  }, [classes, activeSidebarTab])
-
-  useEffect(() => {
-    if (assignmentsClassId && activeSidebarTab === "assignments") {
-      loadStudentAssignments()
-    }
-  }, [assignmentsClassId, activeSidebarTab])
-
-  useEffect(() => {
-    if (classes.length > 0 && !assignmentsClassId && activeSidebarTab === "assignments") {
-      setAssignmentsClassId(classes[0].id)
-    }
-  }, [classes, activeSidebarTab])
 
   // Reload conversations and clear current conversation when chat type changes
   useEffect(() => {
@@ -165,6 +180,43 @@ export function StudentChatInterface() {
     } catch (error) {
       console.error('Failed to check AI status:', error)
     }
+  }
+
+  // Helper function to sanitize content chunks during streaming (optimized character whitelist)
+  const sanitizeContentChunk = (content: string): string => {
+    if (!content) return content
+    
+    // Fast path: check if all ASCII (most common case)
+    let hasNonASCII = false
+    for (let i = 0; i < content.length; i++) {
+      if (content.charCodeAt(i) > 127) {
+        hasNonASCII = true
+        break
+      }
+    }
+    if (!hasNonASCII) return content // Early exit for ASCII-only
+    
+    // Character whitelist filter (same as Python side)
+    let result = ''
+    for (let i = 0; i < content.length; i++) {
+      const code = content.charCodeAt(i)
+      // Allow: ASCII (0-127), safe Unicode ranges only
+      if (code <= 127 || 
+          (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
+          (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
+          (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
+          (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
+          (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
+          (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
+          (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
+          (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
+          (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
+          (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
+        result += content[i]
+      }
+      // Skip all other characters (emojis, complex Unicode, corrupted sequences)
+    }
+    return result
   }
 
   // Helper function to check if user is near bottom
@@ -293,9 +345,36 @@ export function StudentChatInterface() {
         const data = await response.json()
         console.log("[v0] Conversations API response:", data)
         
-        // Ensure conversations is an array
+        // Ensure conversations is an array and sort by updatedAt (newest first)
         const conversations = Array.isArray(data.conversations) ? data.conversations : []
-        setConversations(conversations)
+        
+        // Helper function to get date value (handles both Date objects and strings)
+        const getDateValue = (date: Date | string | undefined): number => {
+          if (!date) return 0
+          if (date instanceof Date) {
+            const time = date.getTime()
+            return isNaN(time) ? 0 : time
+          }
+          const parsed = new Date(date)
+          const time = parsed.getTime()
+          return isNaN(time) ? 0 : time
+        }
+        
+        // Sort in reverse chronological order (newest first) - ChatGPT style
+        // Prioritize updatedAt, fallback to createdAt
+        const sortedConversations = [...conversations].sort((a, b) => {
+          const dateA = getDateValue(a.updatedAt) || getDateValue(a.createdAt) || 0
+          const dateB = getDateValue(b.updatedAt) || getDateValue(b.createdAt) || 0
+          
+          // If dates are equal, sort by ID as tiebreaker (newer IDs first)
+          if (dateB === dateA) {
+            return parseInt(b.id) - parseInt(a.id)
+          }
+          
+          return dateB - dateA // Descending order (newest first)
+        })
+        
+        setConversations(sortedConversations)
       } else {
         console.error("[v0] Failed to load conversations:", response.status, response.statusText)
         setConversations([])
@@ -503,14 +582,17 @@ export function StudentChatInterface() {
                     const data = JSON.parse(line.slice(6))
                     
                     if (data.content) {
+                      // Sanitize content immediately to remove corrupted emojis
+                      const sanitizedChunk = sanitizeContentChunk(data.content)
+                      
                       // Track time to first token (only once)
-                      if (firstTokenTimestamp === null && data.content.trim()) {
+                      if (firstTokenTimestamp === null && sanitizedChunk.trim()) {
                         firstTokenTimestamp = Date.now()
                         const ttft = firstTokenTimestamp - sendTimestamp
                         console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
                       }
                       
-                      accumulatedResponse += data.content
+                      accumulatedResponse += sanitizedChunk
                       
                       // Update the last message (assistant) with new content
                       setCurrentConversation(prev => {
@@ -641,6 +723,38 @@ export function StudentChatInterface() {
     setIsDarkMode(newState)
     localStorage.setItem("studentDarkMode", String(newState))
   }
+
+  // Handle sidebar resizing
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return
+      
+      const newWidth = e.clientX
+      // Constrain width between 200px and 500px
+      if (newWidth >= 200 && newWidth <= 500) {
+        setSidebarWidth(newWidth)
+        localStorage.setItem("studentSidebarWidth", String(newWidth))
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizing])
 
   const loadStudentResources = async () => {
     if (!resourcesClassId) return
@@ -877,11 +991,13 @@ export function StudentChatInterface() {
       <header className={`border-b shadow-sm ${isDarkMode ? 'bg-black border-white/10' : 'bg-white/80'} backdrop-blur-sm`}>
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl shadow-md ${isDarkMode ? 'bg-white/10 border border-white/20' : 'bg-gradient-to-br from-blue-500 to-indigo-600'}`}>
-              <MessageSquare className="h-5 w-5 text-white" />
-            </div>
+            <img 
+              src="/learnbot-logo.png" 
+              alt="LearnBOT Logo" 
+              className="h-12 w-12 object-contain"
+            />
             <div>
-              <h1 className={`font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Student Portal</h1>
+              <h1 className={`font-semibold text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>LearnBOT</h1>
               <p className={`text-sm ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>Welcome, {userName}</p>
             </div>
           </div>
@@ -921,287 +1037,210 @@ export function StudentChatInterface() {
           </div>
         )}
 
-        {/* Sidebar - Collapsible */}
+        {/* Sidebar - ChatGPT Style */}
         {!isSidebarCollapsed && (
-        <div className={`w-80 border-r shadow-sm transition-all duration-300 ease-in-out ${isDarkMode ? 'bg-black border-white/10' : 'bg-white'} flex flex-col relative`}>
+        <div 
+          ref={sidebarRef}
+          className={`border-r transition-all duration-200 ease-in-out ${isDarkMode ? 'bg-black border-white/10' : 'bg-white border-gray-200'} flex flex-col relative`}
+          style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '500px' }}
+        >
+          {/* Resize Handle */}
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault()
+              setIsResizing(true)
+            }}
+            className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-30 ${isResizing ? 'bg-blue-500' : ''}`}
+            style={{ cursor: 'col-resize' }}
+            title="Drag to resize"
+          />
+          
           {/* Sidebar Toggle Button - Positioned on the right edge */}
           <Button
             size="icon"
             variant="ghost"
             onClick={toggleSidebar}
-            className={`absolute top-4 right-2 z-20 ${isDarkMode ? 'hover:bg-white/5 text-white/60' : 'hover:bg-gray-100 text-gray-700'}`}
+            className={`absolute top-3 right-3 z-20 h-8 w-8 ${isDarkMode ? 'hover:bg-white/5 text-white/60' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Hide sidebar"
           >
             <PanelLeftClose className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`} />
           </Button>
           
-          {/* Sidebar Navigation */}
-          <div className={`p-4 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
-            <nav className="space-y-2 mt-8">
-              <button
-                onClick={() => setActiveSidebarTab("chatHistory")}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  activeSidebarTab === "chatHistory"
-                    ? isDarkMode ? "bg-white/10 text-white" : "bg-blue-50 text-blue-700"
-                    : isDarkMode ? "text-white/60 hover:bg-white/5" : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <Clock className="h-5 w-5" />
-                <span className="font-medium">Chat History</span>
-              </button>
-              <button
-                onClick={() => setActiveSidebarTab("assignments")}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  activeSidebarTab === "assignments"
-                    ? isDarkMode ? "bg-white/10 text-white" : "bg-blue-50 text-blue-700"
-                    : isDarkMode ? "text-white/60 hover:bg-white/5" : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <FileText className="h-5 w-5" />
-                <span className="font-medium">Assignments</span>
-              </button>
-              <button
-                onClick={() => setActiveSidebarTab("resources")}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  activeSidebarTab === "resources"
-                    ? isDarkMode ? "bg-white/10 text-white" : "bg-blue-50 text-blue-700"
-                    : isDarkMode ? "text-white/60 hover:bg-white/5" : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <FolderOpen className="h-5 w-5" />
-                <span className="font-medium">Resources</span>
-              </button>
-            </nav>
+          {/* New Chat Button - ChatGPT Style */}
+          <div className={`p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
+            <Button 
+              onClick={createNewConversation} 
+              className={`w-full justify-start gap-3 h-9 ${isDarkMode ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' : 'bg-white hover:bg-gray-50 text-gray-900 border border-gray-200'}`}
+            >
+              <Plus className="h-4 w-4" />
+              <span className="text-sm font-medium">New chat</span>
+            </Button>
           </div>
 
-          {/* Sidebar Content - Only show for Chat History tab */}
-          {activeSidebarTab === "chatHistory" && (
-            <div className="flex-1 overflow-hidden flex flex-col">
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Header with Chat History title and New Chat button */}
-                <div className={`px-4 pt-4 pb-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'} flex items-center justify-between`}>
-                  <h2 className={`font-semibold text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Chat History</h2>
-                  <Button 
-                    size="sm" 
-                    onClick={createNewConversation} 
-                    className={`h-7 px-2 text-xs shadow-md ${
-                      isDarkMode 
-                        ? 'bg-white text-black hover:bg-white/90' 
-                        : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white'
-                    }`}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    New Chat
-                  </Button>
-                </div>
-
-                {/* Collapsible Settings Section */}
-                <div className={`border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
-                  <button
-                    onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
-                    className={`w-full px-4 py-2 flex items-center justify-between ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-50'} transition-colors`}
-                  >
-                    <span className={`text-xs font-medium ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`}>Settings</span>
-                    <span className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'} transition-transform ${isSettingsExpanded ? 'rotate-180' : ''}`}>▼</span>
-                  </button>
-                  {isSettingsExpanded && (
-                    <div className="px-4 pb-3 space-y-2.5">
-                      {/* Model Selection */}
-                      <div>
-                        <label className={`text-xs font-medium mb-1 block ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>
-                          <Zap className="h-3 w-3 inline mr-1" />
-                          Model
-                        </label>
-                        <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-                          <SelectTrigger className={`w-full h-8 text-xs ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : ''}`}>
-                            <SelectValue placeholder="Select model..." />
-                          </SelectTrigger>
-                          <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                            <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs">🧠 Claude 4.5 Haiku</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs">🚀 Remote A6000 (Gemma 27B)</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs">⚡ Remote Blackwell (Gemma 27B)</span>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Class Selection */}
-                      <div>
-                        <label className={`text-xs font-medium mb-1 block ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>
-                          <BookOpen className="h-3 w-3 inline mr-1" />
-                          Class
-                        </label>
-                        <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                          <SelectTrigger className={`w-full h-8 text-xs ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : ''}`}>
-                            <SelectValue placeholder="Select class..." />
-                          </SelectTrigger>
-                          <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                            {/* Entire Corpus Option */}
-                            <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
-                              </div>
-                            </SelectItem>
-                            {classes.length > 0 && (
-                              <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                Individual Classes
-                              </div>
-                            )}
-                            {classes.map((classItem) => (
-                              <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                                <span className="text-xs">{classItem.name}</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Chat Type Selection */}
-                      <div>
-                        <label className={`text-xs font-medium mb-1 block ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>
-                          Chat Type
-                        </label>
-                        <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
-                          <SelectTrigger className={`w-full h-8 text-xs ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : ''}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                            <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                              <div className="flex items-center gap-2">
-                                <BookOpen className="h-3 w-3" />
-                                <span className="text-xs">Class Material</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                              <div className="flex items-center gap-2">
-                                <Calendar className="h-3 w-3" />
-                                <span className="text-xs">Syllabus/Schedule</span>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* AI Status Indicator */}
-                      <div>
-                        <label className={`text-xs font-medium mb-1 block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                          AI Status
-                        </label>
-                        <div className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                          <Bot className={`h-3 w-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`} />
-                          {ragStatus.isAvailable ? (
-                            <div className="flex items-center gap-1 text-green-600">
-                              <Wifi className="h-2.5 w-2.5" />
-                              <span className="text-xs font-medium">RAG</span>
-                            </div>
-                          ) : ragStatus.ollamaAvailable ? (
-                            <div className="flex items-center gap-1 text-blue-600">
-                              <Wifi className="h-2.5 w-2.5" />
-                              <span className="text-xs font-medium">Ollama Ready</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 text-orange-600">
-                              <WifiOff className="h-2.5 w-2.5" />
-                              <span className="text-xs font-medium">Fallback</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Conversations List */}
-                <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-                  <ScrollArea className="flex-1 h-full">
-                    <div className="p-4 space-y-2">
-                      {!selectedClassId ? (
-                        <div className="text-center py-8">
-                          <BookOpen className={`mx-auto h-10 w-10 mb-3 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                          <p className={`text-xs mb-1 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>Select a class to view conversations</p>
-                          <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Choose a class from settings above</p>
-                        </div>
-                      ) : !conversations || conversations.length === 0 ? (
-                        <div className="text-center py-8">
-                          <MessageSquare className={`mx-auto h-10 w-10 mb-3 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                          <p className={`text-xs mb-1 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>No conversations yet</p>
-                          <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Click "New Chat" to start</p>
-                        </div>
-                      ) : (
-                        conversations.map((conversation) => (
-                          <Card
-                            key={conversation.id}
-                            className={`p-2.5 cursor-pointer transition-colors group ${
-                              currentConversation?.id === conversation.id 
-                                ? isDarkMode ? "bg-white/10 border-white/20" : "bg-accent"
-                                : isDarkMode ? "bg-white/5 border-white/10 hover:bg-white/10" : "hover:bg-accent"
-                            }`}
-                            onClick={() => loadConversation(conversation.id)}
+          {/* Conversations List - ChatGPT Style */}
+          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+            <ScrollArea className="flex-1 h-full">
+              <div className="p-2 space-y-1">
+                {!selectedClassId ? (
+                  <div className="text-center py-8 px-4">
+                    <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
+                    <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Select a class to start</p>
+                  </div>
+                ) : !conversations || conversations.length === 0 ? (
+                  <div className="text-center py-8 px-4">
+                    <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
+                    <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>No conversations yet</p>
+                  </div>
+                ) : (
+                  conversations.map((conversation) => (
+                    <div
+                      key={conversation.id}
+                      className={`w-full rounded-lg transition-colors group relative ${
+                        currentConversation?.id === conversation.id 
+                          ? isDarkMode ? "bg-white/10" : "bg-gray-100"
+                          : isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <button
+                        onClick={() => loadConversation(conversation.id)}
+                        className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors ${
+                          currentConversation?.id === conversation.id 
+                            ? isDarkMode ? "text-white" : "text-gray-900"
+                            : isDarkMode ? "text-white/70 hover:text-white" : "text-gray-700"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2 min-h-[2.5rem]">
+                          <p className={`text-sm flex-1 break-words leading-relaxed pr-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            {conversation.conversationSummary || conversation.title}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={`h-6 w-6 p-0 flex-shrink-0 opacity-100 ${isDarkMode ? 'hover:bg-red-500/20 text-red-400 hover:text-red-300' : 'hover:bg-red-50 text-red-500 hover:text-red-600'}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              deleteConversation(conversation.id)
+                            }}
+                            title="Delete conversation"
                           >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1 min-w-0">
-                                <p className={`font-medium text-xs truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{conversation.title}</p>
-                                <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>
-                                  {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory.length} messages
-                                </p>
-                                {conversation.currentTopic && (
-                                  <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-white/60' : 'text-blue-600'}`}>Topic: {conversation.currentTopic}</p>
-                                )}
-                              </div>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className={`h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity ${isDarkMode ? 'hover:bg-white/10 text-white/60 hover:text-white' : 'hover:bg-red-100 text-red-600 hover:text-red-700'}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  deleteConversation(conversation.id)
-                                }}
-                                title="Delete conversation permanently"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </Card>
-                        ))
-                      )}
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </button>
                     </div>
-                  </ScrollArea>
-                </div>
+                  ))
+                )}
               </div>
-            </div>
-          )}
+            </ScrollArea>
+          </div>
         </div>
         )}
 
         {/* Main Chat Area */}
         <div className={`flex-1 flex flex-col overflow-hidden relative ${isDarkMode ? 'bg-black' : 'bg-white'}`}>
-          {/* Chat History Tab Content */}
-          {activeSidebarTab === "chatHistory" && (
-            <>
-              {/* Export Chat Button - Only show when there's an active conversation */}
-              {currentConversation && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={exportChat}
-                  className={`absolute top-4 right-4 z-10 shadow-md rounded-lg border gap-2 ${isDarkMode ? 'bg-white/5 border-white/10 hover:bg-white/10 text-white' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-900'}`}
-                  title="Export chat as text file"
-                >
-                  <Download className="h-4 w-4" />
-                  <span className="hidden sm:inline">Export Chat</span>
-                </Button>
-              )}
+          {/* Chat Header - ChatGPT Style with Model/Class Selector */}
+          <div className={`border-b ${isDarkMode ? 'border-white/10 bg-black' : 'border-gray-200 bg-white'} px-4 py-2.5 flex items-center justify-between`}>
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              {/* Model Selector - ChatGPT Style */}
+              <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
+                <SelectTrigger className={`h-8 w-[180px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                    <span className="text-sm">🧠 Claude 4.5 Haiku</span>
+                  </SelectItem>
+                  <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                    <span className="text-sm">🚀 Remote A6000 (Gemma 27B)</span>
+                  </SelectItem>
+                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                    <span className="text-sm">⚡ Remote Blackwell (Gemma 27B)</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Class Selector */}
+              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                <SelectTrigger className={`h-8 w-[200px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                  <SelectValue placeholder="Select class..." />
+                </SelectTrigger>
+                <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                  <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                    <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
+                  </SelectItem>
+                  {classes.length > 0 && (
+                    <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Individual Classes
+                    </div>
+                  )}
+                  {classes.map((classItem) => (
+                    <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                      <span className="text-sm">{classItem.name}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Chat Type Selector */}
+              <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+                <SelectTrigger className={`h-8 w-[160px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                  <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="h-3 w-3" />
+                      <span className="text-sm">Class Material</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-3 w-3" />
+                      <span className="text-sm">Syllabus</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* AI Status Indicator */}
+              <div className={`flex items-center gap-2 px-2.5 py-1 rounded-md ${isDarkMode ? 'bg-white/5' : 'bg-gray-100'}`}>
+                {ragStatus.isAvailable ? (
+                  <div className="flex items-center gap-1.5">
+                    <Wifi className={`h-3.5 w-3.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
+                    <span className={`text-xs font-medium ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>RAG</span>
+                  </div>
+                ) : ragStatus.ollamaAvailable ? (
+                  <div className="flex items-center gap-1.5">
+                    <Wifi className={`h-3.5 w-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+                    <span className={`text-xs font-medium ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>Ollama</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <WifiOff className={`h-3.5 w-3.5 ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`} />
+                    <span className={`text-xs font-medium ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`}>Fallback</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Export Chat Button */}
+            {currentConversation && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={exportChat}
+                className={`h-8 gap-2 ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-gray-100 text-gray-900'}`}
+                title="Export chat"
+              >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline text-sm">Export</span>
+              </Button>
+            )}
+          </div>
+
+          {/* Chat Content */}
+          <>
 
             {!currentConversation ? (
               <div className={`flex-1 flex items-center justify-center p-8 ${isDarkMode ? 'bg-black' : ''}`}>
@@ -1328,382 +1367,7 @@ export function StudentChatInterface() {
               </>
             )}
           </>
-          )}
 
-          {/* Assignments Tab Content */}
-          {activeSidebarTab === "assignments" && (
-            <div className={`flex-1 flex flex-col overflow-hidden ${isDarkMode ? 'bg-black' : ''}`}>
-              <div className={`p-6 pb-4 border-b ${isDarkMode ? 'border-white/10' : ''}`}>
-                <label className={`text-base font-bold mb-3 block ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  <FileText className="h-5 w-5 inline mr-2" />
-                  Select Class
-                </label>
-                <Select value={assignmentsClassId} onValueChange={setAssignmentsClassId}>
-                  <SelectTrigger className={`w-full h-10 ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : ''}`}>
-                    <SelectValue placeholder="Select a class..." />
-                  </SelectTrigger>
-                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                    {classes.map((classItem) => (
-                      <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        {classItem.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className={`flex-1 overflow-auto p-6 ${isDarkMode ? 'bg-black' : ''}`}>
-                {assignments.length === 0 ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="text-center">
-                      <FileText className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                      <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`}>No assignments yet</p>
-                      <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Assignments will appear here when your professor adds them</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {assignments.map((assignment) => (
-                      <Card
-                        key={assignment.id}
-                        className={`p-4 ${isDarkMode ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
-                      >
-                        <div className="mb-3">
-                          <h3 className={`font-semibold text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {assignment.name}
-                          </h3>
-                        </div>
-                        <div className="space-y-2 mb-4">
-                          <div className="flex items-center gap-2">
-                            <Calendar className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
-                            <p className={`text-sm ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`}>
-                              Due: {new Date(assignment.dueDate).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={async () => {
-                              const userId = localStorage.getItem("userId")
-                              if (!userId) {
-                                toast.error("User not authenticated")
-                                return
-                              }
-                              try {
-                                const response = await fetch(`${assignment.pdfUrl}&userId=${userId}`)
-                                if (response.ok) {
-                                  const blob = await response.blob()
-                                  const url = window.URL.createObjectURL(blob)
-                                  const link = document.createElement('a')
-                                  link.href = url
-                                  link.download = assignment.name.replace(/[^a-zA-Z0-9_.-]/g, '_') + '.pdf'
-                                  document.body.appendChild(link)
-                                  link.click()
-                                  document.body.removeChild(link)
-                                  window.URL.revokeObjectURL(url)
-                                } else {
-                                  const errorData = await response.json()
-                                  toast.error(errorData.error || "Failed to download assignment")
-                                }
-                              } catch (error) {
-                                console.error("[v0] Failed to download assignment:", error)
-                                toast.error("Failed to download assignment")
-                              }
-                            }}
-                            className={`w-full ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600' : ''}`}
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            Download PDF
-                          </Button>
-                          {assignment.canvasLink && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                window.open(assignment.canvasLink, '_blank')
-                              }}
-                              className={`w-full ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600' : ''}`}
-                            >
-                              <ExternalLink className="h-4 w-4 mr-2" />
-                              Open in Canvas
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setSelectedAssignment({ id: assignment.id, name: assignment.name })
-                              setShowSubmitDialog(true)
-                            }}
-                            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Submit
-                          </Button>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Resources Tab Content */}
-          {activeSidebarTab === "resources" && (
-            <div className={`flex-1 flex flex-col overflow-hidden ${isDarkMode ? 'bg-black' : ''}`}>
-              <div className={`p-6 pb-4 border-b ${isDarkMode ? 'border-white/10' : ''}`}>
-                <label className={`text-base font-bold mb-3 block ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  <BookOpen className="h-5 w-5 inline mr-2" />
-                  Select Class
-                </label>
-                <Select value={resourcesClassId} onValueChange={setResourcesClassId}>
-                  <SelectTrigger className={`w-full h-10 ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : ''}`}>
-                    <SelectValue placeholder="Select a class..." />
-                  </SelectTrigger>
-                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                    {classes.map((classItem) => (
-                      <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        {classItem.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className={`flex-1 overflow-hidden p-6 pt-4 ${isDarkMode ? 'bg-black' : ''}`}>
-
-                {!resourcesClassId ? (
-                  <div className="flex-1 flex items-center justify-center">
-                    <div className="text-center">
-                      <BookOpen className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                      <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`}>Select a Class</p>
-                      <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Choose a class to view resources</p>
-                    </div>
-                  </div>
-                ) : resources.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center">
-                    <div className="text-center">
-                      <FolderOpen className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                      <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`}>No resources available</p>
-                      <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>No files have been uploaded for this class yet</p>
-                    </div>
-                  </div>
-                ) : (
-                  <ScrollArea className="flex-1 h-full">
-                    <div className="space-y-2">
-                      {resources.map((resource, index) => (
-                        <Card
-                          key={index}
-                          className={`p-3 transition-colors group ${
-                            isDarkMode 
-                              ? 'bg-white/5 border-white/10 hover:bg-white/10' 
-                              : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div 
-                              className="flex-1 flex items-center gap-3 cursor-pointer min-w-0"
-                              onClick={() => openPreview(index)}
-                            >
-                              <FileText className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
-                              <div className="flex-1 min-w-0">
-                                <p className={`font-medium text-sm truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                  {resource.name}
-                                </p>
-                                <p className={`text-xs ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>
-                                  {formatFileSize(resource.size)} • {new Date(resource.uploadedAt).toLocaleDateString()}
-                                </p>
-                              </div>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                downloadResource(resource.name)
-                              }}
-                              className={`h-8 w-8 flex-shrink-0 ${isDarkMode ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'}`}
-                              title="Download PDF"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Assignment Submission Dialog */}
-          {showSubmitDialog && selectedAssignment && (
-            <Dialog open={showSubmitDialog} onOpenChange={(open) => {
-              if (!open && !isSubmitting) {
-                setShowSubmitDialog(false)
-                setSelectedAssignment(null)
-                setSubmissionFile(null)
-                if (submissionFileInputRef.current) {
-                  submissionFileInputRef.current.value = ""
-                }
-              }
-            }}>
-              <DialogContent className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''}>
-                <DialogHeader>
-                  <DialogTitle className={isDarkMode ? 'text-gray-100' : ''}>Submit Assignment</DialogTitle>
-                  <DialogDescription className={isDarkMode ? 'text-gray-400' : ''}>
-                    Upload your completed assignment for {selectedAssignment.name}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <label className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                      Assignment Name
-                    </label>
-                    <Input
-                      value={selectedAssignment.name}
-                      readOnly
-                      tabIndex={-1}
-                      onFocus={(e) => e.target.blur()}
-                      className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 cursor-default' : 'cursor-default'}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                      Upload PDF *
-                    </label>
-                    <input
-                      ref={submissionFileInputRef}
-                      type="file"
-                      accept=".pdf,application/pdf"
-                      onChange={(e) => setSubmissionFile(e.target.files?.[0] || null)}
-                      className="hidden"
-                    />
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => submissionFileInputRef.current?.click()}
-                        className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600' : ''}
-                      >
-                        <Upload className="h-4 w-4 mr-2" />
-                        {submissionFile ? submissionFile.name : "Choose PDF File"}
-                      </Button>
-                      {submissionFile && (
-                        <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                          {formatFileSize(submissionFile.size)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex justify-end space-x-2 pt-4 border-t">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowSubmitDialog(false)
-                      setSelectedAssignment(null)
-                      setSubmissionFile(null)
-                      if (submissionFileInputRef.current) {
-                        submissionFileInputRef.current.value = ""
-                      }
-                    }}
-                    disabled={isSubmitting}
-                    className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600' : ''}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleSubmitAssignment}
-                    disabled={isSubmitting || !submissionFile}
-                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Submitting...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="h-4 w-4 mr-2" />
-                        Submit
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
-
-          {/* PDF Preview Dialog */}
-          {showPreviewDialog && previewResourceIndex !== null && resources[previewResourceIndex] && (
-            <Dialog open={showPreviewDialog} onOpenChange={(open) => {
-              if (!open && !isDownloading) {
-                // Clean up blob URL when closing dialog
-                if (previewBlobUrl) {
-                  URL.revokeObjectURL(previewBlobUrl)
-                  setPreviewBlobUrl(null)
-                }
-                setShowPreviewDialog(false)
-                setPreviewResourceIndex(null)
-              }
-            }}>
-              <DialogContent className="max-w-6xl w-[95vw] max-h-[95vh] h-[95vh] flex flex-col p-0">
-                <DialogHeader className="px-6 pt-4 pb-3 flex-shrink-0">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <DialogTitle className="text-lg">Preview PDF - {resources[previewResourceIndex].name}</DialogTitle>
-                    </div>
-                  </div>
-                </DialogHeader>
-                
-                <div className="flex-1 flex flex-col min-h-0 px-6 overflow-hidden">
-                  {/* PDF Preview */}
-                  <div className="flex-1 border rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-900 min-h-0" style={{ height: 'calc(95vh - 200px)' }}>
-                    {resources[previewResourceIndex] && previewBlobUrl && (
-                      <iframe
-                        src={previewBlobUrl}
-                        className="w-full h-full"
-                        title={`Preview of ${resources[previewResourceIndex].name}`}
-                        style={{ border: 'none', minHeight: '600px' }}
-                      />
-                    )}
-                    {resources[previewResourceIndex] && !previewBlobUrl && (
-                      <div className="flex items-center justify-center h-full">
-                        <div className="text-center">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                          <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Loading preview...</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center justify-end mt-3 pt-3 pb-4 border-t flex-shrink-0">
-                    <Button
-                      onClick={() => downloadResource(resources[previewResourceIndex].name)}
-                      disabled={isDownloading}
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                    >
-                      {isDownloading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                          Downloading...
-                        </>
-                      ) : (
-                        <>
-                          <Download className="h-4 w-4 mr-2" />
-                          Download
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
         </div>
       </div>
     </div>

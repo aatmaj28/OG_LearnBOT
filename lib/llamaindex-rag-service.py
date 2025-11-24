@@ -1331,6 +1331,13 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                 if chunk_data.get('type') == 'content_block_delta' and chunk_data.get('delta', {}).get('type') == 'text_delta':
                                     chunk = chunk_data.get('delta', {}).get('text', '')
                                     if chunk:
+                                        # Ensure chunk is properly UTF-8 encoded
+                                        if isinstance(chunk, str):
+                                            try:
+                                                # Re-encode and decode to ensure valid UTF-8
+                                                chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                            except:
+                                                pass
                                         chunk_count += 1
                                         
                                         if not first_chunk_received:
@@ -1398,6 +1405,13 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                             chunk_data = json.loads(line)
                             if 'response' in chunk_data:
                                 chunk = chunk_data['response']
+                                # Ensure chunk is properly UTF-8 encoded
+                                if isinstance(chunk, str):
+                                    try:
+                                        # Re-encode and decode to ensure valid UTF-8
+                                        chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                    except:
+                                        pass
                                 chunk_count += 1
                                 
                                 if not first_chunk_received:
@@ -1494,6 +1508,13 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                     delta = chunk_data['choices'][0].get('delta', {})
                                     if 'content' in delta:
                                         chunk = delta['content']
+                                        # Ensure chunk is properly UTF-8 encoded
+                                        if isinstance(chunk, str):
+                                            try:
+                                                # Re-encode and decode to ensure valid UTF-8
+                                                chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                            except:
+                                                pass
                                         chunk_count += 1
                                         
                                         if not first_chunk_received:

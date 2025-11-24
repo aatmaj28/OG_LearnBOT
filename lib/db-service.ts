@@ -2458,7 +2458,14 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
           )
           
           // Cache the results (summary + analytics)
+          // Update title with summary if it's more meaningful than the default "Chat {date}" format
+          const shouldUpdateTitle = !conversation.title || conversation.title.startsWith('Chat ')
+          const titleToUse = shouldUpdateTitle && newSummary 
+            ? newSummary.length > 60 ? newSummary.substring(0, 60).trim() + '...' : newSummary
+            : conversation.title
+          
           await updateRAGConversation(conversationId, {
+            title: titleToUse,
             conversationSummary: newSummary,
             cachedSentiment: analysisResult.sentiment,
             cachedTopics: analysisResult.topics,

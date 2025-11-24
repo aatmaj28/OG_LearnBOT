@@ -24,7 +24,49 @@ interface ChatMessageProps {
   isDarkMode?: boolean
 }
 
+// Function to sanitize content using efficient character whitelist (same as Python/frontend)
+function sanitizeContent(content: string): string {
+  if (!content) return content
+  
+  // Fast path: check if all ASCII (most common case)
+  let hasNonASCII = false
+  for (let i = 0; i < content.length; i++) {
+    if (content.charCodeAt(i) > 127) {
+      hasNonASCII = true
+      break
+    }
+  }
+  if (!hasNonASCII) return content // Early exit for ASCII-only
+  
+  // Character whitelist filter (same as Python side and streaming sanitization)
+  let result = ''
+  for (let i = 0; i < content.length; i++) {
+    const code = content.charCodeAt(i)
+    // Allow: ASCII (0-127), safe Unicode ranges only
+    if (code <= 127 || 
+        (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
+        (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
+        (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
+        (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
+        (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
+        (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
+        (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
+        (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
+        (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
+        (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
+      result += content[i]
+    }
+    // Skip all other characters (emojis, complex Unicode, corrupted sequences)
+  }
+  
+  // Clean up multiple spaces that might result from removals
+  result = result.replace(/\s{2,}/g, ' ')
+  
+  return result.trim()
+}
+
 export function ChatMessage({ role, content, timestamp, metadata, isDarkMode = false }: ChatMessageProps) {
+  const sanitizedContent = sanitizeContent(content)
   return (
     <div className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'} group animate-in fade-in slide-in-from-bottom-4 duration-500`}>
       <div className={`flex gap-3 max-w-[85%] ${role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -128,7 +170,7 @@ export function ChatMessage({ role, content, timestamp, metadata, isDarkMode = f
                 },
               }}
             >
-              {content}
+              {sanitizedContent}
             </ReactMarkdown>
           </div>
         </div>

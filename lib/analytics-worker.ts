@@ -51,7 +51,14 @@ async function processConversation(conversation: RAGConversation, forceUpdate: b
     )
 
     // Update conversation with summary and analytics
+    // Update title with summary if it's more meaningful than the default "Chat {date}" format
+    const shouldUpdateTitle = !conversation.title || conversation.title.startsWith('Chat ')
+    const titleToUse = shouldUpdateTitle && summary 
+      ? summary.length > 60 ? summary.substring(0, 60).trim() + '...' : summary
+      : conversation.title
+    
     await updateRAGConversation(conversation.id, {
+      title: titleToUse,
       conversationSummary: summary,
       cachedSentiment: analysisResult.sentiment,
       cachedTopics: analysisResult.topics,
