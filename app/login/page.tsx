@@ -218,7 +218,7 @@ export default function LoginPage() {
                 <p className="text-sm text-gray-600">
                   Demo credentials:{" "}
                   <span className="font-mono text-xs text-gray-500">
-                    {role === "student" ? "student@example.com / student123" : "faculty@example.com / faculty123"}
+                    {role === "student" ? "student@northeastern.edu / student123" : "faculty@northeastern.edu / faculty123"}
                   </span>
                 </p>
               </div>

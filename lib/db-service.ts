@@ -1,6 +1,62 @@
 import pool from './db'
-import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource } from './types'
+import type { PoolClient } from 'pg'
+import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource, UserRole } from './types'
+import { maskUserData, type MaskingContext } from './pii-masking'
+import { getMaskedId } from './masked-id-utils'
 import crypto from 'crypto'
+
+const FACULTY_SESSION_KEY = 'app.current_user_id'
+
+/**
+ * Sets the PostgreSQL session variable used by RLS policies to determine whether the current
+ * connection belongs to a faculty member. We need to call this for every pooled client before
+ * issuing queries that rely on the faculty context, otherwise the policy either blocks access
+ * or leaks the previously set user id.
+ */
+const setFacultySessionVariable = async (client: PoolClient, facultyUserId?: string): Promise<void> => {
+  // When no faculty context is provided (e.g., student or unauthenticated), clear the session key
+  if (!facultyUserId) {
+    await clearSessionVariable(client)
+    return
+  }
+
+  const numericId = Number.parseInt(facultyUserId, 10)
+  if (Number.isNaN(numericId)) {
+    console.warn(`[DB] Invalid facultyUserId "${facultyUserId}" passed to setFacultySessionVariable`)
+    await clearSessionVariable(client)
+    return
+  }
+
+  try {
+    await client.query('SELECT set_config($1, $2, true)', [FACULTY_SESSION_KEY, numericId.toString()])
+  } catch (error) {
+    console.warn('[DB] Failed to set faculty session variable, RLS may block access', error)
+  }
+}
+
+const clearSessionVariable = async (client: PoolClient): Promise<void> => {
+  try {
+    await client.query('SELECT set_config($1, $2, true)', [FACULTY_SESSION_KEY, ''])
+  } catch (error) {
+    console.warn('[DB] Failed to clear faculty session variable', error)
+  }
+}
+
+// Helper function to map database row to User object
+const mapRowToUser = (row: any): User => {
+  return {
+    id: row.id.toString(),
+    email: row.email,
+    password: row.password,
+    name: row.name,
+    role: row.role as 'student' | 'faculty',
+    nuid: row.nuid,
+    degree: row.degree,
+    major: row.major,
+    taMode: (row.ta_mode || 'normal') as 'lenient' | 'normal' | 'strict',
+    createdAt: new Date(row.created_at)
+  }
+}
 
 // User operations
 // Internal functions (bypass masking for internal use like authentication)
@@ -1308,9 +1364,9 @@ const generateEnhancedSummary = (messages: any[], existingSummary?: string): str
   userMessages.forEach((msg, msgIndex) => {
     const content = msg.content.trim()
     // Split into sentences (simple regex - handles . ! ?)
-    const msgSentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10)
+    const msgSentences = content.split(/[.!?]+/).filter((s: string) => s.trim().length > 10)
     
-    msgSentences.forEach(sentence => {
+    msgSentences.forEach((sentence: string) => {
       const trimmed = sentence.trim()
       if (trimmed.length > 0) {
         sentences.push({
@@ -1478,8 +1534,8 @@ const calculateEnhancedSentiment = (messages: any[]): number => {
       ]
       
       negationPatterns.forEach(pattern => {
-        const matches = Array.from(content.matchAll(pattern))
-        matches.forEach(match => {
+        const matches = Array.from(content.matchAll(pattern)) as RegExpMatchArray[]
+        matches.forEach((match: RegExpMatchArray) => {
           const word = match[2]
           // If negated word is positive, flip to negative
           if (positiveWords.has(word)) {
@@ -1631,12 +1687,12 @@ const extractSimpleTopics = (messages: any[]): { topic: string; count: number }[
     if (msg.role === 'user') {
       const content = msg.content.toLowerCase()
       // Extract meaningful words
-      const words = content.split(/\s+/).filter(word => 
+      const words = content.split(/\s+/).filter((word: string) => 
         word.length > 5 && 
         !['this', 'that', 'with', 'from', 'they', 'have', 'been', 'were', 'said', 'each', 'which', 'their', 'time', 'will', 'about', 'there', 'could', 'other', 'after', 'first', 'well', 'also', 'where', 'much', 'some', 'very', 'when', 'here', 'just', 'into', 'over', 'think', 'more', 'your', 'work', 'know', 'like', 'make', 'year', 'good', 'take', 'most'].includes(word)
       )
       
-      words.forEach(word => {
+      words.forEach((word: string) => {
         topicCounts.set(word, (topicCounts.get(word) || 0) + 1)
       })
     }
@@ -2686,7 +2742,7 @@ export const deleteCorpusFile = async (
       'DELETE FROM corpus_files WHERE class_id = $1 AND filename = $2 AND material_type = $3',
       [classId, fileName, materialType]
     )
-    return result.rowCount > 0
+    return (result.rowCount ?? 0) > 0
   } finally {
     client.release()
   }

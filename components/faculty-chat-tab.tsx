@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import type { RAGConversation, Class, ModelBackend } from "@/lib/types"
+import { ChatMessage } from "@/components/chat-message"
 
 type ChatType = "class_material" | "syllabus"
 

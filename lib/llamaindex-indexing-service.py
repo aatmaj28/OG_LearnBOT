@@ -36,11 +36,6 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)  # Optional API key for cloud
 # Global cache for embedding model and Qdrant client (loaded once, reused for all indexing operations)
 _global_embed_model = None
 _global_qdrant_client = None
-_initialization_lock = threading.Lock()
-
-# Global cache for embedding model and Qdrant client (loaded once, reused for all indexing operations)
-_global_embed_model = None
-_global_qdrant_client = None
 _initialization_lock = threading.Lock() if 'threading' in sys.modules else None
 if _initialization_lock is None:
     import threading

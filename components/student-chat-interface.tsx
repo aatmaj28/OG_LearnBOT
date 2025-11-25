@@ -13,7 +13,7 @@ import { ChatMessage } from "@/components/chat-message"
 import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, PanelLeftClose, PanelLeftOpen, Sun, Moon, Download, Clock, FileText, FolderOpen, ChevronLeft, ChevronRight, X, ExternalLink, Upload, CheckCircle2 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import type { RAGConversation, Class, ModelBackend, Assignment } from "@/lib/types"
+import type { RAGConversation, Class, ModelBackend, Assignment, Resource } from "@/lib/types"
 
 type ChatType = "class_material" | "syllabus"
 
@@ -205,6 +205,27 @@ export function StudentChatInterface() {
   const isScrollingProgrammaticallyRef = useRef(false) // Track if we're programmatically scrolling
   const prevConversationIdsRef = useRef<string>('') // Track previous conversation IDs for auto-resort
   const sidebarRef = useRef<HTMLDivElement>(null)
+  
+  // Resources and Assignments state
+  const [resources, setResources] = useState<Resource[]>([])
+  const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [resourcesClassId, setResourcesClassId] = useState<string>("")
+  const [assignmentsClassId, setAssignmentsClassId] = useState<string>("")
+  
+  // Assignment submission state
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
+  const [submissionFile, setSubmissionFile] = useState<File | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
+  const submissionFileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Resource preview state
+  const [previewResourceIndex, setPreviewResourceIndex] = useState<number | null>(null)
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false)
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null)
+  
+  // Download state
+  const [isDownloading, setIsDownloading] = useState(false)
 
   useEffect(() => {
     loadUserData()
@@ -1034,7 +1055,7 @@ export function StudentChatInterface() {
     
     // Fetch the file as a blob and create an object URL for preview
     try {
-      const response = await fetch(`/api/classes/resources/download?classId=${resourcesClassId}&fileName=${encodeURIComponent(resources[index].name)}&userId=${userId}`)
+      const response = await fetch(`/api/classes/resources/download?classId=${resourcesClassId}&fileName=${encodeURIComponent(resources[index].fileName)}&userId=${userId}`)
       if (response.ok) {
         const blob = await response.blob()
         const blobUrl = URL.createObjectURL(blob)
@@ -1057,7 +1078,7 @@ export function StudentChatInterface() {
       
       // Fetch the new file as a blob and create an object URL for preview
       try {
-        const response = await fetch(`/api/classes/resources/download?classId=${resourcesClassId}&fileName=${encodeURIComponent(resources[index].name)}`)
+        const response = await fetch(`/api/classes/resources/download?classId=${resourcesClassId}&fileName=${encodeURIComponent(resources[index].fileName)}`)
         if (response.ok) {
           const blob = await response.blob()
           const blobUrl = URL.createObjectURL(blob)
