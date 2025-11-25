@@ -69,6 +69,17 @@ export const initializeDatabase = async () => {
     } catch (error) {
       console.log('syllabus_vector_store_folder column already exists or could not be added')
     }
+    
+    // Add ta_mode column to users table for faculty TA mode preference (lenient, normal, strict)
+    try {
+      await client.query(`
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS ta_mode VARCHAR(20) DEFAULT 'normal' 
+        CHECK (ta_mode IN ('lenient', 'normal', 'strict'))
+      `)
+    } catch (error) {
+      console.log('ta_mode column already exists or could not be added')
+    }
 
     // Create class_students junction table
     await client.query(`
@@ -349,6 +360,38 @@ export const initializeDatabase = async () => {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_resources_faculty_id 
       ON resources(faculty_id)
+    `)
+
+    // Create corpus_files table - tracks indexed PDFs for each class
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS corpus_files (
+        id SERIAL PRIMARY KEY,
+        class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        file_name VARCHAR(255) NOT NULL,
+        material_type VARCHAR(50) NOT NULL DEFAULT 'class_material' CHECK (material_type IN ('class_material', 'syllabus')),
+        file_size BIGINT,
+        chunk_count INTEGER DEFAULT 0,
+        is_indexed BOOLEAN DEFAULT false,
+        indexed_at TIMESTAMP,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(class_id, file_name, material_type)
+      )
+    `)
+
+    // Create indexes for corpus_files
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_corpus_files_class_id 
+      ON corpus_files(class_id)
+    `)
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_corpus_files_material_type 
+      ON corpus_files(material_type)
+    `)
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_corpus_files_class_material 
+      ON corpus_files(class_id, material_type)
     `)
 
     // Add unique constraint to nuid if it doesn't exist (for existing databases)

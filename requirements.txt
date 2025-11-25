@@ -1,9 +1,10 @@
-chromadb
 sentence-transformers
 pypdf
 numpy
 requests
 llama-index
-llama-index-vector-stores-chroma
+llama-index-vector-stores-qdrant
 llama-index-readers-file
+einops
+qdrant-client
 

@@ -5,11 +5,9 @@ import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, Download } from "lucide-react"
-import { ChatMessage } from "@/components/chat-message"
+import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import type { RAGConversation, Class, ModelBackend } from "@/lib/types"
 
 type ChatType = "class_material" | "syllabus"
@@ -26,13 +24,16 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [chatType, setChatType] = useState<ChatType>("class_material")
   const [preferredModel, setPreferredModel] = useState<ModelBackend>("claude")
+  const [taMode, setTaMode] = useState<'lenient' | 'normal' | 'strict'>('normal')
   const [classes, setClasses] = useState<Class[]>([])
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
     ollamaAvailable: boolean
   }>({ isAvailable: false, ollamaAvailable: false })
   const [userName, setUserName] = useState("")
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const shouldAutoScrollRef = useRef(true) // Track if we should auto-scroll
   const isScrollingProgrammaticallyRef = useRef(false) // Track if we're programmatically scrolling
 
@@ -109,6 +110,20 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       if (response.ok) {
         const data = await response.json()
         setUserName(data.user.name)
+        // Load TA mode if available
+        if (data.user.taMode) {
+          setTaMode(data.user.taMode)
+        } else {
+          // Load from API if not in session data
+          const userId = localStorage.getItem("userId")
+          if (userId) {
+            const taModeResponse = await fetch(`/api/users/ta-mode?userId=${userId}`)
+            if (taModeResponse.ok) {
+              const taModeData = await taModeResponse.json()
+              setTaMode(taModeData.taMode || 'normal')
+            }
+          }
+        }
       }
     } catch (error) {
       console.error("[v0] Failed to load user data:", error)
@@ -401,6 +416,10 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     console.log("[v0] Sending message with conversation ID:", currentConversation.id)
     const userMessage = input.trim()
     setInput("")
+    // Reset textarea height after clearing input
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
     setLoading(true)
     // Reset auto-scroll when sending a new message
     shouldAutoScrollRef.current = true
@@ -744,17 +763,57 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     URL.revokeObjectURL(url)
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`
+    }
+  }, [input])
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
     }
+    // Shift+Enter allows new lines, so we don't prevent default
+  }
+
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed(!isSidebarCollapsed)
   }
 
   return (
-    <div className="h-full flex overflow-hidden">
+    <div className="h-full flex overflow-hidden relative">
+      {/* Collapsed Sidebar Toggle Button - Only show when collapsed */}
+      {isSidebarCollapsed && (
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={toggleSidebar}
+          className={`absolute top-4 left-4 z-20 shadow-md ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-200'}`}
+          title="Show sidebar"
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+        </Button>
+      )}
+
       {/* Chat History Sidebar */}
-      <div className="w-80 border-r bg-card p-4">
+      <div className={`${isSidebarCollapsed ? 'w-0' : 'w-80'} border-r bg-card transition-all duration-300 ease-in-out overflow-hidden flex flex-col relative ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+        {/* Sidebar Toggle Button - Positioned on the right edge when expanded */}
+        {!isSidebarCollapsed && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={toggleSidebar}
+            className={`absolute top-4 right-2 z-20 ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
+            title="Hide sidebar"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </Button>
+        )}
+        
+        <div className="p-4 overflow-y-auto flex-1">
         <div className="space-y-4 mb-4">
           {/* Model Selection */}
           <div className="space-y-2">
@@ -773,6 +832,112 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               </SelectContent>
             </Select>
           </div>
+
+          {/* TA Mode Selection */}
+          <div className="space-y-2">
+            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+              <Bot className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+              TA Mode
+            </label>
+            <div className={`flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+              <button
+                type="button"
+                onClick={async () => {
+                  const newMode: 'lenient' | 'normal' | 'strict' = 'lenient'
+                  setTaMode(newMode)
+                  const userId = localStorage.getItem("userId")
+                  if (userId) {
+                    try {
+                      await fetch('/api/users/ta-mode', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId, taMode: newMode })
+                      })
+                    } catch (error) {
+                      console.error('Failed to update TA mode:', error)
+                    }
+                  }
+                }}
+                className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${
+                  taMode === 'lenient'
+                    ? isDarkMode
+                      ? 'bg-green-600 text-white'
+                      : 'bg-green-500 text-white'
+                    : isDarkMode
+                    ? 'text-gray-300 hover:bg-gray-600'
+                    : 'text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Lenient
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const newMode: 'lenient' | 'normal' | 'strict' = 'normal'
+                  setTaMode(newMode)
+                  const userId = localStorage.getItem("userId")
+                  if (userId) {
+                    try {
+                      await fetch('/api/users/ta-mode', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId, taMode: newMode })
+                      })
+                    } catch (error) {
+                      console.error('Failed to update TA mode:', error)
+                    }
+                  }
+                }}
+                className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${
+                  taMode === 'normal'
+                    ? isDarkMode
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-blue-500 text-white'
+                    : isDarkMode
+                    ? 'text-gray-300 hover:bg-gray-600'
+                    : 'text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Normal
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const newMode: 'lenient' | 'normal' | 'strict' = 'strict'
+                  setTaMode(newMode)
+                  const userId = localStorage.getItem("userId")
+                  if (userId) {
+                    try {
+                      await fetch('/api/users/ta-mode', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId, taMode: newMode })
+                      })
+                    } catch (error) {
+                      console.error('Failed to update TA mode:', error)
+                    }
+                  }
+                }}
+                className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${
+                  taMode === 'strict'
+                    ? isDarkMode
+                      ? 'bg-red-600 text-white'
+                      : 'bg-red-500 text-white'
+                    : isDarkMode
+                    ? 'text-gray-300 hover:bg-gray-600'
+                    : 'text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Strict
+              </button>
+            </div>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              {taMode === 'lenient' && 'More forgiving - accepts partial understanding'}
+              {taMode === 'normal' && 'Balanced - standard checkpoint requirements'}
+              {taMode === 'strict' && 'Very strict - requires complete, precise understanding'}
+            </p>
+          </div>
+
           {/* Class Selection */}
           <div className="space-y-2">
             <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
@@ -861,8 +1026,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
             </Button>
           </div>
         </div>
-        <ScrollArea className="h-[calc(100vh-200px)]">
-          <div className="space-y-2">
+        <div className="mt-4 flex-1 overflow-y-auto">
+          <div className="space-y-2 pr-2">
             {!selectedClassId ? (
               <div className="text-center py-8">
                 <BookOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -884,20 +1049,20 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   }`}
                   onClick={() => loadConversation(conversation.id)}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{conversation.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0 pr-2">
+                      <p className="font-medium text-sm truncate w-full">{conversation.title}</p>
+                      <p className="text-xs text-muted-foreground mt-1 truncate">
                         {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory.length} messages
                       </p>
                       {conversation.currentTopic && (
-                        <p className="text-xs text-indigo-600 mt-1">Topic: {conversation.currentTopic}</p>
+                        <p className="text-xs text-indigo-600 mt-1 truncate">Topic: {conversation.currentTopic}</p>
                       )}
                     </div>
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100 text-red-600 hover:text-red-700"
+                      className="h-6 w-6 p-0 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100 text-red-600 hover:text-red-700"
                       onClick={(e) => {
                         e.stopPropagation()
                         deleteConversation(conversation.id)
@@ -911,11 +1076,12 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               ))
             )}
           </div>
-        </ScrollArea>
+        </div>
+        </div>
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      <div className="flex-1 flex flex-col overflow-hidden relative transition-all duration-300 ease-in-out">
         {/* Export Chat Button - Only show when there's an active conversation */}
         {currentConversation && (
           <Button
@@ -1004,43 +1170,21 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               </div>
             </div>
 
-            <div className={`border-t p-6 ${isDarkMode ? 'bg-black border-white/10' : 'bg-white/80 backdrop-blur-sm'}`}>
-              <div className="max-w-4xl mx-auto">
-                <div className={`flex items-center gap-4 px-5 py-3.5 rounded-3xl ${
-                  isDarkMode 
-                    ? 'bg-white/5 border border-white/10 hover:border-white/20' 
-                    : 'bg-gray-50 border border-gray-200'
-                } shadow-lg transition-all duration-300 ease-out focus-within:shadow-2xl ${isDarkMode ? 'focus-within:border-white/30 focus-within:bg-white/[0.07]' : 'focus-within:border-blue-500'}`}>
-                  <Input
-                    placeholder="Message LearnBOT..."
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    disabled={loading}
-                    className={`flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base ${
-                      isDarkMode ? 'text-white placeholder:text-white/50' : 'text-gray-900 placeholder:text-gray-500'
-                    }`}
-                  />
-                  <Button 
-                    onClick={sendMessage} 
-                    disabled={loading || !input.trim()} 
-                    size="icon"
-                    className={`rounded-full w-10 h-10 flex items-center justify-center transition-all duration-300 ease-out ${
-                      loading || !input.trim()
-                        ? isDarkMode
-                          ? 'bg-white/5 text-white/30 cursor-not-allowed'
-                          : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                        : isDarkMode
-                          ? 'bg-white text-black hover:bg-white/95 hover:scale-105 shadow-lg hover:shadow-xl'
-                          : 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:scale-105 shadow-lg hover:shadow-xl'
-                    }`}
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-                <p className={`text-xs text-center mt-3 ${isDarkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                  Press Enter to send • LearnBOT can make mistakes
-                </p>
+            <div className="border-t bg-card p-4">
+              <div className="max-w-3xl mx-auto flex gap-2 items-end">
+                <Textarea
+                  ref={textareaRef}
+                  placeholder="Type your message... (Shift+Enter for new line)"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  disabled={loading}
+                  className="flex-1 min-h-[44px] max-h-[200px] resize-none overflow-y-auto"
+                  rows={1}
+                />
+                <Button onClick={sendMessage} disabled={loading || !input.trim()} className="h-[44px]">
+                  <Send className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </>

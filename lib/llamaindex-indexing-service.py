@@ -1,47 +1,155 @@
 """
 LlamaIndex-based indexing service for LearnBot
-Uses ChromaDB for vector storage (replaces FAISS)
+Uses Qdrant for vector storage (migrated from ChromaDB for better performance and filtering)
 """
 import sys
 import os
 import json
+import threading
 from pathlib import Path
 from typing import List, Optional
  
 # LlamaIndex imports
 from llama_index.core import VectorStoreIndex, StorageContext, Document, Settings
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
+from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.readers.file import PDFReader
-import chromadb
-from chromadb.config import Settings as ChromaSettings
- 
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
+
 # Use sentence-transformers directly (already installed)
 from sentence_transformers import SentenceTransformer
  
 # Configuration
-EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
-CHROMA_PERSIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector-stores", "chroma")
- 
-# ChromaDB Server Mode Configuration
-# Set CHROMA_SERVER_URL environment variable to use server mode (e.g., "http://localhost:8000")
-# If not set, falls back to embedded mode
-CHROMA_SERVER_URL = os.getenv("CHROMA_SERVER_URL", None)
-CHROMA_SERVER_AUTH_TOKEN = os.getenv("CHROMA_SERVER_AUTH_TOKEN", "test-token")  # Default token for local dev
- 
- 
+# Using nomic-embed-text-v1.5 for better academic PDF handling (longer context, better formula handling)
+EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
+QDRANT_PERSIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector-stores", "qdrant")
+
+# Qdrant Server Configuration
+# Defaults to server mode (http://localhost:6333) for production
+# Set QDRANT_URL environment variable to override (e.g., "http://localhost:6333" or cloud URL)
+# Set QDRANT_URL="" to use local mode instead
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)  # Optional API key for cloud Qdrant
+
+# Global cache for embedding model and Qdrant client (loaded once, reused for all indexing operations)
+_global_embed_model = None
+_global_qdrant_client = None
+_initialization_lock = threading.Lock()
+
+# Global cache for embedding model and Qdrant client (loaded once, reused for all indexing operations)
+_global_embed_model = None
+_global_qdrant_client = None
+_initialization_lock = threading.Lock() if 'threading' in sys.modules else None
+if _initialization_lock is None:
+    import threading
+    _initialization_lock = threading.Lock()
+
+
 def get_collection_name(output_path: str) -> str:
     """
     Generate a collection name from the output path.
     Uses the folder name as the collection name.
+    Qdrant collection names must be valid identifiers (alphanumeric + underscore).
     """
     # Get the folder name from the path
     folder_name = os.path.basename(os.path.normpath(output_path))
-    # Sanitize for ChromaDB (replace invalid chars)
+    # Sanitize for Qdrant (replace invalid chars, keep alphanumeric and underscore)
     collection_name = folder_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
+    # Remove any remaining invalid characters
+    collection_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in collection_name)
     return collection_name
- 
- 
+
+
+def _create_embed_model():
+    """
+    Create a new SentenceTransformerEmbedding instance.
+    This is a helper function to avoid code duplication.
+    """
+    from llama_index.core.embeddings import BaseEmbedding
+    from pydantic import PrivateAttr
+    
+    class SentenceTransformerEmbedding(BaseEmbedding):
+        _model = PrivateAttr()
+        
+        def __init__(self, model_name: str = EMBEDDING_MODEL, **kwargs):
+            super().__init__(**kwargs)
+            # nomic models require trust_remote_code=True
+            object.__setattr__(self, '_model', SentenceTransformer(model_name, trust_remote_code=True))
+        
+        def _get_query_embedding(self, query: str):
+            return self._model.encode(query, convert_to_numpy=True).tolist()
+        
+        def _get_text_embedding(self, text: str):
+            return self._model.encode(text, convert_to_numpy=True).tolist()
+        
+        def _get_text_embeddings(self, texts: List[str]):
+            embeddings = self._model.encode(texts, convert_to_numpy=True)
+            return [emb.tolist() for emb in embeddings]
+        
+        async def _aget_query_embedding(self, query: str):
+            return self._get_query_embedding(query)
+        
+        async def _aget_text_embedding(self, text: str):
+            return self._get_text_embedding(text)
+    
+    return SentenceTransformerEmbedding(EMBEDDING_MODEL)
+
+
+def get_or_init_embed_model():
+    """
+    Get or initialize the global embedding model (loaded once, reused for all indexing operations).
+    This significantly speeds up subsequent indexing operations.
+    """
+    global _global_embed_model
+    
+    if _global_embed_model is None:
+        with _initialization_lock:
+            # Double-check pattern (another thread might have initialized it)
+            if _global_embed_model is None:
+                print(f"[LlamaIndex] 🚀 Loading embedding model: {EMBEDDING_MODEL} (this happens once)", file=sys.stderr)
+                _global_embed_model = _create_embed_model()
+                print(f"[LlamaIndex] ✅ Embedding model loaded and cached (will be reused for all indexing)", file=sys.stderr)
+    else:
+        print(f"[LlamaIndex] ♻️  Reusing cached embedding model (fast!)", file=sys.stderr)
+    
+    return _global_embed_model
+
+
+def get_or_init_qdrant_client():
+    """
+    Get or initialize the global Qdrant client (connected once, reused for all indexing operations).
+    This keeps the connection alive and speeds up subsequent indexing operations.
+    """
+    global _global_qdrant_client
+    
+    if _global_qdrant_client is None:
+        with _initialization_lock:
+            # Double-check pattern (another thread might have initialized it)
+            if _global_qdrant_client is None:
+                # Initialize Qdrant client (server mode by default, local mode if QDRANT_URL is empty)
+                if QDRANT_URL and QDRANT_URL.strip():
+                    # Server mode: Connect via HTTP
+                    print(f"[LlamaIndex] 🔌 Connecting to Qdrant server at: {QDRANT_URL} (this happens once)", file=sys.stderr)
+                    _global_qdrant_client = QdrantClient(
+                        url=QDRANT_URL,
+                        api_key=QDRANT_API_KEY,
+                        timeout=60
+                    )
+                    print(f"[LlamaIndex] ✅ Qdrant connection established and cached (will be reused)", file=sys.stderr)
+                else:
+                    # Local mode: Use local persistent storage
+                    print(f"[LlamaIndex] 🔌 Connecting to Qdrant local storage at: {QDRANT_PERSIST_DIR} (this happens once)", file=sys.stderr)
+                    os.makedirs(QDRANT_PERSIST_DIR, exist_ok=True)
+                    _global_qdrant_client = QdrantClient(path=QDRANT_PERSIST_DIR)
+                    print(f"[LlamaIndex] ✅ Qdrant local connection established and cached (will be reused)", file=sys.stderr)
+    else:
+        print(f"[LlamaIndex] ♻️  Reusing cached Qdrant connection (fast!)", file=sys.stderr)
+    
+    return _global_qdrant_client
+
+
 def index_pdfs(
     pdf_paths: List[str],
     output_path: str,
@@ -50,13 +158,13 @@ def index_pdfs(
     class_name: Optional[str] = None
 ) -> dict:
     """
-    Index PDFs using LlamaIndex and save to ChromaDB
-   
+    Index PDFs using LlamaIndex and save to Qdrant
+    
     Args:
         pdf_paths: List of PDF file paths to index
         output_path: Directory path (used to generate collection name)
         is_syllabus: Whether these are syllabus documents (affects chunking)
-        class_id: Optional class ID for metadata
+        class_id: Optional class ID for metadata (REQUIRED for filtering)
         class_name: Optional class name for metadata
    
     Returns:
@@ -66,150 +174,66 @@ def index_pdfs(
         print(f"[LlamaIndex] Processing {len(pdf_paths)} PDFs", file=sys.stderr)
         print(f"[LlamaIndex] Output path: {output_path}", file=sys.stderr)
         print(f"[LlamaIndex] Is syllabus: {is_syllabus}", file=sys.stderr)
-       
-        # Configure embedding model - use sentence-transformers directly
-        from llama_index.core.embeddings import BaseEmbedding
-        from pydantic import PrivateAttr
-       
-        class SentenceTransformerEmbedding(BaseEmbedding):
-            _model = PrivateAttr()
-           
-            def __init__(self, model_name: str = EMBEDDING_MODEL, **kwargs):
-                super().__init__(**kwargs)
-                object.__setattr__(self, '_model', SentenceTransformer(model_name))
-           
-            def _get_query_embedding(self, query: str):
-                return self._model.encode(query, convert_to_numpy=True).tolist()
-           
-            def _get_text_embedding(self, text: str):
-                return self._model.encode(text, convert_to_numpy=True).tolist()
-           
-            def _get_text_embeddings(self, texts: List[str]):
-                embeddings = self._model.encode(texts, convert_to_numpy=True)
-                return [emb.tolist() for emb in embeddings]
-           
-            async def _aget_query_embedding(self, query: str):
-                return self._get_query_embedding(query)
-           
-            async def _aget_text_embedding(self, text: str):
-                return self._get_text_embedding(text)
-       
-        embed_model = SentenceTransformerEmbedding(EMBEDDING_MODEL)
+        
+        # Get or initialize cached embedding model (loaded once, reused for all indexing)
+        embed_model = get_or_init_embed_model()
         Settings.embed_model = embed_model
-       
-        # Configure chunking based on document type
-        if is_syllabus:
-            chunk_size = 2000
-            chunk_overlap = 400
-        else:
-            chunk_size = 1000
-            chunk_overlap = 200
-       
-        text_splitter = SentenceSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
+        
+        # Both RAG 1 (Class Materials) and RAG 2 (Syllabus) use SemanticSplitterNodeParser for consistency
+        # This preserves complete concepts, formulas, and examples
+        semantic_splitter = SemanticSplitterNodeParser(
+            embed_model=embed_model,
+            buffer_size=1,  # Group 1 sentence when evaluating similarity (safe for token limits)
+            breakpoint_percentile_threshold=85,  # 85th percentile threshold for semantic breakpoints (more granular chunking)
         )
-        Settings.node_parser = text_splitter
-       
+        Settings.node_parser = semantic_splitter
+        if is_syllabus:
+            print(f"[LlamaIndex] RAG 2 (Syllabus): Using nomic + SemanticSplitterNodeParser (semantic chunking)", file=sys.stderr)
+        else:
+            print(f"[LlamaIndex] RAG 1 (Class Materials): Using nomic + SemanticSplitterNodeParser (semantic chunking)", file=sys.stderr)
+        
         # Get collection name from output path
         collection_name = get_collection_name(output_path)
-        print(f"[LlamaIndex] Using ChromaDB collection: {collection_name}", file=sys.stderr)
-       
-        # Initialize ChromaDB client (server mode or embedded mode)
-        if CHROMA_SERVER_URL:
-            # Server mode: Connect via HTTP
-            print(f"[LlamaIndex] Connecting to ChromaDB server at: {CHROMA_SERVER_URL}", file=sys.stderr)
-            # Parse URL to extract host and port
-            url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
-            if ":" in url_clean:
-                host, port_str = url_clean.split(":", 1)
-                port = int(port_str.split("/")[0])  # Handle trailing slashes
-            else:
-                host = url_clean.split("/")[0]
-                port = 8000
-           
-            # Create settings with token authentication
-            if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
-                auth_token = CHROMA_SERVER_AUTH_TOKEN
-            else:
-                auth_token = "test-token"
-           
-            print(f"[LlamaIndex] 🔐 Attempting token authentication with token: {'***' + auth_token[-4:] if len(auth_token) > 4 else '***'}", file=sys.stderr)
-           
-            # Try multiple authentication methods
-            chroma_client = None
-            auth_method_used = None
-           
-            # Method 1: Try using Settings with token auth provider
-            try:
-                settings = ChromaSettings(
-                    anonymized_telemetry=False,
-                    chroma_client_auth_provider="chromadb.auth.token_authn.TokenAuthClientProvider",
-                    chroma_client_auth_credentials=auth_token
-                )
-                chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-                auth_method_used = "TokenAuthClientProvider (Settings)"
-                print(f"[LlamaIndex] ✅ Connected using {auth_method_used}", file=sys.stderr)
-            except Exception as e1:
-                print(f"[LlamaIndex] ⚠️  Method 1 failed: {str(e1)[:100]}", file=sys.stderr)
-               
-                # Method 2: Try with headers parameter (if supported)
-                try:
-                    settings = ChromaSettings(anonymized_telemetry=False)
-                    chroma_client = chromadb.HttpClient(
-                        host=host,
-                        port=port,
-                        settings=settings,
-                        headers={"Authorization": f"Bearer {auth_token}"}
-                    )
-                    auth_method_used = "Bearer token (headers)"
-                    print(f"[LlamaIndex] ✅ Connected using {auth_method_used}", file=sys.stderr)
-                except (TypeError, Exception) as e2:
-                    print(f"[LlamaIndex] ⚠️  Method 2 failed: {str(e2)[:100]}", file=sys.stderr)
-                   
-                    # Method 3: Try without auth (fallback)
-                    try:
-                        settings = ChromaSettings(anonymized_telemetry=False)
-                        chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-                        auth_method_used = "No authentication (fallback)"
-                        print(f"[LlamaIndex] ⚠️  Connected without authentication (server may reject requests)", file=sys.stderr)
-                    except Exception as e3:
-                        raise Exception(f"All connection methods failed. Last error: {str(e3)}")
-       
-            if chroma_client is None:
-                raise Exception("Failed to create ChromaDB client")
-           
-            print(f"[LlamaIndex] 🔐 Authentication method used: {auth_method_used}", file=sys.stderr)
-        else:
-            # Embedded mode: Use local persistent storage
-            print(f"[LlamaIndex] Using ChromaDB embedded mode at: {CHROMA_PERSIST_DIR}", file=sys.stderr)
-            os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
-            chroma_client = chromadb.PersistentClient(
-                path=CHROMA_PERSIST_DIR,
-                settings=ChromaSettings(anonymized_telemetry=False)
-            )
-               
+        print(f"[LlamaIndex] Using Qdrant collection: {collection_name}", file=sys.stderr)
+        
+        # Get or initialize cached Qdrant client (connected once, reused for all indexing)
+        qdrant_client = get_or_init_qdrant_client()
+        
         # Get or create collection
+        # Qdrant collections need vector size (768 for nomic-embed-text-v1.5)
+        vector_size = 768
         try:
-            collection = chroma_client.get_collection(name=collection_name)
-            print(f"[LlamaIndex] Found existing ChromaDB collection: {collection_name}", file=sys.stderr)
-            existing_count = collection.count()
-            print(f"[LlamaIndex] Existing collection has {existing_count} vectors", file=sys.stderr)
+            collection_info = qdrant_client.get_collection(collection_name)
+            existing_count = collection_info.points_count
+            print(f"[LlamaIndex] Found existing Qdrant collection: {collection_name} ({existing_count} vectors)", file=sys.stderr)
         except Exception:
-            collection = chroma_client.create_collection(name=collection_name)
-            print(f"[LlamaIndex] Created new ChromaDB collection: {collection_name}", file=sys.stderr)
+            # Collection doesn't exist, create it
+            qdrant_client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=vector_size,
+                    distance=Distance.COSINE
+                )
+            )
             existing_count = 0
-       
+            print(f"[LlamaIndex] Created new Qdrant collection: {collection_name}", file=sys.stderr)
+        
         # Check which files are already indexed (by checking metadata in collection)
         already_processed_files = set()
         if existing_count > 0:
             try:
-                # Get all existing documents to check source files
-                existing_results = collection.get(include=["metadatas"])
-                if existing_results and existing_results.get("metadatas"):
-                    for metadata in existing_results["metadatas"]:
-                        if metadata and "source_file" in metadata:
-                            already_processed_files.add(metadata["source_file"])
+                # Get all existing points to check source files
+                # Qdrant scroll API to get all points with payload
+                scroll_result = qdrant_client.scroll(
+                    collection_name=collection_name,
+                    limit=10000,  # Adjust if you have more than 10k chunks
+                    with_payload=True,
+                    with_vectors=False
+                )
+                points = scroll_result[0]  # First element is the list of points
+                for point in points:
+                    if point.payload and "source_file" in point.payload:
+                        already_processed_files.add(point.payload["source_file"])
                 print(
                     f"[LlamaIndex] Found {len(already_processed_files)} already processed files",
                     file=sys.stderr
@@ -219,30 +243,36 @@ def index_pdfs(
                 # This handles the case where PDFs were deleted but chunks remain
                 if len(pdf_paths) == 0 and existing_count > 0:
                     print(f"[LlamaIndex] No PDFs to index but {existing_count} chunks exist. Clearing all chunks...", file=sys.stderr)
-                    # Get all IDs and delete everything (IDs are always returned)
-                    all_ids = existing_results.get("ids", [])
-                    if all_ids:
-                        collection.delete(ids=all_ids)
-                        print(f"[LlamaIndex] Cleared all {len(all_ids)} chunks", file=sys.stderr)
-                    else:
-                        # If no IDs in results, get them separately
-                        all_results = collection.get()
-                        all_ids = all_results.get("ids", [])
-                        if all_ids:
-                            collection.delete(ids=all_ids)
-                            print(f"[LlamaIndex] Cleared all {len(all_ids)} chunks", file=sys.stderr)
+                    # Delete all points in the collection using Filter with match_all
+                    from qdrant_client.models import Filter, FieldCondition, MatchValue
+                    # Delete all points by using a filter that matches everything
+                    # Since we want to delete all, we can use delete with a filter that matches all
+                    # Or we can scroll and delete by IDs
+                    all_point_ids = []
+                    scroll_result = qdrant_client.scroll(
+                        collection_name=collection_name,
+                        limit=10000,
+                        with_payload=False,
+                        with_vectors=False
+                    )
+                    all_point_ids = [point.id for point in scroll_result[0]]
+                    if all_point_ids:
+                        qdrant_client.delete(
+                            collection_name=collection_name,
+                            points_selector=all_point_ids
+                        )
+                    print(f"[LlamaIndex] Cleared all {existing_count} chunks", file=sys.stderr)
                     # Update config
                     config = {
                         "class_id": class_id or "",
                         "class_name": class_name or "",
                         "embedding_model": EMBEDDING_MODEL,
-                        "dimension": 768,
+                        "dimension": 768,  # nomic-embed-text-v1.5 dimension
                         "total_chunks": 0,
                         "total_pdfs": 0,
-                        "chunk_size": chunk_size,
-                        "overlap": chunk_overlap,
+                        "chunking_strategy": "SemanticSplitterNodeParser",
                         "collection_name": collection_name,
-                        "chroma_persist_dir": CHROMA_PERSIST_DIR,
+                        "qdrant_url": QDRANT_URL or "local",
                         "created_at": None
                     }
                     configPath = os.path.join(output_path, "config.json")
@@ -264,6 +294,7 @@ def index_pdfs(
         # Load and process PDFs
         all_documents = []
         new_chunks_count = 0
+        chunks_per_file = {}  # Track exact chunk counts per file
         pdf_reader = PDFReader()
        
         for pdf_path in pdf_paths:
@@ -279,30 +310,85 @@ def index_pdfs(
                
                 # Load PDF using LlamaIndex reader
                 documents = pdf_reader.load_data(file=Path(pdf_path))
-               
-                # Add metadata to documents
+                
+                # Add metadata to documents (class_id is REQUIRED for filtering)
                 for doc in documents:
                     doc.metadata["source_file"] = pdf_filename
                     doc.metadata["section_title"] = f"Section from {pdf_filename}"
-                    if class_id:
-                        doc.metadata["class_id"] = class_id
+                    # Always include class_id for filtering (required)
+                    doc.metadata["class_id"] = class_id or "unknown"
                     if class_name:
                         doc.metadata["class_name"] = class_name
                     if is_syllabus:
                         doc.metadata["is_syllabus"] = "true"
-               
+                    else:
+                        doc.metadata["is_syllabus"] = "false"
+                
                 all_documents.extend(documents)
-                new_chunks_count += len(documents)
-                print(f"[LlamaIndex] Extracted {len(documents)} NEW chunks from {pdf_filename}", file=sys.stderr)
-               
+                file_chunk_count = len(documents)
+                new_chunks_count += file_chunk_count
+                chunks_per_file[pdf_filename] = file_chunk_count  # Store exact count per file
+                print(f"[LlamaIndex] Extracted {file_chunk_count} NEW chunks from {pdf_filename}", file=sys.stderr)
+                
             except Exception as e:
                 print(f"[LlamaIndex] Error processing {pdf_path}: {e}", file=sys.stderr)
                 continue
        
         if len(all_documents) == 0:
-            print("[LlamaIndex] ERROR: No documents extracted!", file=sys.stderr)
-            return {"success": False, "error": "No documents extracted"}
-       
+            # All files were already indexed - get exact counts from Qdrant
+            if existing_count > 0:
+                print(f"[LlamaIndex] All PDFs already indexed. Using existing collection with {existing_count} vectors.", file=sys.stderr)
+                
+                # Get exact chunk counts per file from Qdrant
+                exact_chunks_per_file = {}
+                try:
+                    scroll_result = qdrant_client.scroll(
+                        collection_name=collection_name,
+                        limit=10000,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    points = scroll_result[0]
+                    
+                    for point in points:
+                        payload = point.payload or {}
+                        source_file = payload.get("source_file", "unknown")
+                        if source_file not in exact_chunks_per_file:
+                            exact_chunks_per_file[source_file] = 0
+                        exact_chunks_per_file[source_file] += 1
+                    
+                    print(f"[LlamaIndex] Exact chunk counts per file: {exact_chunks_per_file}", file=sys.stderr)
+                except Exception as e:
+                    print(f"[LlamaIndex] Warning: Could not get exact counts per file: {e}", file=sys.stderr)
+                    exact_chunks_per_file = {}
+                
+                # Update config.json with current counts
+                config = {
+                    "class_id": class_id or "",
+                    "class_name": class_name or "",
+                    "embedding_model": EMBEDDING_MODEL,
+                    "dimension": 768,
+                    "total_chunks": existing_count,
+                    "total_pdfs": len(pdf_paths),
+                    "chunking_strategy": "SemanticSplitterNodeParser",
+                    "collection_name": collection_name,
+                    "qdrant_url": QDRANT_URL or "local",
+                    "created_at": None
+                }
+                configPath = os.path.join(output_path, "config.json")
+                with open(configPath, "w") as f:
+                    json.dump(config, f, indent=2)
+                return {
+                    "success": True,
+                    "chunks": existing_count,
+                    "pdfs": len(pdf_paths),
+                    "new_chunks": 0,
+                    "chunks_per_file": exact_chunks_per_file  # Exact counts per file from Qdrant
+                }
+            else:
+                print("[LlamaIndex] ERROR: No documents extracted!", file=sys.stderr)
+                return {"success": False, "error": "No documents extracted"}
+        
         # Check if we need to do any indexing
         if new_chunks_count == 0 and existing_count > 0:
             print("[LlamaIndex] No new PDFs to index. Using existing collection.", file=sys.stderr)
@@ -318,9 +404,12 @@ def index_pdfs(
             file=sys.stderr
         )
         print(f"[LlamaIndex] New documents to index: {new_chunks_count}", file=sys.stderr)
-       
-        # Create ChromaDB vector store
-        vector_store = ChromaVectorStore(chroma_collection=collection)
+        
+        # Create Qdrant vector store
+        vector_store = QdrantVectorStore(
+            client=qdrant_client,
+            collection_name=collection_name
+        )
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
        
         # Create or update index
@@ -362,32 +451,65 @@ def index_pdfs(
             )
            
         # Get final count from collection
-        final_count = collection.count()
-        print(f"[LlamaIndex] ChromaDB collection now has {final_count} vectors", file=sys.stderr)
-       
+        collection_info = qdrant_client.get_collection(collection_name)
+        final_count = collection_info.points_count
+        
+        # Get exact chunk counts per file from Qdrant
+        # Query all points and count by source_file
+        exact_chunks_per_file = {}
+        try:
+            # Scroll through all points to count per file
+            scroll_result = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=10000,  # Adjust if you have more than 10k chunks
+                with_payload=True,
+                with_vectors=False
+            )
+            points = scroll_result[0]
+            
+            # Count chunks per file
+            for point in points:
+                payload = point.payload or {}
+                source_file = payload.get("source_file", "unknown")
+                if source_file not in exact_chunks_per_file:
+                    exact_chunks_per_file[source_file] = 0
+                exact_chunks_per_file[source_file] += 1
+            
+            print(f"[LlamaIndex] Exact chunk counts per file: {exact_chunks_per_file}", file=sys.stderr)
+        except Exception as e:
+            print(f"[LlamaIndex] Warning: Could not get exact counts per file: {e}", file=sys.stderr)
+            # Fallback to approximate counts from processing
+            exact_chunks_per_file = chunks_per_file
+        print(f"[LlamaIndex] Qdrant collection now has {final_count} vectors", file=sys.stderr)
+        
         # Build metadata for backward compatibility
-        # Get ALL metadata from ChromaDB collection (not just new nodes from docstore)
+        # Get ALL metadata from Qdrant collection (not just new nodes from docstore)
         all_metadata = []
         try:
-            # Query ChromaDB collection directly to get all documents with metadata
+            # Query Qdrant collection directly to get all points with payload
             # This ensures we get the complete picture, especially for incremental indexing
-            results = collection.get(include=["metadatas", "documents"])
-            if results and results.get("documents"):
-                documents_list = results["documents"] or []
-                metadatas_list = results["metadatas"] or []
-               
-                # Build metadata array from ChromaDB results
-                for i, (doc_text, meta) in enumerate(zip(documents_list, metadatas_list)):
+            scroll_result = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=10000,  # Adjust if you have more than 10k chunks
+                with_payload=True,
+                with_vectors=False
+            )
+            points = scroll_result[0]  # First element is the list of points
+            
+            if points:
+                # Build metadata array from Qdrant results
+                for i, point in enumerate(points):
+                    payload = point.payload or {}
                     all_metadata.append({
-                        "source_file": meta.get("source_file", "") if meta else "",
+                        "source_file": payload.get("source_file", ""),
                         "chunk_index": i,
-                        "chunk_text": doc_text or "",
-                        "section_title": meta.get("section_title", "") if meta else ""
+                        "chunk_text": payload.get("text", ""),  # Qdrant stores text in payload
+                        "section_title": payload.get("section_title", "")
                     })
-                print(f"[LlamaIndex] Retrieved {len(all_metadata)} metadata entries from ChromaDB collection", file=sys.stderr)
+                print(f"[LlamaIndex] Retrieved {len(all_metadata)} metadata entries from Qdrant collection", file=sys.stderr)
             else:
-                # Fallback: try docstore if ChromaDB query fails
-                print(f"[LlamaIndex] No documents in ChromaDB collection, trying docstore...", file=sys.stderr)
+                # Fallback: try docstore if Qdrant query fails
+                print(f"[LlamaIndex] No documents in Qdrant collection, trying docstore...", file=sys.stderr)
                 docstore = index.storage_context.docstore
                 if hasattr(docstore, 'docs'):
                     try:
@@ -406,7 +528,7 @@ def index_pdfs(
                     except Exception as e:
                         print(f"[LlamaIndex] Could not use docstore: {e}", file=sys.stderr)
         except Exception as e:
-            print(f"[LlamaIndex] Warning: Could not extract metadata from ChromaDB: {e}", file=sys.stderr)
+            print(f"[LlamaIndex] Warning: Could not extract metadata from Qdrant: {e}", file=sys.stderr)
             # Final fallback: build from documents (only new ones, so incomplete)
             print(f"[LlamaIndex] Using fallback: building metadata from documents (may be incomplete)", file=sys.stderr)
             for i, doc in enumerate(all_documents):
@@ -416,7 +538,7 @@ def index_pdfs(
                     "chunk_text": doc.text,
                     "section_title": doc.metadata.get("section_title", "")
                 })
-       
+        
         # Save metadata.json for backward compatibility
         os.makedirs(output_path, exist_ok=True)
         metadata_json_path = os.path.join(output_path, "metadata.json")
@@ -429,13 +551,12 @@ def index_pdfs(
             "class_id": class_id or "",
             "class_name": class_name or "",
             "embedding_model": EMBEDDING_MODEL,
-            "dimension": 768,  # all-mpnet-base-v2 dimension
+            "dimension": 768,  # nomic-embed-text-v1.5 dimension
             "total_chunks": final_count,
             "total_pdfs": len(pdf_paths),
-            "chunk_size": chunk_size,
-            "overlap": chunk_overlap,
+            "chunking_strategy": "SemanticSplitterNodeParser",
             "collection_name": collection_name,
-            "chroma_persist_dir": CHROMA_PERSIST_DIR,
+            "qdrant_url": QDRANT_URL or "local",
             "created_at": None  # Will be set by caller if needed
         }
        
@@ -457,7 +578,8 @@ def index_pdfs(
             "success": True,
             "chunks": final_count,
             "pdfs": len(pdf_paths),
-            "new_chunks": new_chunks_count if existing_count > 0 else final_count
+            "new_chunks": new_chunks_count if existing_count > 0 else final_count,
+            "chunks_per_file": exact_chunks_per_file  # Exact counts per file from Qdrant
         }
        
     except Exception as e:
@@ -465,8 +587,56 @@ def index_pdfs(
         import traceback
         traceback.print_exc(file=sys.stderr)
         return {"success": False, "error": str(e)}
- 
- 
+
+
+def initialize_indexing_resources():
+    """
+    Initialize embedding model and Qdrant connection at startup.
+    This is called when the script is imported/executed to ensure resources are ready immediately.
+    """
+    global _global_embed_model, _global_qdrant_client
+    
+    try:
+        print(f"[LlamaIndex] 🚀 Initializing indexing resources at startup...", file=sys.stderr)
+        
+        # Initialize embedding model
+        if _global_embed_model is None:
+            print(f"[LlamaIndex] Loading embedding model: {EMBEDDING_MODEL}", file=sys.stderr)
+            _global_embed_model = _create_embed_model()
+            print(f"[LlamaIndex] ✅ Embedding model loaded", file=sys.stderr)
+        
+        # Initialize Qdrant client
+        if _global_qdrant_client is None:
+            if QDRANT_URL and QDRANT_URL.strip():
+                print(f"[LlamaIndex] Connecting to Qdrant server at: {QDRANT_URL}", file=sys.stderr)
+                _global_qdrant_client = QdrantClient(
+                    url=QDRANT_URL,
+                    api_key=QDRANT_API_KEY,
+                    timeout=60
+                )
+                print(f"[LlamaIndex] ✅ Connected to Qdrant server", file=sys.stderr)
+            else:
+                print(f"[LlamaIndex] Connecting to Qdrant local storage at: {QDRANT_PERSIST_DIR}", file=sys.stderr)
+                os.makedirs(QDRANT_PERSIST_DIR, exist_ok=True)
+                _global_qdrant_client = QdrantClient(path=QDRANT_PERSIST_DIR)
+                print(f"[LlamaIndex] ✅ Connected to Qdrant local storage", file=sys.stderr)
+        
+        print(f"[LlamaIndex] ✅ Indexing resources initialized and ready!", file=sys.stderr)
+        sys.stderr.flush()
+        
+    except Exception as e:
+        print(f"[LlamaIndex] ⚠️  Warning: Failed to initialize resources at startup: {e}", file=sys.stderr)
+        print(f"[LlamaIndex] Resources will be initialized on first use instead", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        # Don't exit - allow lazy initialization on first use
+
+
+# Initialize resources immediately when the script is imported/executed
+# This ensures the model and Qdrant connection are ready before processing any indexing requests
+initialize_indexing_resources()
+
+
 if __name__ == "__main__":
     # Command-line interface
     if len(sys.argv) < 6:

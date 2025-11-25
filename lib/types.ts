@@ -26,9 +26,7 @@ export interface User {
   nuid?: string // Student ID number (STRICT PII)
   degree?: string // Degree program
   major?: string // Major field of study
-  ssn?: string // Social Security Number (if present - PII)
-  dob?: string | Date // Date of Birth (if present - PII)
-  age?: number | string // Age (if present - PII)
+  taMode?: 'lenient' | 'normal' | 'strict' // TA mode preference (faculty only)
   createdAt: Date
 }
 

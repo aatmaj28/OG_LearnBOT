@@ -162,7 +162,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
       
       if (indexRes.ok) {
         const data = await indexRes.json()
-        toast.success(`Indexed ${data.chunks || 0} chunks successfully!`)
+        toast.success("PDF indexed successfully")
         // Update stats immediately from response
         if (data.pdfCount !== undefined) {
           setIndexedPdfCount(data.pdfCount)

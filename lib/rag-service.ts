@@ -10,6 +10,7 @@ import {
   updateRAGConversation,
   addRAGMessage,
   getClassById,
+  getUserById,
   getRAGConversationsByUser,
   getClassesByFaculty,
   getClassesByStudent
@@ -118,8 +119,13 @@ function maskPIIInHistory(messages: Array<{ role: 'user' | 'assistant'; content:
 // This dramatically reduces token usage by only including relevant instructions
 // =============================================================================
 
+import { getPromptsByMode, type TAMode } from './prompts'
+
 // Compressed Universal Instructions - ALWAYS included in every response
-const getUniversalInstructions = (classId?: string): string => {
+// Now uses mode-specific prompts
+const getUniversalInstructions = (classId?: string, taMode: TAMode = 'normal'): string => {
+  const prompts = getPromptsByMode(taMode)
+  return prompts.getUniversalInstructions(classId)
   const courseContext = classId === 'entire-corpus' 
     ? `UNIVERSAL TA across ALL DMSB courses. Identify which course/subject relates to the question and use course-specific materials.`
     : `Teaching FINA 2201 at Northeastern. Course materials ALWAYS override general knowledge. Use course-specific definitions (e.g., OCF = NI + Depreciation + Interest Expense).`
@@ -146,25 +152,21 @@ CORE RULES:
 - Use natural, encouraging language: acknowledge effort, celebrate progress, guide gently
 - For new problems, reset checkpoints and start fresh
 
-CRITICAL: TEXT ENCODING & CHARACTER RULES:
-- ALWAYS output text in clean, standard UTF-8 encoding
-- NEVER use emojis, emoticons, or any non-ASCII decorative characters
-- Use ONLY plain ASCII text (letters, numbers, punctuation) plus standard mathematical symbols
-- Your response must be readable as plain text without any encoding errors
-- If you want to express emphasis, use words like "important", "note", "key point" instead of symbols
-
-FORMATTING & STYLE:
-- Use plain text formatting only: bold (**text**), italics (*text*), lists, code blocks
-- NEVER use emojis, special Unicode characters, or decorative symbols
-- Keep formatting clean and professional - use words to convey tone, not symbols
-- Express enthusiasm or emphasis through language, not visual symbols
+RESPONSE FORMATTING RULES:
+- DO NOT use markdown formatting (no asterisks ** for bold, no markdown syntax)
+- Write in clean, plain text like Claude or ChatGPT - natural and conversational
+- Use simple line breaks for paragraphs, no special formatting symbols
+- Add emojis sparingly (1-2 per response) at the end of sentences to make it engaging, not overwhelming
+- Keep formatting clean and professional - students are familiar with modern chat interfaces
 
 Tone: Professional, empathetic, Socratic. Act like a real TA - conversational but focused on learning.
 `
 }
 
-// Checkpoint 1: Problem Classification (100% Strict)
-const getCheckpoint1Instructions = (): string => {
+// Checkpoint 1: Problem Classification (mode-specific)
+const getCheckpoint1Instructions = (taMode: TAMode = 'normal'): string => {
+  const prompts = getPromptsByMode(taMode)
+  return prompts.getCheckpoint1Instructions()
   return `
 CHECKPOINT 1: Problem Classification (100% STRICT)
 Student MUST explicitly identify ALL 4 elements:
@@ -191,8 +193,10 @@ Otherwise: CHECKPOINT_UPDATE: 1=false, 2=false, 3=false
 `
 }
 
-// Checkpoint 2: Conceptual Understanding (100% Strict)
-const getCheckpoint2Instructions = (): string => {
+// Checkpoint 2: Conceptual Understanding (mode-specific)
+const getCheckpoint2Instructions = (taMode: TAMode = 'normal'): string => {
+  const prompts = getPromptsByMode(taMode)
+  return prompts.getCheckpoint2Instructions()
   return `
 CHECKPOINT 2: Conceptual Understanding (100% STRICT)
 ✅ CP1 complete. Student MUST demonstrate deep understanding by explaining:
@@ -219,8 +223,10 @@ Otherwise: CHECKPOINT_UPDATE: 1=true, 2=false, 3=false
 `
 }
 
-// Checkpoint 3: Formula Application & Setup (100% Strict)
-const getCheckpoint3Instructions = (): string => {
+// Checkpoint 3: Formula Application & Setup (mode-specific)
+const getCheckpoint3Instructions = (taMode: TAMode = 'normal'): string => {
+  const prompts = getPromptsByMode(taMode)
+  return prompts.getCheckpoint3Instructions()
   return `
 CHECKPOINT 3: Formula Application & Setup (100% STRICT)
 ✅ CP1 & CP2 complete. Student has already demonstrated conceptual understanding in Checkpoint 2.
@@ -249,8 +255,10 @@ Otherwise: CHECKPOINT_UPDATE: 1=true, 2=true, 3=false
 `
 }
 
-// Post-Checkpoint: Guided Calculation Support & Readiness Assessment
-const getPostCheckpointInstructions = (): string => {
+// Post-Checkpoint: Guided Calculation Support & Readiness Assessment (mode-specific)
+const getPostCheckpointInstructions = (taMode: TAMode = 'normal'): string => {
+  const prompts = getPromptsByMode(taMode)
+  return prompts.getPostCheckpointInstructions()
   return `
 ALL CHECKPOINTS COMPLETE - THERE ARE ONLY 3 CHECKPOINTS (CP1, CP2, CP3)
 ✅ CP1, CP2, CP3 passed. DO NOT create additional checkpoints (CP4, CP5, etc.). There are only 3 checkpoints in this system.
@@ -281,27 +289,27 @@ IMPORTANT: DO NOT output CHECKPOINT_UPDATE after all 3 checkpoints are complete.
 `
 }
 
-// Main function to build complete prompt based on checkpoint state
-const getSystemPrompt = (classId?: string, checkpointState?: any): string => {
+// Main function to build complete prompt based on checkpoint state and TA mode
+const getSystemPrompt = (classId?: string, checkpointState?: any, taMode: TAMode = 'normal'): string => {
   // Always include universal instructions
-  let systemPrompt = getUniversalInstructions(classId)
+  let systemPrompt = getUniversalInstructions(classId, taMode)
   
   // Add ONLY the active checkpoint instructions
   if (!checkpointState) {
     // Default: Start at Checkpoint 1
-    systemPrompt += '\n\n' + getCheckpoint1Instructions()
+    systemPrompt += '\n\n' + getCheckpoint1Instructions(taMode)
   } else if (!checkpointState.checkpoint_1_passed) {
     // Working on Checkpoint 1
-    systemPrompt += '\n\n' + getCheckpoint1Instructions()
+    systemPrompt += '\n\n' + getCheckpoint1Instructions(taMode)
   } else if (!checkpointState.checkpoint_2_passed) {
     // Working on Checkpoint 2
-    systemPrompt += '\n\n' + getCheckpoint2Instructions()
+    systemPrompt += '\n\n' + getCheckpoint2Instructions(taMode)
   } else if (!checkpointState.checkpoint_3_passed) {
     // Working on Checkpoint 3
-    systemPrompt += '\n\n' + getCheckpoint3Instructions()
+    systemPrompt += '\n\n' + getCheckpoint3Instructions(taMode)
   } else {
     // All checkpoints complete - calculation support
-    systemPrompt += '\n\n' + getPostCheckpointInstructions()
+    systemPrompt += '\n\n' + getPostCheckpointInstructions(taMode)
   }
   
   return systemPrompt
@@ -534,18 +542,12 @@ Guidelines:
 - State information definitively when it appears in the context
 - Keep responses focused but complete
 
-CRITICAL: TEXT ENCODING & CHARACTER RULES:
-- ALWAYS output text in clean, standard UTF-8 encoding
-- NEVER use emojis, emoticons, or any non-ASCII decorative characters
-- Use ONLY plain ASCII text (letters, numbers, punctuation) plus standard mathematical symbols
-- Your response must be readable as plain text without any encoding errors
-- If you want to express emphasis, use words like "important", "note", "key point" instead of symbols
-
-FORMATTING & STYLE:
-- Use plain text formatting only: bold (**text**), italics (*text*), lists, code blocks
-- NEVER use emojis, special Unicode characters, or decorative symbols
-- Keep formatting clean and professional - use words to convey tone, not symbols
-- Express emphasis through language, not visual symbols
+RESPONSE FORMATTING RULES:
+- DO NOT use markdown formatting (no asterisks ** for bold, no markdown syntax)
+- Write in clean, plain text like Claude or ChatGPT - natural and conversational
+- Use simple line breaks for paragraphs, no special formatting symbols
+- Add emojis sparingly (1-2 per response) at the end of sentences to make it engaging, not overwhelming
+- Keep formatting clean and professional - students are familiar with modern chat interfaces
 
 Respond to the student's question using ALL relevant information from the provided syllabus context. State information confidently and directly when it appears in the sources.`
 }
@@ -1106,8 +1108,24 @@ export class RAGService extends EventEmitter {
             awaiting_student_response: false
           }
         : conversation.checkpoint_state
+
+      // Get faculty's TA mode from class
+      let taMode: TAMode = 'normal'
+      if (classId && classId !== 'entire-corpus') {
+        try {
+          const classData = await getClassById(classId)
+          if (classData?.facultyId) {
+            const faculty = await getUserById(classData.facultyId)
+            if (faculty?.taMode) {
+              taMode = faculty.taMode
+            }
+          }
+        } catch (error) {
+          console.error('[RAG Streaming] Failed to get TA mode, using default:', error)
+        }
+      }
       
-      const systemPrompt = isSyllabus ? getSyllabusSystemPrompt() : getSystemPrompt(classId, checkpointState)
+      const systemPrompt = isSyllabus ? getSyllabusSystemPrompt() : getSystemPrompt(classId, checkpointState, taMode)
       let fullResponse = ''
       let modelUsed: ModelBackend | undefined
       const requestId = `req_${this.requestCounter++}_${Date.now()}`
@@ -2372,12 +2390,11 @@ def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
             # Syllabus queries need more context - but optimized for speed
             top_k_initial = 20  # Retrieve 20 candidates (vs 10 for class materials)
             top_k_final = 8    # Keep 8 chunks (vs 5 for class materials) - reduced from 10 for speed
-            chunk_truncate = 2500  # Allow 2500 chars per chunk (vs 1500 for class materials) - reduced from 3000 for speed
         else:
             # Standard settings for class material queries
             top_k_initial = TOP_K_INITIAL
             top_k_final = TOP_K_FINAL
-            chunk_truncate = 1500
+        # No truncation - preserve full chunk content to avoid information loss
         
         load_start = time.time()
         store = load_vector_store(vector_store_path)
@@ -2634,9 +2651,9 @@ Rules:
             model_used = "none"
             time_taken = 0
         else:
-            # Use syllabus-optimized chunk truncation (3000 chars for syllabus, 1500 for class materials)
+            # No truncation - preserve full chunk content to avoid information loss
             context_text = "\\n\\n".join([
-                f"[Source {i+1} - {result['metadata'].get('section_title', 'Unknown')}]\\n{result['metadata']['chunk_text'][:chunk_truncate]}"
+                f"[Source {i+1} - {result['metadata'].get('section_title', 'Unknown')}]\\n{result['metadata']['chunk_text']}"
                 for i, result in enumerate(final_results)
             ])
             
@@ -3407,9 +3424,26 @@ if __name__ == "__main__":
         
         // Use simplified prompt and force Blackwell for syllabus queries
         const isSyllabus = chatType === 'syllabus'
+        
+        // Get faculty's TA mode from class
+        let taMode: TAMode = 'normal'
+        if (classId && classId !== 'entire-corpus') {
+          try {
+            const classData = await getClassById(classId)
+            if (classData?.facultyId) {
+              const faculty = await getUserById(classData.facultyId)
+              if (faculty?.taMode) {
+                taMode = faculty.taMode
+              }
+            }
+          } catch (error) {
+            console.error('[RAG] Failed to get TA mode, using default:', error)
+          }
+        }
+        
         const systemPromptContent = isSyllabus 
           ? getSyllabusSystemPrompt()
-          : getSystemPrompt(classId, conversation?.checkpointState)
+          : getSystemPrompt(classId, conversation?.checkpointState, taMode)
         
         const messageHistory = conversation?.messageHistory || []
         
@@ -3556,12 +3590,28 @@ if __name__ == "__main__":
         conversationContext = `STUDENT PROGRESS: ${knowledgeState.progressSummary}\n\n` + conversationContext
       }
 
+      // Get faculty's TA mode from class
+      let taMode: TAMode = 'normal'
+      if (classId && classId !== 'entire-corpus') {
+        try {
+          const classData = await getClassById(classId)
+          if (classData?.facultyId) {
+            const faculty = await getUserById(classData.facultyId)
+            if (faculty?.taMode) {
+              taMode = faculty.taMode
+            }
+          }
+        } catch (error) {
+          console.error('[RAG Fallback] Failed to get TA mode, using default:', error)
+        }
+      }
+
       const systemPrompt = isSyllabus
         ? getSyllabusSystemPrompt() + `
 
 NOTE: You are running in FALLBACK MODE without access to syllabus documents.
 Provide general guidance but encourage students to check their syllabus.`
-        : getSystemPrompt(classId, checkpointState) + `
+        : getSystemPrompt(classId, checkpointState, taMode) + `
 
 NOTE: You are currently running in FALLBACK MODE without access to course textbook materials.
 Provide general guidance based on standard principles, but encourage students to consult their textbook.`

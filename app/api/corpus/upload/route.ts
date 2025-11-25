@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import fs from "fs"
-import { getClassById, updateClassVectorStoreFolder, updateClassSyllabusVectorStoreFolder, generateVectorStoreFolderName } from "@/lib/db-service"
+import { getClassById, updateClassVectorStoreFolder, updateClassSyllabusVectorStoreFolder, generateVectorStoreFolderName, createCorpusFile } from "@/lib/db-service"
 import { VectorStoreManager } from "@/lib/vector-store-manager"
 
 export async function POST(request: NextRequest) {
@@ -59,6 +59,16 @@ export async function POST(request: NextRequest) {
       const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "_")
       const dest = path.join(pdfDir, safeName)
       fs.writeFileSync(dest, buffer)
+      
+      // Store metadata in database
+      await createCorpusFile(
+        classId,
+        safeName,
+        materialType as 'class_material' | 'syllabus',
+        file.size,
+        cls?.facultyId // Pass faculty ID for uploaded_by
+      )
+      console.log(`[Corpus Upload] Stored metadata for ${safeName} in database`)
     }
 
     return NextResponse.json({ success: true })

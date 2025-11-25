@@ -1,42 +1,6 @@
 import pool from './db'
-import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource, UserRole } from './types'
-export type { User } from './types'
-import { maskUserData, type MaskingContext } from './pii-masking'
-import { getMaskedId } from './masked-id-utils'
-
-/**
- * Internal helper to map database row to User object
- * Handles optional PII fields (SSN, DOB, age) if they exist in DB
- * Note: masked_id is stored in DB but not included in User type (internal use)
- */
-const mapRowToUser = (row: any): User => ({
-  id: row.id.toString(),
-  email: row.email,
-  password: row.password,
-  name: row.name,
-  role: row.role as 'student' | 'faculty',
-  nuid: row.nuid,
-  degree: row.degree,
-  major: row.major,
-  ssn: row.ssn || undefined, // Optional PII field
-  dob: row.dob || row.date_of_birth || undefined, // Optional PII field
-  age: row.age || undefined, // Optional PII field
-  createdAt: new Date(row.created_at)
-})
-
-// Helper function to set session variable for RLS (faculty access)
-// This allows faculty to bypass RLS restrictions on users table
-const setFacultySessionVariable = async (client: any, facultyUserId?: string): Promise<void> => {
-  if (facultyUserId) {
-    try {
-      // Set session variable to allow RLS policy to check if user is faculty
-      await client.query(`SET LOCAL app.current_user_id = $1`, [facultyUserId])
-    } catch (error) {
-      // If session variable setting fails, continue (might be using service role)
-      console.warn('Could not set session variable for RLS (may be using service role):', error)
-    }
-  }
-}
+import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource } from './types'
+import crypto from 'crypto'
 
 // User operations
 // Internal functions (bypass masking for internal use like authentication)
@@ -59,7 +23,20 @@ const getUserByIdInternal = async (id: string, facultyUserId?: string): Promise<
     await setFacultySessionVariable(client, facultyUserId)
     const result = await client.query('SELECT * FROM users WHERE id = $1', [id])
     if (result.rows.length === 0) return null
-    return mapRowToUser(result.rows[0])
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      email: row.email,
+      password: row.password,
+      name: row.name,
+      role: row.role as 'student' | 'faculty',
+      nuid: row.nuid,
+      degree: row.degree,
+      major: row.major,
+      taMode: (row.ta_mode || 'normal') as 'lenient' | 'normal' | 'strict',
+      createdAt: new Date(row.created_at)
+    }
   } finally {
     client.release()
   }
@@ -73,7 +50,20 @@ export const getUserByEmailInternal = async (email: string, facultyUserId?: stri
     await setFacultySessionVariable(client, facultyUserId)
     const result = await client.query('SELECT * FROM users WHERE email = $1', [email])
     if (result.rows.length === 0) return null
-    return mapRowToUser(result.rows[0])
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      email: row.email,
+      password: row.password,
+      name: row.name,
+      role: row.role as 'student' | 'faculty',
+      nuid: row.nuid,
+      degree: row.degree,
+      major: row.major,
+      taMode: (row.ta_mode || 'normal') as 'lenient' | 'normal' | 'strict',
+      createdAt: new Date(row.created_at)
+    }
   } finally {
     client.release()
   }
@@ -175,7 +165,20 @@ export const getUserByNuidInternal = async (nuid: string, facultyUserId?: string
     await setFacultySessionVariable(client, facultyUserId)
     const result = await client.query('SELECT * FROM users WHERE nuid = $1', [nuid])
     if (result.rows.length === 0) return null
-    return mapRowToUser(result.rows[0])
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      email: row.email,
+      password: row.password,
+      name: row.name,
+      role: row.role as 'student' | 'faculty',
+      nuid: row.nuid,
+      degree: row.degree,
+      major: row.major,
+      taMode: (row.ta_mode || 'normal') as 'lenient' | 'normal' | 'strict',
+      createdAt: new Date(row.created_at)
+    }
   } finally {
     client.release()
   }
@@ -1812,7 +1815,9 @@ export const createRAGConversation = async (userId: string, title?: string, clas
   const client = await pool.connect()
   try {
     const conversationTitle = title || `Chat ${new Date().toLocaleDateString()}`
-    const userMaskedId = getMaskedId(userId)
+    // Generate masked user ID (simple hash for privacy)
+    const userMaskedId = crypto.createHash('sha256').update(userId.toString()).digest('hex').substring(0, 16)
+    
     const result = await client.query(
       `INSERT INTO rag_conversations (user_id, user_masked_id, class_id, title, chat_type, checkpoint_state, message_history, student_problem_data) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
@@ -1820,7 +1825,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
       [
         userId,
         userMaskedId,
-        classId && classId !== 'entire-corpus' ? classId : null,
+        classId || null,
         conversationTitle,
         chatType,
         JSON.stringify({
@@ -1871,6 +1876,9 @@ export const createRAGConversation = async (userId: string, title?: string, clas
     // Copy to history table when created (non-blocking)
     // History table always has a copy - we'll update its status to 'archived' when deleted
     try {
+      // Generate masked user ID (simple hash for privacy)
+      const userMaskedId = crypto.createHash('sha256').update(conversation.userId.toString()).digest('hex').substring(0, 16)
+      
       await client.query(
         `INSERT INTO rag_conversations_history (
           original_id, user_id, user_masked_id, class_id, title, status, current_topic,
@@ -1881,7 +1889,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
         [
           parseInt(conversation.id),
           parseInt(conversation.userId),
-          conversation.userMaskedId,
+          userMaskedId,
           conversation.classId ? parseInt(conversation.classId) : null,
           conversation.title,
           conversation.status || 'active',
@@ -2046,7 +2054,7 @@ export const getResourcesByClass = async (classId: string): Promise<Resource[]> 
       id: row.id.toString(),
       classId: row.class_id.toString(),
       facultyId: row.faculty_id.toString(),
-      fileName: row.file_name,
+      fileName: row.filename || row.file_name, // Support both column names
       fileSize: parseInt(row.file_size),
       uploadedAt: new Date(row.uploaded_at)
     }))
@@ -2066,7 +2074,7 @@ export const getResourceById = async (id: string): Promise<Resource | null> => {
       id: row.id.toString(),
       classId: row.class_id.toString(),
       facultyId: row.faculty_id.toString(),
-      fileName: row.file_name,
+      fileName: row.filename || row.file_name, // Support both column names
       fileSize: parseInt(row.file_size),
       uploadedAt: new Date(row.uploaded_at)
     }
@@ -2125,7 +2133,7 @@ export const getResourceByFileName = async (classId: string, fileName: string): 
       id: row.id.toString(),
       classId: row.class_id.toString(),
       facultyId: row.faculty_id.toString(),
-      fileName: row.file_name,
+      fileName: row.filename || row.file_name, // Support both column names
       fileSize: parseInt(row.file_size),
       uploadedAt: new Date(row.uploaded_at)
     }
@@ -2335,6 +2343,9 @@ const syncConversationToHistory = async (conversationId: string, client: any): P
       )
     } else {
       // Insert new history entry (shouldn't happen if created properly, but handle it)
+      // Generate masked user ID (simple hash for privacy)
+      const userMaskedId = crypto.createHash('sha256').update(row.user_id.toString()).digest('hex').substring(0, 16)
+      
       await client.query(
         `INSERT INTO rag_conversations_history (
           original_id, user_id, user_masked_id, class_id, title, status, current_topic,
@@ -2345,7 +2356,7 @@ const syncConversationToHistory = async (conversationId: string, client: any): P
         [
           parseInt(conversationId),
           row.user_id,
-          row.user_masked_id,
+          userMaskedId,
           row.class_id,
           row.title,
           row.status || 'active',
@@ -2483,6 +2494,215 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
         }
       })
     }
+  } finally {
+    client.release()
+  }
+}
+
+// Corpus Files operations - track indexed PDFs for each class
+export interface CorpusFile {
+  id: string
+  classId: string
+  fileName: string
+  materialType: 'class_material' | 'syllabus'
+  fileSize?: number
+  chunkCount: number
+  isIndexed: boolean
+  indexedAt?: Date
+  uploadedAt: Date
+}
+
+export const getCorpusFilesByClass = async (classId: string, materialType?: 'class_material' | 'syllabus'): Promise<CorpusFile[]> => {
+  const client = await pool.connect()
+  try {
+    let query = 'SELECT * FROM corpus_files WHERE class_id = $1'
+    const params: any[] = [classId]
+    
+    if (materialType) {
+      query += ' AND material_type = $2'
+      params.push(materialType)
+    }
+    
+    query += ' ORDER BY id ASC' // Order by id ASC to preserve upload order (oldest first)
+    
+    const result = await client.query(query, params)
+    return result.rows.map(row => ({
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      fileName: row.filename || row.file_name, // Support both column names
+      materialType: row.material_type,
+      fileSize: row.file_size,
+      chunkCount: row.chunk_count || 0, // May not exist in table
+      isIndexed: (row.status === 'indexed') || (row.is_indexed === true), // Support both status and is_indexed
+      indexedAt: row.indexed_at ? new Date(row.indexed_at) : undefined, // May not exist in table
+      uploadedAt: row.uploaded_at ? new Date(row.uploaded_at) : (row.created_at ? new Date(row.created_at) : new Date()) // Fallback - neither may exist
+    }))
+  } finally {
+    client.release()
+  }
+}
+
+export const getCorpusFile = async (classId: string, fileName: string, materialType: 'class_material' | 'syllabus'): Promise<CorpusFile | null> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      'SELECT * FROM corpus_files WHERE class_id = $1 AND filename = $2 AND material_type = $3',
+      [classId, fileName, materialType]
+    )
+    if (result.rows.length === 0) return null
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      fileName: row.filename || row.file_name, // Support both column names
+      materialType: row.material_type,
+      fileSize: row.file_size,
+      chunkCount: row.chunk_count || 0, // May not exist in table
+      isIndexed: (row.status === 'indexed') || (row.is_indexed === true), // Support both status and is_indexed
+      indexedAt: row.indexed_at ? new Date(row.indexed_at) : undefined, // May not exist in table
+      uploadedAt: row.uploaded_at ? new Date(row.uploaded_at) : (row.created_at ? new Date(row.created_at) : new Date()) // Fallback - neither may exist
+    }
+  } finally {
+    client.release()
+  }
+}
+
+export const createCorpusFile = async (
+  classId: string,
+  fileName: string,
+  materialType: 'class_material' | 'syllabus',
+  fileSize?: number,
+  uploadedBy?: string
+): Promise<CorpusFile> => {
+  const client = await pool.connect()
+  try {
+    // If uploadedBy not provided, get faculty_id from class
+    let facultyId = uploadedBy
+    if (!facultyId) {
+      const classResult = await client.query('SELECT faculty_id FROM classes WHERE id = $1', [classId])
+      if (classResult.rows.length > 0) {
+        facultyId = classResult.rows[0].faculty_id.toString()
+      }
+    }
+    
+    // Try to insert with status, but handle if status constraint doesn't allow 'uploaded'
+    // Common valid statuses might be: 'pending', 'indexed', 'processing', etc.
+    let result
+    try {
+      result = await client.query(
+        `INSERT INTO corpus_files (class_id, filename, material_type, file_size, status, uploaded_by)
+         VALUES ($1, $2, $3, $4, 'pending', $5)
+         ON CONFLICT (class_id, filename, material_type) 
+         DO UPDATE SET file_size = EXCLUDED.file_size
+         RETURNING *`,
+        [classId, fileName, materialType, fileSize || null, facultyId || null]
+      )
+    } catch (error: any) {
+      // If 'pending' doesn't work, try without status (use default) or try 'indexed'
+      if (error.code === '23514' && error.constraint === 'corpus_files_status_check') {
+        // Try without status column (let it use default)
+        result = await client.query(
+          `INSERT INTO corpus_files (class_id, filename, material_type, file_size, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (class_id, filename, material_type) 
+           DO UPDATE SET file_size = EXCLUDED.file_size
+           RETURNING *`,
+          [classId, fileName, materialType, fileSize || null, facultyId || null]
+        )
+      } else {
+        throw error
+      }
+    }
+    
+    const row = result.rows[0]
+    return {
+      id: row.id.toString(),
+      classId: row.class_id.toString(),
+      fileName: row.filename || row.file_name, // Support both column names
+      materialType: row.material_type,
+      fileSize: row.file_size,
+      chunkCount: row.chunk_count || 0, // May not exist in table
+      isIndexed: (row.status === 'indexed') || (row.is_indexed === true), // Support both status and is_indexed
+      indexedAt: row.indexed_at ? new Date(row.indexed_at) : undefined, // May not exist in table
+      uploadedAt: row.uploaded_at ? new Date(row.uploaded_at) : (row.created_at ? new Date(row.created_at) : new Date()) // Fallback - neither may exist
+    }
+  } finally {
+    client.release()
+  }
+}
+
+export const markCorpusFileAsIndexed = async (
+  classId: string,
+  fileName: string,
+  materialType: 'class_material' | 'syllabus',
+  chunkCount: number
+): Promise<void> => {
+  const client = await pool.connect()
+  try {
+    console.log(`[DB] Marking ${fileName} as indexed with ${chunkCount} chunks`)
+    
+    // Update status to 'indexed' and chunk_count
+    // chunk_count and indexed_at columns exist in the database
+    const result = await client.query(
+      `UPDATE corpus_files 
+       SET status = 'indexed', chunk_count = $4, indexed_at = CURRENT_TIMESTAMP
+       WHERE class_id = $1 AND filename = $2 AND material_type = $3`,
+      [classId, fileName, materialType, chunkCount]
+    )
+    
+    if (result.rowCount === 0) {
+      console.warn(`[DB] No rows updated for ${fileName} - file may not exist in database`)
+    } else {
+      console.log(`[DB] ✅ Successfully updated ${fileName} with ${chunkCount} chunks`)
+    }
+  } catch (error: any) {
+    console.error(`[DB] ❌ Error updating ${fileName}:`, error.message)
+    // If chunk_count or indexed_at don't exist, try just updating status
+    if (error.code === '42703') { // Column does not exist
+      console.log(`[DB] Retrying without chunk_count/indexed_at for ${fileName}`)
+      await client.query(
+        `UPDATE corpus_files 
+         SET status = 'indexed'
+         WHERE class_id = $1 AND filename = $2 AND material_type = $3`,
+        [classId, fileName, materialType]
+      )
+    } else {
+      throw error
+    }
+  } finally {
+    client.release()
+  }
+}
+
+export const deleteCorpusFile = async (
+  classId: string,
+  fileName: string,
+  materialType: 'class_material' | 'syllabus'
+): Promise<boolean> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      'DELETE FROM corpus_files WHERE class_id = $1 AND filename = $2 AND material_type = $3',
+      [classId, fileName, materialType]
+    )
+    return result.rowCount > 0
+  } finally {
+    client.release()
+  }
+}
+
+export const deleteAllCorpusFiles = async (
+  classId: string,
+  materialType: 'class_material' | 'syllabus'
+): Promise<number> => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query(
+      'DELETE FROM corpus_files WHERE class_id = $1 AND material_type = $2',
+      [classId, materialType]
+    )
+    return result.rowCount || 0
   } finally {
     client.release()
   }

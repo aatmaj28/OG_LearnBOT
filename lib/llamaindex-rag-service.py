@@ -28,11 +28,11 @@ os.environ['MKL_NUM_THREADS'] = '4'
 from llama_index.core import VectorStoreIndex, StorageContext, Settings, Document
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.retrievers import VectorIndexRetriever
-from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core.embeddings import BaseEmbedding
 from pydantic import PrivateAttr
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 import requests
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -47,7 +47,8 @@ GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 CLAUDE_MODEL_ID = os.getenv('CLAUDE_MODEL_ID', 'claude-haiku-4-5-20251001')
-EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
+# Using nomic-embed-text-v1.5 for better academic PDF handling (longer context, better formula handling)
+EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 ENABLE_RERANKING = os.getenv('ENABLE_RERANKING', 'false').lower() == 'true'
 TOP_K_INITIAL = 10
@@ -57,16 +58,17 @@ STREAM_CHUNK_DELAY = float(os.getenv('STREAM_CHUNK_DELAY', '0.05'))
 # Global models - loaded ONCE at startup
 embedder = None
 reranker = None
-vector_stores = {}  # Cache: {normalized_path: {"index": VectorStoreIndex, "metadata": list, "collection": chromadb.Collection}}
+vector_stores = {}  # Cache: {normalized_path: {"index": VectorStoreIndex, "metadata": list, "collection_name": str}}
 
-# ChromaDB configuration
-CHROMA_PERSIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector-stores", "chroma")
+# Qdrant configuration
+QDRANT_PERSIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector-stores", "qdrant")
 
-# ChromaDB Server Mode Configuration
-# Set CHROMA_SERVER_URL environment variable to use server mode (e.g., "http://localhost:8000")
-# If not set, falls back to embedded mode
-CHROMA_SERVER_URL = os.getenv("CHROMA_SERVER_URL", None)
-CHROMA_SERVER_AUTH_TOKEN = os.getenv("CHROMA_SERVER_AUTH_TOKEN", "test-token")  # Default token for local dev
+# Qdrant Server Configuration
+# Defaults to server mode (http://localhost:6333) for production
+# Set QDRANT_URL environment variable to override (e.g., "http://localhost:6333" or cloud URL)
+# Set QDRANT_URL="" to use local mode instead
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)  # Optional API key for cloud Qdrant
 
 # Connection sessions for remote LLMs (reuse connections for speed)
 a6000_session = requests.Session()
@@ -88,7 +90,8 @@ class SentenceTransformerEmbedding(BaseEmbedding):
     
     def __init__(self, model_name: str = EMBEDDING_MODEL, **kwargs):
         super().__init__(**kwargs)
-        object.__setattr__(self, '_model', SentenceTransformer(model_name))
+        # nomic models require trust_remote_code=True
+        object.__setattr__(self, '_model', SentenceTransformer(model_name, trust_remote_code=True))
     
     def _get_query_embedding(self, query: str):
         return self._model.encode(query, convert_to_numpy=True).tolist()
@@ -292,8 +295,9 @@ def get_collection_name(vector_store_path: str) -> str:
     """
     # Get the folder name from the path
     folder_name = os.path.basename(os.path.normpath(vector_store_path))
-    # Sanitize for ChromaDB (replace invalid chars)
+    # Sanitize for Qdrant (replace invalid chars, keep alphanumeric and underscore)
     collection_name = folder_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
+    collection_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in collection_name)
     return collection_name
 
 
@@ -377,21 +381,24 @@ def summarize_older_messages(messages, is_syllabus=False):
 
 
 def discover_vector_stores(base_path: str) -> List[str]:
-    """Discover all available vector stores by checking ChromaDB collections"""
+    """Discover all available vector stores by checking Qdrant collections"""
     vector_store_paths = []
     
     try:
-        # Initialize ChromaDB client to check collections
-        if not os.path.exists(CHROMA_PERSIST_DIR):
-            return vector_store_paths
-        
-        chroma_client = chromadb.PersistentClient(
-            path=CHROMA_PERSIST_DIR,
-            settings=ChromaSettings(anonymized_telemetry=False)
-        )
+        # Initialize Qdrant client to check collections (server mode by default)
+        if QDRANT_URL and QDRANT_URL.strip():
+            qdrant_client = QdrantClient(
+                url=QDRANT_URL,
+                api_key=QDRANT_API_KEY,
+                timeout=60
+            )
+        else:
+            if not os.path.exists(QDRANT_PERSIST_DIR):
+                return vector_store_paths
+            qdrant_client = QdrantClient(path=QDRANT_PERSIST_DIR)
         
         # Get all collections
-        collections = chroma_client.list_collections()
+        collections = qdrant_client.get_collections().collections
         
         # For each collection, find the corresponding folder in base_path
         for collection in collections:
@@ -408,11 +415,11 @@ def discover_vector_stores(base_path: str) -> List[str]:
             # If folder exists, add it; otherwise use collection name as path identifier
             if os.path.exists(folder_path):
                 vector_store_paths.append(folder_path)
-                print(f"📦 Discovered vector store: {folder_name} (ChromaDB collection: {collection_name})", file=sys.stderr)
+                print(f"📦 Discovered vector store: {folder_name} (Qdrant collection: {collection_name})", file=sys.stderr)
             else:
                 # Still add it - we'll use the collection name directly
                 vector_store_paths.append(os.path.join(base_path, collection_name))
-                print(f"📦 Discovered ChromaDB collection: {collection_name}", file=sys.stderr)
+                print(f"📦 Discovered Qdrant collection: {collection_name}", file=sys.stderr)
         
     except Exception as e:
         print(f"⚠️ Error discovering vector stores: {e}", file=sys.stderr)
@@ -424,106 +431,44 @@ def load_store_safe(store_path: str, announce: bool = True, run_warmup: bool = F
     """Safely load a single vector store with error handling"""
     start_time = time.time()
     try:
-        # Check if ChromaDB collection exists
+        # Check if Qdrant collection exists
         collection_name = get_collection_name(store_path)
         
-        # Initialize ChromaDB client (server mode or embedded mode)
-        if CHROMA_SERVER_URL:
+        # Initialize Qdrant client (server mode by default, local mode if QDRANT_URL is empty)
+        if QDRANT_URL and QDRANT_URL.strip():
             # Server mode: Connect via HTTP
             try:
-                # Parse URL to extract host and port
-                url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
-                if ":" in url_clean:
-                    host, port_str = url_clean.split(":", 1)
-                    port = int(port_str.split("/")[0])  # Handle trailing slashes
-                else:
-                    host = url_clean.split("/")[0]
-                    port = 8000
-                
-                # Create settings with token authentication
-                if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
-                    auth_token = CHROMA_SERVER_AUTH_TOKEN
-                else:
-                    auth_token = "test-token"
-                
+                qdrant_client = QdrantClient(
+                    url=QDRANT_URL,
+                    api_key=QDRANT_API_KEY,
+                    timeout=60
+                )
                 if announce:
-                    print(f"[RAG] 🔐 Attempting token authentication with token: {'***' + auth_token[-4:] if len(auth_token) > 4 else '***'}", file=sys.stderr)
-                
-                # Try multiple authentication methods
-                chroma_client = None
-                auth_method_used = None
-                
-                # Method 1: Try using Settings with token auth provider
-                try:
-                    settings = ChromaSettings(
-                        anonymized_telemetry=False,
-                        chroma_client_auth_provider="chromadb.auth.token_authn.TokenAuthClientProvider",
-                        chroma_client_auth_credentials=auth_token
-                    )
-                    chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-                    auth_method_used = "TokenAuthClientProvider (Settings)"
-                    if announce:
-                        print(f"[RAG] ✅ Connected using {auth_method_used}", file=sys.stderr)
-                except Exception as e1:
-                    if announce:
-                        print(f"[RAG] ⚠️  Method 1 failed: {str(e1)[:100]}", file=sys.stderr)
-                    
-                    # Method 2: Try with headers parameter (if supported)
-                    try:
-                        settings = ChromaSettings(anonymized_telemetry=False)
-                        chroma_client = chromadb.HttpClient(
-                            host=host,
-                            port=port,
-                            settings=settings,
-                            headers={"Authorization": f"Bearer {auth_token}"}
-                        )
-                        auth_method_used = "Bearer token (headers)"
-                        if announce:
-                            print(f"[RAG] ✅ Connected using {auth_method_used}", file=sys.stderr)
-                    except (TypeError, Exception) as e2:
-                        if announce:
-                            print(f"[RAG] ⚠️  Method 2 failed: {str(e2)[:100]}", file=sys.stderr)
-                        
-                        # Method 3: Try without auth (fallback)
-                        try:
-                            settings = ChromaSettings(anonymized_telemetry=False)
-                            chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-                            auth_method_used = "No authentication (fallback)"
-                            if announce:
-                                print(f"[RAG] ⚠️  Connected without authentication (server may reject requests)", file=sys.stderr)
-                        except Exception as e3:
-                            raise Exception(f"All connection methods failed. Last error: {str(e3)}")
-                
-                if chroma_client is None:
-                    raise Exception("Failed to create ChromaDB client")
-                
-                if announce:
-                    print(f"[RAG] 🔐 Authentication method used: {auth_method_used}", file=sys.stderr)
+                    print(f"[RAG] ✅ Connected to Qdrant server at {QDRANT_URL}", file=sys.stderr)
             except Exception as e:
                 if announce:
-                    print(f"⏭️  Skipping {os.path.basename(store_path)}: Failed to connect to ChromaDB server: {e}", file=sys.stderr)
+                    print(f"⏭️  Skipping {os.path.basename(store_path)}: Failed to connect to Qdrant server: {e}", file=sys.stderr)
                 return False
         else:
-            # Embedded mode: Use local persistent storage
-            if not os.path.exists(CHROMA_PERSIST_DIR):
+            # Local mode: Use local persistent storage (only if QDRANT_URL is explicitly empty)
+            if not os.path.exists(QDRANT_PERSIST_DIR):
                 if announce:
-                    print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB directory not found", file=sys.stderr)
+                    print(f"⏭️  Skipping {os.path.basename(store_path)}: Qdrant directory not found", file=sys.stderr)
                 return False
-        
-            chroma_client = chromadb.PersistentClient(
-                path=CHROMA_PERSIST_DIR,
-                settings=ChromaSettings(anonymized_telemetry=False)
-            )
+            
+            qdrant_client = QdrantClient(path=QDRANT_PERSIST_DIR)
+            if announce:
+                print(f"[RAG] ✅ Using Qdrant local storage", file=sys.stderr)
         
         try:
-            collection = chroma_client.get_collection(name=collection_name)
-            if collection.count() == 0:
+            collection_info = qdrant_client.get_collection(collection_name)
+            if collection_info.points_count == 0:
                 if announce:
-                    print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB collection is empty (not indexed yet)", file=sys.stderr)
+                    print(f"⏭️  Skipping {os.path.basename(store_path)}: Qdrant collection is empty (not indexed yet)", file=sys.stderr)
                 return False
         except Exception:
             if announce:
-                print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB collection '{collection_name}' not found (not indexed yet)", file=sys.stderr)
+                print(f"⏭️  Skipping {os.path.basename(store_path)}: Qdrant collection '{collection_name}' not found (not indexed yet)", file=sys.stderr)
             return False
         
         load_vector_store_index(store_path)
@@ -537,8 +482,8 @@ def load_store_safe(store_path: str, announce: bool = True, run_warmup: bool = F
         # Suppress traceback for expected missing file errors
         error_msg = str(e)
         if announce:
-            if "chromadb" in error_msg.lower() or "collection" in error_msg.lower():
-                print(f"⏭️  Skipping {os.path.basename(store_path)}: ChromaDB collection not found (not indexed yet)", file=sys.stderr)
+            if "qdrant" in error_msg.lower() or "collection" in error_msg.lower():
+                print(f"⏭️  Skipping {os.path.basename(store_path)}: Qdrant collection not found (not indexed yet)", file=sys.stderr)
             elif "metadata" in error_msg.lower():
                 print(f"⏭️  Skipping {os.path.basename(store_path)}: Metadata not found (not indexed yet)", file=sys.stderr)
             else:
@@ -549,7 +494,7 @@ def load_store_safe(store_path: str, announce: bool = True, run_warmup: bool = F
         error_msg = str(e)
         if "read error" in error_msg.lower() or "corrupted" in error_msg.lower():
             if announce:
-                print(f"⚠️ Skipping {os.path.basename(store_path)}: ChromaDB collection appears corrupted or incomplete", file=sys.stderr)
+                print(f"⚠️ Skipping {os.path.basename(store_path)}: Qdrant collection appears corrupted or incomplete", file=sys.stderr)
         else:
             if announce:
                 print(f"⚠️ Failed to preload {os.path.basename(store_path)}: {error_msg}", file=sys.stderr)
@@ -718,17 +663,28 @@ def warmup_query(vector_store_path: str):
             store_data = load_vector_store_index(vector_store_path)
             index = store_data["index"]
             
-            # Run a minimal retrieval test (just embedding + ChromaDB search, no LLM)
+            # Run a minimal retrieval test (just embedding + Qdrant search, no LLM)
             test_query = "test"
             query_for_embedding = f"search_query: {test_query}"
             
-            # Use LlamaIndex retriever to warm up ChromaDB
+            # Use LlamaIndex retriever to warm up Qdrant
+            # Get collection count from Qdrant client
+            collection_name = store_data.get("collection_name", "")
+            qdrant_client = store_data.get("qdrant_client")
+            top_k = 5
+            if qdrant_client and collection_name:
+                try:
+                    collection_info = qdrant_client.get_collection(collection_name)
+                    top_k = min(5, collection_info.points_count)
+                except Exception:
+                    pass  # Use default top_k=5 if we can't get count
+            
             retriever = VectorIndexRetriever(
                 index=index,
-                similarity_top_k=min(5, store_data["collection"].count())
+                similarity_top_k=top_k
             )
             
-            # Retrieve nodes (warms up ChromaDB and embedding model)
+            # Retrieve nodes (warms up Qdrant and embedding model)
             retrieved_nodes = retriever.retrieve(query_for_embedding)
             
             warmup_time = time.time() - start_time
@@ -765,7 +721,7 @@ def initialize_models():
                 reranker = None
                 gc.collect()
         else:
-            print("⚠️ Reranking DISABLED (ENABLE_RERANKING=false) - using ChromaDB scores only", file=sys.stderr)
+            print("⚠️ Reranking DISABLED (ENABLE_RERANKING=false) - using Qdrant scores only", file=sys.stderr)
             reranker = None
 
         # Preload vector stores (synchronously load first, rest in background)
@@ -818,13 +774,13 @@ def initialize_models():
 
 def load_vector_store_index(vector_store_path: str):
     """
-    Load ChromaDB collection and create LlamaIndex VectorStoreIndex
+    Load Qdrant collection and create LlamaIndex VectorStoreIndex
     
     Args:
         vector_store_path: Path to directory (used to determine collection name)
     
     Returns:
-        Dictionary with "index" (VectorStoreIndex), "metadata" (list), and "collection" (chromadb.Collection)
+        Dictionary with "index" (VectorStoreIndex), "metadata" (list), and "collection_name" (str)
     """
     global vector_stores
     
@@ -836,78 +792,49 @@ def load_vector_store_index(vector_store_path: str):
             # Get collection name from path
             collection_name = get_collection_name(vector_store_path)
             
-            # Initialize ChromaDB client (server mode or embedded mode)
-            if CHROMA_SERVER_URL:
+            # Initialize Qdrant client (server mode by default, local mode if QDRANT_URL is empty)
+            if QDRANT_URL and QDRANT_URL.strip():
                 # Server mode: Connect via HTTP
                 try:
-                    # Parse URL to extract host and port
-                    url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
-                    if ":" in url_clean:
-                        host, port_str = url_clean.split(":", 1)
-                        port = int(port_str.split("/")[0])  # Handle trailing slashes
-                    else:
-                        host = url_clean.split("/")[0]
-                        port = 8000
-                    
-                    # Create settings with token authentication
-                    if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
-                        # If a custom token is provided, use it
-                        auth_token = CHROMA_SERVER_AUTH_TOKEN
-                    else:
-                        # Default token for local dev
-                        auth_token = "test-token"
-                    
-                    print(f"[RAG] 🔐 Using token authentication: {'Yes' if auth_token else 'No'}", file=sys.stderr)
-                    
-                    # Create HttpClient with token authentication
-                    # ChromaDB HttpClient accepts token via headers when using token auth
-                    try:
-                        # Try creating client with token in settings
-                        settings = ChromaSettings(anonymized_telemetry=False)
-                        chroma_client = chromadb.HttpClient(
-                            host=host,
-                            port=port,
-                            settings=settings,
-                            headers={"Authorization": f"Bearer {auth_token}"} if auth_token else None
-                        )
-                        print(f"[RAG] ✅ Connected to ChromaDB server with authentication", file=sys.stderr)
-                    except TypeError:
-                        # If headers parameter doesn't work, try without it and use settings
-                        print(f"[RAG] ⚠️  Headers parameter not supported, trying alternative auth method", file=sys.stderr)
-                        chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-                        print(f"[RAG] ✅ Connected to ChromaDB server (auth may need manual configuration)", file=sys.stderr)
+                    qdrant_client = QdrantClient(
+                        url=QDRANT_URL,
+                        api_key=QDRANT_API_KEY,
+                        timeout=60
+                    )
+                    print(f"[RAG] ✅ Connected to Qdrant server at {QDRANT_URL}", file=sys.stderr)
                 except Exception as e:
-                    raise FileNotFoundError(f"Failed to connect to ChromaDB server at {CHROMA_SERVER_URL}: {e}")
+                    raise FileNotFoundError(f"Failed to connect to Qdrant server at {QDRANT_URL}: {e}")
             else:
-                # Embedded mode: Use local persistent storage
-                if not os.path.exists(CHROMA_PERSIST_DIR):
-                    raise FileNotFoundError(f"ChromaDB directory not found: {CHROMA_PERSIST_DIR}")
+                # Local mode: Use local persistent storage (only if QDRANT_URL is explicitly empty)
+                if not os.path.exists(QDRANT_PERSIST_DIR):
+                    raise FileNotFoundError(f"Qdrant directory not found: {QDRANT_PERSIST_DIR}")
                 
-                chroma_client = chromadb.PersistentClient(
-                    path=CHROMA_PERSIST_DIR,
-                    settings=ChromaSettings(anonymized_telemetry=False)
-                )
+                qdrant_client = QdrantClient(path=QDRANT_PERSIST_DIR)
+                print(f"[RAG] ✅ Using Qdrant local storage", file=sys.stderr)
             
-            # Get collection
+            # Check if collection exists
             try:
-                collection = chroma_client.get_collection(name=collection_name)
+                collection_info = qdrant_client.get_collection(collection_name)
+                collection_count = collection_info.points_count
             except Exception as e:
                 # List available collections for debugging if collection not found
                 try:
-                    collections = chroma_client.list_collections()
+                    collections = qdrant_client.get_collections().collections
                     available_names = [c.name for c in collections]
-                    print(f"[RAG Error] ChromaDB collection '{collection_name}' not found. Available collections: {available_names}", file=sys.stderr)
+                    print(f"[RAG Error] Qdrant collection '{collection_name}' not found. Available collections: {available_names}", file=sys.stderr)
                 except:
                     pass
-                raise FileNotFoundError(f"ChromaDB collection not found: {collection_name}")
+                raise FileNotFoundError(f"Qdrant collection not found: {collection_name}")
             
             # Check if collection is empty
-            collection_count = collection.count()
             if collection_count == 0:
-                raise ValueError(f"ChromaDB collection '{collection_name}' is empty")
+                raise ValueError(f"Qdrant collection '{collection_name}' is empty")
             
-            # Create ChromaDB vector store
-            vector_store = ChromaVectorStore(chroma_collection=collection)
+            # Create Qdrant vector store
+            vector_store = QdrantVectorStore(
+                client=qdrant_client,
+                collection_name=collection_name
+            )
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
             
             # Load index from vector store
@@ -917,24 +844,29 @@ def load_vector_store_index(vector_store_path: str):
             )
             
             # Build metadata from collection for backward compatibility
-            # ChromaDB stores metadata internally, but we'll extract it for compatibility
+            # Qdrant stores metadata in payload, but we'll extract it for compatibility
             metadata = []
             try:
-                # Get all documents from collection
-                results = collection.get(include=["metadatas", "documents"])
-                if results and results.get("documents"):
-                    for i, (doc_text, meta) in enumerate(zip(
-                        results["documents"] or [],
-                        results["metadatas"] or []
-                    )):
+                # Get all points from collection
+                scroll_result = qdrant_client.scroll(
+                    collection_name=collection_name,
+                    limit=10000,  # Adjust if you have more than 10k chunks
+                    with_payload=True,
+                    with_vectors=False
+                )
+                points = scroll_result[0]  # First element is the list of points
+                
+                if points:
+                    for i, point in enumerate(points):
+                        payload = point.payload or {}
                         metadata.append({
-                            "source_file": meta.get("source_file", "") if meta else "",
+                            "source_file": payload.get("source_file", ""),
                             "chunk_index": i,
-                            "chunk_text": doc_text or "",
-                            "section_title": meta.get("section_title", "") if meta else ""
+                            "chunk_text": payload.get("text", ""),
+                            "section_title": payload.get("section_title", "")
                         })
             except Exception as e:
-                print(f"⚠️ Warning: Could not extract metadata from ChromaDB: {e}", file=sys.stderr)
+                print(f"⚠️ Warning: Could not extract metadata from Qdrant: {e}", file=sys.stderr)
                 # Try loading from metadata.json if it exists (backward compatibility)
                 metadata_json_path = os.path.join(actual_path, "metadata.json")
                 if os.path.exists(metadata_json_path):
@@ -948,11 +880,12 @@ def load_vector_store_index(vector_store_path: str):
             vector_stores[normalized_path] = {
                 "index": index,
                 "metadata": metadata,
-                "collection": collection,
-                "vector_store": vector_store
+                "collection_name": collection_name,
+                "vector_store": vector_store,
+                "qdrant_client": qdrant_client
             }
             
-            print(f"✓ Vector store loaded (ChromaDB collection: {collection_name}, {collection_count} vectors, {len(metadata)} metadata entries)", file=sys.stderr)
+            print(f"✓ Vector store loaded (Qdrant collection: {collection_name}, {collection_count} vectors, {len(metadata)} metadata entries)", file=sys.stderr)
             
         except Exception as e:
             error_msg = str(e)
@@ -1615,11 +1548,10 @@ def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
         if is_syllabus:
             top_k_initial = 20  # Retrieve 20 candidates (vs 10 for class materials)
             top_k_final = 8    # Keep 8 chunks (vs 5 for class materials)
-            chunk_truncate = 2500  # Allow 2500 chars per chunk (vs 1500 for class materials)
         else:
             top_k_initial = TOP_K_INITIAL
             top_k_final = TOP_K_FINAL
-            chunk_truncate = 1500
+        # No truncation - preserve full chunk content to avoid information loss
         
         # Load vector store index (with metadata)
         load_start = time.time()
@@ -1795,7 +1727,7 @@ Rules:
                 else:
                     query = "Let's work through this step by step. What do you think the first step should be?"
         
-        # RAG Retrieval Stage - Use LlamaIndex retriever with ChromaDB
+        # RAG Retrieval Stage - Use LlamaIndex retriever with Qdrant
         embed_start = time.time()
         # Optimize query embedding prefix for syllabus queries
         if is_syllabus:
@@ -1806,22 +1738,40 @@ Rules:
         embed_time = time.time() - embed_start
         print(f"⏱️ Query embedding time: {embed_time:.3f}s", file=sys.stderr)
         
-        # Use LlamaIndex retriever with ChromaDB
+        # Use LlamaIndex retriever with Qdrant
         search_start = time.time()
         
         # Get the index and metadata from store_data
         index = store_data["index"]
         metadata = store_data["metadata"]
         
-        # Use LlamaIndex retriever (works with ChromaDB)
+        # Extract class_id from request_data for filtering (if provided)
+        class_id = request_data.get('class_id')
+        
+        # Use LlamaIndex retriever with optional Qdrant filtering by class_id
+        # QdrantVectorStore supports filters via node_ids or metadata filters
         retriever = VectorIndexRetriever(
             index=index,
             similarity_top_k=top_k_initial
         )
         
-        # Retrieve nodes
+        # Retrieve nodes (Qdrant filtering by class_id happens at vector store level if needed)
         try:
             retrieved_nodes = retriever.retrieve(query_for_embedding)
+            original_count = len(retrieved_nodes)
+            
+            # Post-filter by class_id if provided (since LlamaIndex doesn't expose Qdrant filters directly)
+            if class_id:
+                filtered_nodes = []
+                for node in retrieved_nodes:
+                    node_metadata = node.metadata if hasattr(node, 'metadata') else {}
+                    node_class_id = node_metadata.get('class_id', '')
+                    # Match class_id or allow if class_id is not set (backward compatibility)
+                    if node_class_id == class_id or not node_class_id:
+                        filtered_nodes.append(node)
+                retrieved_nodes = filtered_nodes
+                if len(filtered_nodes) < original_count:
+                    print(f"[RAG] Filtered by class_id={class_id}: {original_count} → {len(filtered_nodes)} chunks", file=sys.stderr)
         except Exception as e:
             print(f"[RAG Error] Retrieval failed: {e}", file=sys.stderr)
             import traceback
@@ -1829,7 +1779,7 @@ Rules:
             retrieved_nodes = []
         
         search_time = time.time() - search_start
-        print(f"⏱️ ChromaDB search time: {search_time:.3f}s (retrieved {len(retrieved_nodes)} chunks, syllabus={is_syllabus})", file=sys.stderr)
+        print(f"⏱️ Qdrant search time: {search_time:.3f}s (retrieved {len(retrieved_nodes)} chunks, syllabus={is_syllabus})", file=sys.stderr)
         
         # Convert retrieved nodes to the expected format
         filtered_results = []
@@ -1838,7 +1788,7 @@ Rules:
             node_metadata = node.metadata if hasattr(node, 'metadata') else {}
             node_text = node.text if hasattr(node, 'text') else node.get_content() if hasattr(node, 'get_content') else ""
             
-            # Get similarity score (ChromaDB returns this in node.score)
+            # Get similarity score (Qdrant returns this in node.score)
             score = node.score if hasattr(node, 'score') else 0.0
             
             # Build metadata dict matching the expected format
@@ -1872,16 +1822,16 @@ Rules:
                     filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
                     rerank_method = "✅ ML Reranker" + (" (syllabus)" if is_syllabus else "")
                 except Exception as e:
-                    print(f"⚠️ Reranking failed: {e}, falling back to ChromaDB scores", file=sys.stderr)
+                    print(f"⚠️ Reranking failed: {e}, falling back to Qdrant scores", file=sys.stderr)
                     for result in filtered_results:
                         result["rerank_score"] = -result["score"]
                     filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
-                    rerank_method = "⚠️ Fallback (ChromaDB scores)"
+                    rerank_method = "⚠️ Fallback (Qdrant scores)"
             else:
                 for result in filtered_results:
                     result["rerank_score"] = -result["score"]
                 filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
-                rerank_method = "⚡ SKIPPED (ChromaDB scores only)"
+                rerank_method = "⚡ SKIPPED (Qdrant scores only)"
             
             final_results = filtered_results[:top_k_final]
         else:
@@ -1897,9 +1847,9 @@ Rules:
             time_taken = 0
             llm_time = 0  # Initialize llm_time for logging
         else:
-            # Build context from retrieved chunks
+            # Build context from retrieved chunks (no truncation - preserve full content)
             context_text = "\n\n".join([
-                f"[Source {i+1} - {result['metadata'].get('section_title', 'Unknown')}]\n{result['metadata']['chunk_text'][:chunk_truncate]}"
+                f"[Source {i+1} - {result['metadata'].get('section_title', 'Unknown')}]\n{result['metadata']['chunk_text']}"
                 for i, result in enumerate(final_results)
             ])
             
@@ -1970,7 +1920,14 @@ Rules:
                 full_prompt += f"Previous conversation:\n{history_text}\n\n"
             full_prompt += f"Context from textbook:\n{context_text}\n\n"
             full_prompt += f"Student question: {query}\n\n"
-            full_prompt += "Please provide a helpful, educational response:"
+            full_prompt += """Please provide a helpful, educational response.
+
+IMPORTANT FORMATTING RULES:
+- DO NOT use markdown formatting (no asterisks ** for bold, no markdown syntax)
+- Write in clean, plain text like Claude or ChatGPT - natural and conversational
+- Use simple line breaks for paragraphs, no special formatting symbols
+- Add emojis sparingly (1-2 per response) at the end of sentences to make it engaging, not overwhelming
+- Keep formatting clean and professional"""
             
             # Teaching LLM Stage - Use streaming for real-time response
             llm_start = time.time()

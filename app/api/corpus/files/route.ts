@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import fs from "fs"
-import { getClassById } from "@/lib/db-service"
+import { getClassById, getCorpusFilesByClass, deleteCorpusFile, deleteAllCorpusFiles } from "@/lib/db-service"
 import { VectorStoreManager } from "@/lib/vector-store-manager"
 import { ragService } from "@/lib/rag-service"
 
@@ -23,12 +23,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ files: [] })
     }
 
-    const basePath = VectorStoreManager.getVectorStorePathByFolder(vectorStoreFolder)
-    const pdfDir = path.join(basePath, "source_pdfs")
-    if (!fs.existsSync(pdfDir)) {
-      return NextResponse.json({ files: [] })
-    }
-    const files = fs.readdirSync(pdfDir).filter(f => f.toLowerCase().endsWith(".pdf"))
+    // Get files from database (source of truth)
+    const corpusFiles = await getCorpusFilesByClass(classId, materialType as 'class_material' | 'syllabus')
+    const files = corpusFiles.map(f => f.fileName)
     return NextResponse.json({ files })
   } catch (error) {
     console.error("Corpus files list error:", error)
@@ -74,6 +71,10 @@ export async function DELETE(request: NextRequest) {
       fs.unlinkSync(filePath)
       console.log(`[Corpus Delete] Deleted PDF: ${filename}`)
       
+      // Delete from database
+      await deleteCorpusFile(classId, filename, materialType as 'class_material' | 'syllabus')
+      console.log(`[Corpus Delete] Removed ${filename} from database`)
+      
       // Check if there are any PDFs left after deletion
       const remainingPdfs = fs.existsSync(pdfDir)
         ? fs.readdirSync(pdfDir).filter(f => f.toLowerCase().endsWith('.pdf'))
@@ -94,8 +95,7 @@ export async function DELETE(request: NextRequest) {
 import sys
 import os
 import json
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+from qdrant_client import QdrantClient
 
 # Get collection name from folder name
 base_path = sys.argv[1]
@@ -105,199 +105,150 @@ clear_all = sys.argv[3] == "true" if len(sys.argv) > 3 else False
 # Get collection name from folder name
 folder_name = os.path.basename(os.path.normpath(base_path))
 collection_name = folder_name.replace("/", "_").replace("\\\\", "_").replace(" ", "_")
+# Sanitize for Qdrant (keep alphanumeric and underscore)
+collection_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in collection_name)
 
-# ChromaDB Server Mode Configuration
-CHROMA_SERVER_URL = os.getenv("CHROMA_SERVER_URL", None)
-CHROMA_SERVER_AUTH_TOKEN = os.getenv("CHROMA_SERVER_AUTH_TOKEN", "test-token")
+# Qdrant Server Configuration
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 
-# ChromaDB persist directory - try to read from config.json first, then calculate
+# Qdrant persist directory - try to read from config.json first, then calculate
 config_path = os.path.join(base_path, "config.json")
-chroma_persist_dir = None
+qdrant_persist_dir = None
 
 if os.path.exists(config_path):
     try:
         with open(config_path, 'r') as f:
             config = json.load(f)
-        if "chroma_persist_dir" in config:
-            chroma_persist_dir = config["chroma_persist_dir"]
+        # Check if config has qdrant_url or collection_name
+        if config.get("qdrant_url") and config["qdrant_url"] != "local":
+            QDRANT_URL = config["qdrant_url"]
     except:
         pass
 
 # Fallback: calculate from base_path
 # base_path is like: project_root/vector_stores/folder_name
-# We need: project_root/vector-stores/chroma
-if not chroma_persist_dir:
+# We need: project_root/vector-stores/qdrant
+if not qdrant_persist_dir:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(base_path)))
-    chroma_persist_dir = os.path.join(project_root, "vector-stores", "chroma")
+    qdrant_persist_dir = os.path.join(project_root, "vector-stores", "qdrant")
 
 try:
-    # Initialize ChromaDB client (server mode or embedded mode)
-    if CHROMA_SERVER_URL:
+    # Initialize Qdrant client (server mode by default, local mode if QDRANT_URL is empty)
+    if QDRANT_URL and QDRANT_URL.strip() and QDRANT_URL != "local":
         # Server mode: Connect via HTTP
-        print(f"[ChromaDB Delete] Connecting to ChromaDB server at: {CHROMA_SERVER_URL}", file=sys.stderr)
-        # Parse URL to extract host and port
-        url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
-        if ":" in url_clean:
-            host, port_str = url_clean.split(":", 1)
-            port = int(port_str.split("/")[0])  # Handle trailing slashes
-        else:
-            host = url_clean.split("/")[0]
-            port = 8000
-        
-        # Create settings - for now, disable authentication for local dev
-        # Create settings with token authentication
-        if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
-            auth_token = CHROMA_SERVER_AUTH_TOKEN
-        else:
-            auth_token = "test-token"
-        
-        print(f"[ChromaDB Delete] 🔐 Attempting token authentication with token: {'***' + auth_token[-4:] if len(auth_token) > 4 else '***'}", file=sys.stderr)
-        
-        # Try multiple authentication methods
-        chroma_client = None
-        auth_method_used = None
-        
-        # Method 1: Try using Settings with token auth provider
-        try:
-            settings = ChromaSettings(
-                anonymized_telemetry=False,
-                chroma_client_auth_provider="chromadb.auth.token_authn.TokenAuthClientProvider",
-                chroma_client_auth_credentials=auth_token
-            )
-            chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-            auth_method_used = "TokenAuthClientProvider (Settings)"
-            print(f"[ChromaDB Delete] ✅ Connected using {auth_method_used}", file=sys.stderr)
-        except Exception as e1:
-            print(f"[ChromaDB Delete] ⚠️  Method 1 failed: {str(e1)[:100]}", file=sys.stderr)
-            
-            # Method 2: Try with headers parameter (if supported)
-            try:
-                settings = ChromaSettings(anonymized_telemetry=False)
-                chroma_client = chromadb.HttpClient(
-                    host=host,
-                    port=port,
-                    settings=settings,
-                    headers={"Authorization": f"Bearer {auth_token}"}
-                )
-                auth_method_used = "Bearer token (headers)"
-                print(f"[ChromaDB Delete] ✅ Connected using {auth_method_used}", file=sys.stderr)
-            except (TypeError, Exception) as e2:
-                print(f"[ChromaDB Delete] ⚠️  Method 2 failed: {str(e2)[:100]}", file=sys.stderr)
-                
-                # Method 3: Try without auth (fallback)
-                try:
-                    settings = ChromaSettings(anonymized_telemetry=False)
-                    chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-                    auth_method_used = "No authentication (fallback)"
-                    print(f"[ChromaDB Delete] ⚠️  Connected without authentication (server may reject requests)", file=sys.stderr)
-                except Exception as e3:
-                    error_msg = f"All connection methods failed. Last error: {str(e3)}"
-                    print(f'{{"success": false, "error": "{error_msg}"}}')
-                    print(f"[ChromaDB Delete] ERROR: {error_msg}", file=sys.stderr)
-                    sys.exit(1)
-        
-        if chroma_client is None:
-            error_msg = "Failed to create ChromaDB client"
-            print(f'{{"success": false, "error": "{error_msg}"}}')
-            print(f"[ChromaDB Delete] ERROR: {error_msg}", file=sys.stderr)
-            sys.exit(1)
-        
-        print(f"[ChromaDB Delete] 🔐 Authentication method used: {auth_method_used}", file=sys.stderr)
-    else:
-        # Embedded mode: Use local persistent storage
-        if not os.path.exists(chroma_persist_dir):
-            error_msg = f"ChromaDB directory not found: {chroma_persist_dir}"
-            print(f'{{"success": false, "error": "{error_msg}"}}')
-            print(f"[ChromaDB Delete] ERROR: {error_msg}", file=sys.stderr)
-            sys.exit(1)
-        
-        chroma_client = chromadb.PersistentClient(
-            path=chroma_persist_dir,
-            settings=ChromaSettings(anonymized_telemetry=False)
+        print(f"[Qdrant Delete] Connecting to Qdrant server at: {QDRANT_URL}", file=sys.stderr)
+        qdrant_client = QdrantClient(
+            url=QDRANT_URL,
+            api_key=QDRANT_API_KEY,
+            timeout=60
         )
+        print(f"[Qdrant Delete] ✅ Connected to Qdrant server", file=sys.stderr)
+    else:
+        # Local mode: Use local persistent storage
+        if not os.path.exists(qdrant_persist_dir):
+            error_msg = f"Qdrant directory not found: {qdrant_persist_dir}"
+            print(f'{{"success": false, "error": "{error_msg}"}}')
+            print(f"[Qdrant Delete] ERROR: {error_msg}", file=sys.stderr)
+            sys.exit(1)
+        
+        qdrant_client = QdrantClient(path=qdrant_persist_dir)
+        print(f"[Qdrant Delete] ✅ Using Qdrant local storage", file=sys.stderr)
     
-    # Get collection
+    # Check if collection exists
     try:
-        collection = chroma_client.get_collection(name=collection_name)
-        print(f"[ChromaDB Delete] Connected to collection: {collection_name}", file=sys.stderr)
+        collection_info = qdrant_client.get_collection(collection_name)
+        print(f"[Qdrant Delete] Connected to collection: {collection_name} ({collection_info.points_count} vectors)", file=sys.stderr)
     except Exception as e:
         error_msg = f"Collection not found: {collection_name}. Error: {str(e)}"
         print(f'{{"success": false, "error": "{error_msg}"}}')
-        print(f"[ChromaDB Delete] ERROR: {error_msg}", file=sys.stderr)
+        print(f"[Qdrant Delete] ERROR: {error_msg}", file=sys.stderr)
         sys.exit(1)
     
-    # Get all documents with metadata to find ones to delete
-    # Note: IDs are always returned by ChromaDB, don't include "ids" in include parameter
-    results = collection.get(include=["metadatas", "documents"])
+    # Get all points with payload to find ones to delete
+    scroll_result = qdrant_client.scroll(
+        collection_name=collection_name,
+        limit=10000,  # Adjust if you have more than 10k chunks
+        with_payload=True,
+        with_vectors=False
+    )
+    points = scroll_result[0]  # First element is the list of points
     
-    # IDs are always returned, even if not in include
-    result_ids = results.get("ids", [])
-    if not results or not result_ids:
+    if not points:
         print(f'{{"success": true, "chunks_removed": 0, "chunks_remaining": 0}}')
         sys.exit(0)
     
     # Find IDs of chunks to delete
     ids_to_delete = []
-    total_chunks = len(result_ids)
-    print(f"[ChromaDB Delete] Total chunks in collection: {total_chunks}", file=sys.stderr)
+    total_chunks = len(points)
+    print(f"[Qdrant Delete] Total chunks in collection: {total_chunks}", file=sys.stderr)
     
     if clear_all:
         # Clear all chunks if no PDFs remain
-        ids_to_delete = result_ids
-        print(f"[ChromaDB Delete] Clearing ALL chunks (no PDFs remaining)", file=sys.stderr)
-else:
+        ids_to_delete = [point.id for point in points]
+        print(f"[Qdrant Delete] Clearing ALL chunks (no PDFs remaining)", file=sys.stderr)
+    else:
         # Find chunks from the specific deleted file
-        print(f"[ChromaDB Delete] Looking for chunks from file: {deleted_file}", file=sys.stderr)
-        for i, meta in enumerate(results.get("metadatas", [])):
-            if meta and meta.get("source_file") == deleted_file:
-                ids_to_delete.append(result_ids[i])
-            elif meta:
-                print(f"[ChromaDB Delete] Found chunk from: {meta.get('source_file', 'unknown')}", file=sys.stderr)
+        print(f"[Qdrant Delete] Looking for chunks from file: {deleted_file}", file=sys.stderr)
+        for point in points:
+            payload = point.payload or {}
+            if payload.get("source_file") == deleted_file:
+                ids_to_delete.append(point.id)
+            else:
+                print(f"[Qdrant Delete] Found chunk from: {payload.get('source_file', 'unknown')}", file=sys.stderr)
     
     chunks_removed = len(ids_to_delete)
-    print(f"[ChromaDB Delete] Found {chunks_removed} chunks to delete", file=sys.stderr)
+    print(f"[Qdrant Delete] Found {chunks_removed} chunks to delete", file=sys.stderr)
     
     if chunks_removed > 0:
         # Delete chunks from collection
-        collection.delete(ids=ids_to_delete)
-        print(f"[ChromaDB Delete] Successfully removed {chunks_removed} chunks", file=sys.stderr)
+        qdrant_client.delete(
+            collection_name=collection_name,
+            points_selector=ids_to_delete
+        )
+        print(f"[Qdrant Delete] Successfully removed {chunks_removed} chunks", file=sys.stderr)
     else:
-        print(f"[ChromaDB Delete] WARNING: No chunks found to delete", file=sys.stderr)
+        print(f"[Qdrant Delete] WARNING: No chunks found to delete", file=sys.stderr)
     
     # Get updated count
-    remaining_count = collection.count()
+    collection_info = qdrant_client.get_collection(collection_name)
+    remaining_count = collection_info.points_count
     
     # Update metadata.json
     meta_json_path = os.path.join(base_path, "metadata.json")
     if remaining_count > 0:
-        # Get remaining documents
-        remaining_results = collection.get(include=["metadatas", "documents"])
-        if remaining_results and remaining_results.get("documents"):
-            documents_list = remaining_results["documents"] or []
-            metadatas_list = remaining_results["metadatas"] or []
-            
+        # Get remaining points
+        remaining_scroll = qdrant_client.scroll(
+            collection_name=collection_name,
+            limit=10000,
+            with_payload=True,
+            with_vectors=False
+        )
+        remaining_points = remaining_scroll[0]
+        
+        if remaining_points:
             new_metadata = []
-            for i, (doc_text, meta) in enumerate(zip(documents_list, metadatas_list)):
+            for i, point in enumerate(remaining_points):
+                payload = point.payload or {}
                 new_metadata.append({
-                    "source_file": meta.get("source_file", "") if meta else "",
+                    "source_file": payload.get("source_file", ""),
                     "chunk_index": i,
-                    "chunk_text": doc_text or "",
-                    "section_title": meta.get("section_title", "") if meta else ""
+                    "chunk_text": payload.get("text", ""),
+                    "section_title": payload.get("section_title", "")
                 })
             
             with open(meta_json_path, 'w', encoding='utf-8') as f:
                 json.dump(new_metadata, f, ensure_ascii=False, indent=2)
         else:
-            # If no documents, create empty array
+            # If no points, create empty array
             with open(meta_json_path, 'w', encoding='utf-8') as f:
                 json.dump([], f)
     else:
         # No chunks left, create empty metadata.json
-    with open(meta_json_path, 'w', encoding='utf-8') as f:
+        with open(meta_json_path, 'w', encoding='utf-8') as f:
             json.dump([], f)
     
     # Update config.json with new count
-    config_path = os.path.join(base_path, "config.json")
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
             config = json.load(f)
@@ -312,13 +263,13 @@ else:
     if os.path.exists(faiss_index_path):
         try:
             os.remove(faiss_index_path)
-            print(f"[ChromaDB Delete] Removed old FAISS index file", file=sys.stderr)
+            print(f"[Qdrant Delete] Removed old FAISS index file", file=sys.stderr)
         except:
             pass
     if os.path.exists(faiss_metadata_path):
         try:
             os.remove(faiss_metadata_path)
-            print(f"[ChromaDB Delete] Removed old FAISS metadata file", file=sys.stderr)
+            print(f"[Qdrant Delete] Removed old FAISS metadata file", file=sys.stderr)
         except:
             pass
     
@@ -328,7 +279,7 @@ except Exception as e:
     import traceback
     error_msg = str(e).replace('"', '\\"').replace('\\n', ' ')
     print(f'{{"success": false, "error": "{error_msg}"}}')
-    print(f"[ChromaDB Delete] EXCEPTION: {error_msg}", file=sys.stderr)
+    print(f"[Qdrant Delete] EXCEPTION: {error_msg}", file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
     sys.exit(1)
 `
@@ -428,7 +379,7 @@ except Exception as e:
             success: true, 
               pdfCount,
               chunkCount,
-              message: `PDF and ${deleteResult.chunks_removed || 0} chunks removed from index. ${deleteResult.chunks_remaining || 0} chunks remaining.`
+              message: "Removed PDFs successfully"
           })
           } else {
             const errorMsg = deleteResult.error || "Failed to delete chunks from ChromaDB"
@@ -441,7 +392,7 @@ except Exception as e:
           // Fallback: just confirm PDF deletion (chunks will remain, but PDF is gone)
           return NextResponse.json({ 
             success: true, 
-            message: `PDF deleted. Note: Some chunks may still be in the index. Error: ${errorMessage}. Re-index to clean up.` 
+            message: "Removed PDFs successfully" 
           })
         }
       } else {
@@ -475,149 +426,98 @@ except Exception as e:
 import sys
 import os
 import json
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+from qdrant_client import QdrantClient
 
 base_path = sys.argv[1]
 
 # Get collection name from folder name
 folder_name = os.path.basename(os.path.normpath(base_path))
 collection_name = folder_name.replace("/", "_").replace("\\\\", "_").replace(" ", "_")
+# Sanitize for Qdrant (keep alphanumeric and underscore)
+collection_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in collection_name)
 
-# ChromaDB Server Mode Configuration
-CHROMA_SERVER_URL = os.getenv("CHROMA_SERVER_URL", None)
-CHROMA_SERVER_AUTH_TOKEN = os.getenv("CHROMA_SERVER_AUTH_TOKEN", "test-token")
+# Qdrant Server Configuration
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 
-# ChromaDB persist directory
+# Qdrant persist directory - try to read from config.json first
 config_path = os.path.join(base_path, "config.json")
-chroma_persist_dir = None
+qdrant_persist_dir = None
 
 if os.path.exists(config_path):
     try:
         with open(config_path, 'r') as f:
             config = json.load(f)
-        if "chroma_persist_dir" in config:
-            chroma_persist_dir = config["chroma_persist_dir"]
+        # Check if config has qdrant_url
+        if config.get("qdrant_url") and config["qdrant_url"] != "local":
+            QDRANT_URL = config["qdrant_url"]
     except:
         pass
 
-if not chroma_persist_dir:
+if not qdrant_persist_dir:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(base_path)))
-    chroma_persist_dir = os.path.join(project_root, "vector-stores", "chroma")
+    qdrant_persist_dir = os.path.join(project_root, "vector-stores", "qdrant")
 
 try:
-    # Initialize ChromaDB client (server mode or embedded mode)
-    if CHROMA_SERVER_URL:
+    # Initialize Qdrant client (server mode by default, local mode if QDRANT_URL is empty)
+    if QDRANT_URL and QDRANT_URL.strip() and QDRANT_URL != "local":
         # Server mode: Connect via HTTP
-        print(f"[ChromaDB Clear] Connecting to ChromaDB server at: {CHROMA_SERVER_URL}", file=sys.stderr)
-        # Parse URL to extract host and port
-        url_clean = CHROMA_SERVER_URL.replace("http://", "").replace("https://", "")
-        if ":" in url_clean:
-            host, port_str = url_clean.split(":", 1)
-            port = int(port_str.split("/")[0])  # Handle trailing slashes
-        else:
-            host = url_clean.split("/")[0]
-            port = 8000
-        
-        # Create settings - for now, disable authentication for local dev
-        # Create settings with token authentication
-        if CHROMA_SERVER_AUTH_TOKEN and CHROMA_SERVER_AUTH_TOKEN != "test-token":
-            auth_token = CHROMA_SERVER_AUTH_TOKEN
-        else:
-            auth_token = "test-token"
-        
-        print(f"[ChromaDB Delete] 🔐 Attempting token authentication with token: {'***' + auth_token[-4:] if len(auth_token) > 4 else '***'}", file=sys.stderr)
-        
-        # Try multiple authentication methods
-        chroma_client = None
-        auth_method_used = None
-        
-        # Method 1: Try using Settings with token auth provider
-        try:
-            settings = ChromaSettings(
-                anonymized_telemetry=False,
-                chroma_client_auth_provider="chromadb.auth.token_authn.TokenAuthClientProvider",
-                chroma_client_auth_credentials=auth_token
-            )
-            chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-            auth_method_used = "TokenAuthClientProvider (Settings)"
-            print(f"[ChromaDB Delete] ✅ Connected using {auth_method_used}", file=sys.stderr)
-        except Exception as e1:
-            print(f"[ChromaDB Delete] ⚠️  Method 1 failed: {str(e1)[:100]}", file=sys.stderr)
-            
-            # Method 2: Try with headers parameter (if supported)
-            try:
-                settings = ChromaSettings(anonymized_telemetry=False)
-                chroma_client = chromadb.HttpClient(
-                    host=host,
-                    port=port,
-                    settings=settings,
-                    headers={"Authorization": f"Bearer {auth_token}"}
-                )
-                auth_method_used = "Bearer token (headers)"
-                print(f"[ChromaDB Delete] ✅ Connected using {auth_method_used}", file=sys.stderr)
-            except (TypeError, Exception) as e2:
-                print(f"[ChromaDB Delete] ⚠️  Method 2 failed: {str(e2)[:100]}", file=sys.stderr)
-                
-                # Method 3: Try without auth (fallback)
-                try:
-                    settings = ChromaSettings(anonymized_telemetry=False)
-                    chroma_client = chromadb.HttpClient(host=host, port=port, settings=settings)
-                    auth_method_used = "No authentication (fallback)"
-                    print(f"[ChromaDB Delete] ⚠️  Connected without authentication (server may reject requests)", file=sys.stderr)
-                except Exception as e3:
-                    error_msg = f"All connection methods failed. Last error: {str(e3)}"
-                    print(f'{{"success": false, "error": "{error_msg}"}}')
-                    print(f"[ChromaDB Delete] ERROR: {error_msg}", file=sys.stderr)
-                    sys.exit(1)
-        
-        if chroma_client is None:
-            error_msg = "Failed to create ChromaDB client"
-            print(f'{{"success": false, "error": "{error_msg}"}}')
-            print(f"[ChromaDB Delete] ERROR: {error_msg}", file=sys.stderr)
-            sys.exit(1)
-        
-        print(f"[ChromaDB Delete] 🔐 Authentication method used: {auth_method_used}", file=sys.stderr)
+        print(f"[Qdrant Clear] Connecting to Qdrant server at: {QDRANT_URL}", file=sys.stderr)
+        qdrant_client = QdrantClient(
+            url=QDRANT_URL,
+            api_key=QDRANT_API_KEY,
+            timeout=60
+        )
+        print(f"[Qdrant Clear] ✅ Connected to Qdrant server", file=sys.stderr)
     else:
-        # Embedded mode: Use local persistent storage
-        if not os.path.exists(chroma_persist_dir):
+        # Local mode: Use local persistent storage
+        if not os.path.exists(qdrant_persist_dir):
             print(f'{{"success": true, "chunks_removed": 0, "chunks_remaining": 0}}')
             sys.exit(0)
         
-        chroma_client = chromadb.PersistentClient(
-            path=chroma_persist_dir,
-            settings=ChromaSettings(anonymized_telemetry=False)
-        )
+        qdrant_client = QdrantClient(path=qdrant_persist_dir)
+        print(f"[Qdrant Clear] ✅ Using Qdrant local storage", file=sys.stderr)
     
-    collection = None
+    # Check if collection exists
+    collection_exists = False
     try:
-        collection = chroma_client.get_collection(name=collection_name)
-        print(f"[ChromaDB Clear] Connected to collection: {collection_name}", file=sys.stderr)
+        collection_info = qdrant_client.get_collection(collection_name)
+        print(f"[Qdrant Clear] Connected to collection: {collection_name} ({collection_info.points_count} vectors)", file=sys.stderr)
+        collection_exists = True
     except Exception as e:
-        print(f"[ChromaDB Clear] Collection '{collection_name}' not found (may be old FAISS data): {str(e)}", file=sys.stderr)
+        print(f"[Qdrant Clear] Collection '{collection_name}' not found (may be old data): {str(e)}", file=sys.stderr)
         # Continue - we'll still clear config.json and metadata.json
-        collection = None
     
-    # Get all IDs and delete everything from ChromaDB (if collection exists)
+    # Get all IDs and delete everything from Qdrant (if collection exists)
     total_chunks = 0
-    if collection:
+    if collection_exists:
         try:
-            results = collection.get(include=["metadatas"])
-            result_ids = results.get("ids", [])
-            total_chunks = len(result_ids)
-            print(f"[ChromaDB Clear] Found {total_chunks} chunks in ChromaDB collection", file=sys.stderr)
+            # Scroll to get all point IDs
+            scroll_result = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=10000,
+                with_payload=False,
+                with_vectors=False
+            )
+            points = scroll_result[0]
+            total_chunks = len(points)
+            print(f"[Qdrant Clear] Found {total_chunks} chunks in Qdrant collection", file=sys.stderr)
             
             if total_chunks > 0:
-                collection.delete(ids=result_ids)
-                print(f"[ChromaDB Clear] Successfully cleared all {total_chunks} chunks from ChromaDB", file=sys.stderr)
+                point_ids = [point.id for point in points]
+                qdrant_client.delete(
+                    collection_name=collection_name,
+                    points_selector=point_ids
+                )
+                print(f"[Qdrant Clear] Successfully cleared all {total_chunks} chunks from Qdrant", file=sys.stderr)
             else:
-                print(f"[ChromaDB Clear] ChromaDB collection is already empty", file=sys.stderr)
+                print(f"[Qdrant Clear] Qdrant collection is already empty", file=sys.stderr)
         except Exception as e:
-            error_msg = f"Error getting/deleting chunks from ChromaDB: {str(e)}"
-            print(f"[ChromaDB Clear] WARNING: {error_msg}", file=sys.stderr)
+            error_msg = f"Error getting/deleting chunks from Qdrant: {str(e)}"
+            print(f"[Qdrant Clear] WARNING: {error_msg}", file=sys.stderr)
             # Continue - we'll still clear config.json and metadata.json
     else:
-        # No ChromaDB collection - check metadata.json for old FAISS data
+        # No Qdrant collection - check metadata.json for old data
         meta_json_path = os.path.join(base_path, "metadata.json")
         if os.path.exists(meta_json_path):
             try:
@@ -625,7 +525,7 @@ try:
                     old_metadata = json.load(f)
                     if isinstance(old_metadata, list):
                         total_chunks = len(old_metadata)
-                        print(f"[ChromaDB Clear] Found {total_chunks} chunks in old metadata.json", file=sys.stderr)
+                        print(f"[Qdrant Clear] Found {total_chunks} chunks in old metadata.json", file=sys.stderr)
             except:
                 pass
     
@@ -649,13 +549,13 @@ try:
     if os.path.exists(faiss_index_path):
         try:
             os.remove(faiss_index_path)
-            print(f"[ChromaDB Clear] Removed old FAISS index file", file=sys.stderr)
+            print(f"[Qdrant Clear] Removed old FAISS index file", file=sys.stderr)
         except:
             pass
     if os.path.exists(faiss_metadata_path):
         try:
             os.remove(faiss_metadata_path)
-            print(f"[ChromaDB Clear] Removed old FAISS metadata file", file=sys.stderr)
+            print(f"[Qdrant Clear] Removed old FAISS metadata file", file=sys.stderr)
         except:
             pass
     
@@ -731,6 +631,10 @@ except Exception as e:
           })
           
           if (clearResult.success) {
+            // Clear all corpus files from database
+            await deleteAllCorpusFiles(classId, materialType as 'class_material' | 'syllabus')
+            console.log(`[Corpus Clear All] Removed all corpus files from database for class ${classId}`)
+            
             // Return response immediately, reload vector store asynchronously in background (fire-and-forget)
             ragService.reloadVectorStoreAsync(basePath)
             
@@ -738,11 +642,11 @@ except Exception as e:
               success: true, 
               pdfCount: 0,
               chunkCount: 0,
-              message: `Cleared all ${clearResult.chunks_removed || 0} chunks (no PDFs found).` 
+              message: "Removed PDFs successfully" 
             })
           } else {
             // Script ran but failed - return error message
-            const errorMsg = clearResult.error || "Failed to clear chunks from ChromaDB"
+            const errorMsg = clearResult.error || "Failed to clear chunks from Qdrant"
             console.error("[Corpus Clear All] Script failed:", errorMsg)
             return NextResponse.json({ 
               success: false,

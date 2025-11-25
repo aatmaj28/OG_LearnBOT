@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import fs from "fs"
 import { spawn } from "child_process"
-import { getClassById } from "@/lib/db-service"
+import { getClassById, markCorpusFileAsIndexed, getCorpusFilesByClass } from "@/lib/db-service"
 import { VectorStoreManager } from "@/lib/vector-store-manager"
 import { ragService } from "@/lib/rag-service"
 
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     console.log('[Corpus Index] Service path:', indexingServicePath)
 
     // Execute LlamaIndex indexing service
-    const result = await new Promise<{ success: boolean; chunks?: number; pdfs?: number; newChunks?: number; error?: string }>((resolve) => {
+    const result = await new Promise<{ success: boolean; chunks?: number; pdfs?: number; newChunks?: number; chunks_per_file?: Record<string, number>; error?: string }>((resolve) => {
       const pythonProcess = spawn('python', args)
       let stdoutData = ''
       let stderrData = ''
@@ -91,11 +91,13 @@ export async function POST(request: NextRequest) {
           try {
             const lastLine = stdoutData.trim().split('\n').pop()
             const result = JSON.parse(lastLine || '{}')
+            console.log('[Corpus Index] Python result:', JSON.stringify(result))
             resolve({ 
               success: true, 
               chunks: result.chunks,
               pdfs: result.pdfs,
-              newChunks: result.new_chunks
+              newChunks: result.new_chunks,
+              chunks_per_file: result.chunks_per_file || {} // Include chunks_per_file
             })
           } catch (e) {
             console.error('[Corpus Index] Failed to parse result:', e)
@@ -115,9 +117,33 @@ export async function POST(request: NextRequest) {
 
     if (result.success) {
       // Use stats directly from Python script output (most accurate and immediate)
-      // The Python script already returns the correct counts from ChromaDB
       const pdfCount = result.pdfs || 0
       const chunkCount = result.chunks || 0
+      const chunksPerFile = result.chunks_per_file || {} // Exact counts per file from Qdrant
+      
+      // Mark all PDFs as indexed in database with EXACT chunk counts
+      // Get list of PDF files that were indexed
+      const pdfFileNames = pdfFiles.map(p => path.basename(p))
+      
+      for (const fileName of pdfFileNames) {
+        try {
+          // Use exact count from Qdrant, or 0 if not found
+          const exactChunkCount = chunksPerFile[fileName] || 0
+          
+          console.log(`[Corpus Index] Updating database for ${fileName}: chunksPerFile =`, chunksPerFile, `exactChunkCount =`, exactChunkCount)
+          
+          await markCorpusFileAsIndexed(
+            classId,
+            fileName,
+            materialType as 'class_material' | 'syllabus',
+            exactChunkCount
+          )
+          console.log(`[Corpus Index] ✅ Marked ${fileName} as indexed with ${exactChunkCount} chunks (exact count)`)
+        } catch (error) {
+          console.error(`[Corpus Index] ❌ Failed to mark ${fileName} as indexed:`, error)
+          // Continue - non-critical
+        }
+      }
       
       // Return response immediately, reload vector store asynchronously in background (fire-and-forget)
       ragService.reloadVectorStoreAsync(storePath)
@@ -127,7 +153,7 @@ export async function POST(request: NextRequest) {
         chunks: result.newChunks || result.chunks || 0, // Return new chunks added
         pdfCount,
         chunkCount,
-        message: `Successfully indexed ${result.newChunks || result.chunks || 0} chunks for class: ${cls.name}`
+        message: "PDF indexed successfully"
       })
     } else {
       return NextResponse.json({ 

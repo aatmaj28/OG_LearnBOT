@@ -1,21 +1,17 @@
 services:
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: learnbot-chromadb
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: learnbot-qdrant
     ports:
-      - "8000:8000"
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC API
     volumes:
-      - ./vector-stores/chroma:/chroma/chroma
+      - ./vector-stores/qdrant:/qdrant/storage
     environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-      # Token authentication enabled
-      - CHROMA_SERVER_AUTHN_PROVIDER=chromadb.auth.token_authn.TokenAuthenticationServerProvider
-      - CHROMA_SERVER_AUTHN_CREDENTIALS=test-token
-      - CHROMA_SERVER_AUTHN_CREDENTIALS_PROVIDER=chromadb.auth.token_authn.TokenConfigFile
+      - QDRANT__SERVICE__GRPC_PORT=6334
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
       interval: 30s
       timeout: 10s
       retries: 3
