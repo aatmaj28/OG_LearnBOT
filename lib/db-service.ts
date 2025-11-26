@@ -275,23 +275,23 @@ export const createUser = async (user: Omit<User, 'id' | 'createdAt'>): Promise<
     // Start transaction
     await client.query('BEGIN')
     
-    // Insert user (masked_id will be NULL initially, we'll update it)
+    // Get the next sequence value for user id
+    const seqResult = await client.query("SELECT nextval('users_id_seq') AS next_id")
+    const nextId = seqResult.rows[0].next_id.toString()
+    
+    // Generate masked_id using the next id
+    const maskedId = getMaskedId(nextId)
+    
+    // Insert user with both id and masked_id in a single query
     const result = await client.query(
-      `INSERT INTO users (email, password, name, role, nuid, degree, major) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+      `INSERT INTO users (id, email, password, name, role, nuid, degree, major, masked_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
        RETURNING id, created_at`,
-      [user.email, user.password, user.name, user.role, user.nuid, user.degree, user.major]
+      [nextId, user.email, user.password, user.name, user.role, user.nuid, user.degree, user.major, maskedId]
     )
     
     const row = result.rows[0]
     const userId = row.id.toString()
-    const maskedId = getMaskedId(userId)
-    
-    // Update with masked_id
-    await client.query(
-      'UPDATE users SET masked_id = $1 WHERE id = $2',
-      [maskedId, userId]
-    )
     
     // Commit transaction
     await client.query('COMMIT')
