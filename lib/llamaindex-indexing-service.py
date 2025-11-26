@@ -42,6 +42,73 @@ if _initialization_lock is None:
     _initialization_lock = threading.Lock()
 
 
+def _load_already_processed_files_from_metadata(output_path: str) -> set:
+    """
+    Fallback helper: load list of already-processed files from metadata.json
+    in the given output_path. This is used when Qdrant scroll fails so that
+    we can still avoid re-indexing PDFs that are already in the vector store.
+    """
+    already_processed_files = set()
+    try:
+        metadata_json_path = os.path.join(output_path, "metadata.json")
+        if not os.path.exists(metadata_json_path):
+            return already_processed_files
+
+        with open(metadata_json_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        # metadata is expected to be a list of entries with "source_file"
+        for entry in metadata:
+            source_file = entry.get("source_file")
+            if source_file:
+                already_processed_files.add(source_file)
+
+        print(
+            f"[LlamaIndex] Fallback: loaded {len(already_processed_files)} already processed files from metadata.json",
+            file=sys.stderr,
+        )
+    except Exception as e:
+        print(
+            f"[LlamaIndex] Warning: Failed to load already processed files from metadata.json: {e}",
+            file=sys.stderr,
+        )
+
+    return already_processed_files
+
+
+def _get_chunks_per_file_from_metadata(output_path: str) -> dict:
+    """
+    Helper: compute exact chunk counts per file from metadata.json.
+    Returns a dict: {source_file: count}
+    """
+    chunks_per_file: dict = {}
+    try:
+        metadata_json_path = os.path.join(output_path, "metadata.json")
+        if not os.path.exists(metadata_json_path):
+            return chunks_per_file
+
+        with open(metadata_json_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        for entry in metadata:
+            source_file = entry.get("source_file")
+            if not source_file:
+                continue
+            chunks_per_file[source_file] = chunks_per_file.get(source_file, 0) + 1
+
+        print(
+            f"[LlamaIndex] Loaded chunk counts per file from metadata.json: {chunks_per_file}",
+            file=sys.stderr,
+        )
+    except Exception as e:
+        print(
+            f"[LlamaIndex] Warning: Failed to get chunks per file from metadata.json: {e}",
+            file=sys.stderr,
+        )
+
+    return chunks_per_file
+
+
 def get_collection_name(output_path: str) -> str:
     """
     Generate a collection name from the output path.
@@ -213,78 +280,37 @@ def index_pdfs(
             existing_count = 0
             print(f"[LlamaIndex] Created new Qdrant collection: {collection_name}", file=sys.stderr)
         
-        # Check which files are already indexed (by checking metadata in collection)
+        # Check which files are already indexed.
+        # Prefer metadata.json (fast, avoids Qdrant scroll bugs); fall back to Qdrant if needed.
         already_processed_files = set()
         if existing_count > 0:
-            try:
-                # Get all existing points to check source files
-                # Qdrant scroll API to get all points with payload
-                scroll_result = qdrant_client.scroll(
-                    collection_name=collection_name,
-                    limit=10000,  # Adjust if you have more than 10k chunks
-                    with_payload=True,
-                    with_vectors=False
-                )
-                points = scroll_result[0]  # First element is the list of points
-                for point in points:
-                    if point.payload and "source_file" in point.payload:
-                        already_processed_files.add(point.payload["source_file"])
-                print(
-                    f"[LlamaIndex] Found {len(already_processed_files)} already processed files",
-                    file=sys.stderr
-                )
-               
-                # If we have chunks but no PDFs to process, clear all chunks
-                # This handles the case where PDFs were deleted but chunks remain
-                if len(pdf_paths) == 0 and existing_count > 0:
-                    print(f"[LlamaIndex] No PDFs to index but {existing_count} chunks exist. Clearing all chunks...", file=sys.stderr)
-                    # Delete all points in the collection using Filter with match_all
-                    from qdrant_client.models import Filter, FieldCondition, MatchValue
-                    # Delete all points by using a filter that matches everything
-                    # Since we want to delete all, we can use delete with a filter that matches all
-                    # Or we can scroll and delete by IDs
-                    all_point_ids = []
+            metadata_files = _load_already_processed_files_from_metadata(output_path)
+            if metadata_files:
+                already_processed_files = metadata_files
+            else:
+                try:
+                    # Qdrant scroll API to get all points with payload
                     scroll_result = qdrant_client.scroll(
                         collection_name=collection_name,
-                        limit=10000,
-                        with_payload=False,
+                        limit=10000,  # Adjust if you have more than 10k chunks
+                        with_payload=True,
                         with_vectors=False
                     )
-                    all_point_ids = [point.id for point in scroll_result[0]]
-                    if all_point_ids:
-                        qdrant_client.delete(
-                            collection_name=collection_name,
-                            points_selector=all_point_ids
-                        )
-                    print(f"[LlamaIndex] Cleared all {existing_count} chunks", file=sys.stderr)
-                    # Update config
-                    config = {
-                        "class_id": class_id or "",
-                        "class_name": class_name or "",
-                        "embedding_model": EMBEDDING_MODEL,
-                        "dimension": 768,  # nomic-embed-text-v1.5 dimension
-                        "total_chunks": 0,
-                        "total_pdfs": 0,
-                        "chunking_strategy": "SemanticSplitterNodeParser",
-                        "collection_name": collection_name,
-                        "qdrant_url": QDRANT_URL or "local",
-                        "created_at": None
-                    }
-                    configPath = os.path.join(output_path, "config.json")
-                    with open(configPath, "w") as f:
-                        json.dump(config, f, indent=2)
-                    # Clear metadata.json
-                    metadata_json_path = os.path.join(output_path, "metadata.json")
-                    with open(metadata_json_path, "w", encoding="utf-8") as f:
-                        json.dump([], f, ensure_ascii=False, indent=2)
-                    return {
-                        "success": True,
-                        "chunks": 0,
-                        "pdfs": 0,
-                        "new_chunks": 0
-                    }
-            except Exception as e:
-                print(f"[LlamaIndex] Warning: Could not check existing files: {e}", file=sys.stderr)
+                    points = scroll_result[0]  # First element is the list of points
+                    for point in points:
+                        if point.payload and "source_file" in point.payload:
+                            already_processed_files.add(point.payload["source_file"])
+                    print(
+                        f"[LlamaIndex] Found {len(already_processed_files)} already processed files",
+                        file=sys.stderr
+                    )
+                except Exception as e:
+                    print(f"[LlamaIndex] Warning: Could not check existing files via Qdrant scroll: {e}", file=sys.stderr)
+                    # Final fallback: no already-processed info; proceed but may reindex
+                    print(
+                        "[LlamaIndex] Incremental skip-by-filename may be incomplete.",
+                        file=sys.stderr,
+                    )
        
         # Load and process PDFs
         all_documents = []
@@ -334,28 +360,29 @@ def index_pdfs(
             if existing_count > 0:
                 print(f"[LlamaIndex] All PDFs already indexed. Using existing collection with {existing_count} vectors.", file=sys.stderr)
                 
-                # Get exact chunk counts per file from Qdrant
-                exact_chunks_per_file = {}
-                try:
-                    scroll_result = qdrant_client.scroll(
-                        collection_name=collection_name,
-                        limit=10000,
-                        with_payload=True,
-                        with_vectors=False
-                    )
-                    points = scroll_result[0]
-                    
-                    for point in points:
-                        payload = point.payload or {}
-                        source_file = payload.get("source_file", "unknown")
-                        if source_file not in exact_chunks_per_file:
-                            exact_chunks_per_file[source_file] = 0
-                        exact_chunks_per_file[source_file] += 1
-                    
-                    print(f"[LlamaIndex] Exact chunk counts per file: {exact_chunks_per_file}", file=sys.stderr)
-                except Exception as e:
-                    print(f"[LlamaIndex] Warning: Could not get exact counts per file: {e}", file=sys.stderr)
-                    exact_chunks_per_file = {}
+                # Get exact chunk counts per file, preferring metadata.json to avoid scroll issues
+                exact_chunks_per_file = _get_chunks_per_file_from_metadata(output_path)
+                if not exact_chunks_per_file:
+                    try:
+                        scroll_result = qdrant_client.scroll(
+                            collection_name=collection_name,
+                            limit=10000,
+                            with_payload=True,
+                            with_vectors=False
+                        )
+                        points = scroll_result[0]
+                        
+                        for point in points:
+                            payload = point.payload or {}
+                            source_file = payload.get("source_file", "unknown")
+                            if source_file not in exact_chunks_per_file:
+                                exact_chunks_per_file[source_file] = 0
+                            exact_chunks_per_file[source_file] += 1
+                        
+                        print(f"[LlamaIndex] Exact chunk counts per file (from Qdrant): {exact_chunks_per_file}", file=sys.stderr)
+                    except Exception as e:
+                        print(f"[LlamaIndex] Warning: Could not get exact counts per file from Qdrant: {e}", file=sys.stderr)
+                        exact_chunks_per_file = {}
                 
                 # Update config.json with current counts
                 config = {

@@ -96,8 +96,8 @@ import sys
 import os
 import json
 from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-# Get collection name from folder name
 base_path = sys.argv[1]
 deleted_file = sys.argv[2]
 clear_all = sys.argv[3] == "true" if len(sys.argv) > 3 else False
@@ -165,88 +165,59 @@ try:
         print(f"[Qdrant Delete] ERROR: {error_msg}", file=sys.stderr)
         sys.exit(1)
     
-    # Get all points with payload to find ones to delete
-    scroll_result = qdrant_client.scroll(
-        collection_name=collection_name,
-        limit=10000,  # Adjust if you have more than 10k chunks
-        with_payload=True,
-        with_vectors=False
-    )
-    points = scroll_result[0]  # First element is the list of points
-    
-    if not points:
-        print(f'{{"success": true, "chunks_removed": 0, "chunks_remaining": 0}}')
-        sys.exit(0)
-    
-    # Find IDs of chunks to delete
-    ids_to_delete = []
-    total_chunks = len(points)
-    print(f"[Qdrant Delete] Total chunks in collection: {total_chunks}", file=sys.stderr)
-    
+    # Build delete filter instead of scrolling all points (avoids OffsetOutOfBounds bugs)
     if clear_all:
-        # Clear all chunks if no PDFs remain
-        ids_to_delete = [point.id for point in points]
-        print(f"[Qdrant Delete] Clearing ALL chunks (no PDFs remaining)", file=sys.stderr)
+        print(f"[Qdrant Delete] Clearing ALL chunks using match-all filter (no PDFs remaining)", file=sys.stderr)
+        delete_selector = Filter(must=[])
     else:
-        # Find chunks from the specific deleted file
-        print(f"[Qdrant Delete] Looking for chunks from file: {deleted_file}", file=sys.stderr)
-        for point in points:
-            payload = point.payload or {}
-            if payload.get("source_file") == deleted_file:
-                ids_to_delete.append(point.id)
-            else:
-                print(f"[Qdrant Delete] Found chunk from: {payload.get('source_file', 'unknown')}", file=sys.stderr)
+        print(f"[Qdrant Delete] Deleting chunks for file: {deleted_file} using payload filter", file=sys.stderr)
+        delete_selector = Filter(
+            must=[FieldCondition(key="source_file", match=MatchValue(value=deleted_file))]
+        )
     
-    chunks_removed = len(ids_to_delete)
-    print(f"[Qdrant Delete] Found {chunks_removed} chunks to delete", file=sys.stderr)
-    
-    if chunks_removed > 0:
-        # Delete chunks from collection
+    # Delete points that match the selector
+    try:
         qdrant_client.delete(
             collection_name=collection_name,
-            points_selector=ids_to_delete
+            points_selector=delete_selector
         )
-        print(f"[Qdrant Delete] Successfully removed {chunks_removed} chunks", file=sys.stderr)
-    else:
-        print(f"[Qdrant Delete] WARNING: No chunks found to delete", file=sys.stderr)
+        print(f"[Qdrant Delete] Delete request sent to Qdrant", file=sys.stderr)
+    except Exception as e:
+        error_msg = f"Delete operation failed: {str(e)}"
+        print(f'{{"success": false, "error": "{error_msg}"}}')
+        print(f"[Qdrant Delete] ERROR: {error_msg}", file=sys.stderr)
+        sys.exit(1)
     
     # Get updated count
     collection_info = qdrant_client.get_collection(collection_name)
     remaining_count = collection_info.points_count
     
-    # Update metadata.json
+    # Update metadata.json by filtering out entries for the deleted file (no Qdrant scroll)
     meta_json_path = os.path.join(base_path, "metadata.json")
-    if remaining_count > 0:
-        # Get remaining points
-        remaining_scroll = qdrant_client.scroll(
-            collection_name=collection_name,
-            limit=10000,
-            with_payload=True,
-            with_vectors=False
-        )
-        remaining_points = remaining_scroll[0]
-        
-        if remaining_points:
-            new_metadata = []
-            for i, point in enumerate(remaining_points):
-                payload = point.payload or {}
-                new_metadata.append({
-                    "source_file": payload.get("source_file", ""),
-                    "chunk_index": i,
-                    "chunk_text": payload.get("text", ""),
-                    "section_title": payload.get("section_title", "")
-                })
+    try:
+        if clear_all or remaining_count == 0:
+            with open(meta_json_path, 'w', encoding='utf-8') as f:
+                json.dump([], f)
+        else:
+            existing_metadata = []
+            if os.path.exists(meta_json_path):
+                try:
+                    with open(meta_json_path, 'r', encoding='utf-8') as f:
+                        existing_metadata = json.load(f)
+                except Exception as e:
+                    print(f"[Qdrant Delete] WARNING: Failed to read existing metadata.json: {e}", file=sys.stderr)
+                    existing_metadata = []
+            
+            # Keep all chunks except those from the deleted file
+            new_metadata = [
+                entry for entry in existing_metadata
+                if entry.get("source_file") != deleted_file
+            ]
             
             with open(meta_json_path, 'w', encoding='utf-8') as f:
                 json.dump(new_metadata, f, ensure_ascii=False, indent=2)
-        else:
-            # If no points, create empty array
-            with open(meta_json_path, 'w', encoding='utf-8') as f:
-                json.dump([], f)
-    else:
-        # No chunks left, create empty metadata.json
-        with open(meta_json_path, 'w', encoding='utf-8') as f:
-            json.dump([], f)
+    except Exception as e:
+        print(f"[Qdrant Delete] WARNING: Failed to update metadata.json: {e}", file=sys.stderr)
     
     # Update config.json with new count
     if os.path.exists(config_path):
@@ -273,7 +244,8 @@ try:
         except:
             pass
     
-    print(f'{{"success": true, "chunks_removed": {chunks_removed}, "chunks_remaining": {remaining_count}}}')
+    # We may not know exact removed count without a scroll; report remaining_count accurately
+    print(f'{{"success": true, "chunks_removed": null, "chunks_remaining": {remaining_count}}}')
     
 except Exception as e:
     import traceback
@@ -433,6 +405,7 @@ import sys
 import os
 import json
 from qdrant_client import QdrantClient
+from qdrant_client.models import Filter
 
 base_path = sys.argv[1]
 
@@ -449,6 +422,7 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 # Qdrant persist directory - try to read from config.json first
 config_path = os.path.join(base_path, "config.json")
 qdrant_persist_dir = None
+initial_points_count = 0
 
 if os.path.exists(config_path):
     try:
@@ -488,34 +462,24 @@ try:
     collection_exists = False
     try:
         collection_info = qdrant_client.get_collection(collection_name)
-        print(f"[Qdrant Clear] Connected to collection: {collection_name} ({collection_info.points_count} vectors)", file=sys.stderr)
+        initial_points_count = collection_info.points_count
+        print(f"[Qdrant Clear] Connected to collection: {collection_name} ({initial_points_count} vectors)", file=sys.stderr)
         collection_exists = True
     except Exception as e:
         print(f"[Qdrant Clear] Collection '{collection_name}' not found (may be old data): {str(e)}", file=sys.stderr)
         # Continue - we'll still clear config.json and metadata.json
     
-    # Get all IDs and delete everything from Qdrant (if collection exists)
-    total_chunks = 0
+    # Delete everything from Qdrant collection using a match-all filter (no scroll needed)
+    total_chunks = initial_points_count
     if collection_exists:
         try:
-            # Scroll to get all point IDs
-            scroll_result = qdrant_client.scroll(
-                collection_name=collection_name,
-                limit=10000,
-                with_payload=False,
-                with_vectors=False
-            )
-            points = scroll_result[0]
-            total_chunks = len(points)
-            print(f"[Qdrant Clear] Found {total_chunks} chunks in Qdrant collection", file=sys.stderr)
-            
             if total_chunks > 0:
-                point_ids = [point.id for point in points]
+                # Use delete with an empty Filter (match-all) to avoid scroll-related bugs
                 qdrant_client.delete(
                     collection_name=collection_name,
-                    points_selector=point_ids
+                    points_selector=Filter(must=[])
                 )
-                print(f"[Qdrant Clear] Successfully cleared all {total_chunks} chunks from Qdrant", file=sys.stderr)
+                print(f"[Qdrant Clear] Successfully cleared all {total_chunks} chunks from Qdrant using match-all filter", file=sys.stderr)
             else:
                 print(f"[Qdrant Clear] Qdrant collection is already empty", file=sys.stderr)
         except Exception as e:
