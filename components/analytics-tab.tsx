@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
@@ -38,25 +38,6 @@ export function AnalyticsTab() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [selectedStudent, setSelectedStudent] = useState<string>("")
 
-  useEffect(() => {
-    loadClasses()
-  }, [])
-
-  useEffect(() => {
-    if (selectedClassId) {
-      loadAnalytics()
-      setSelectedStudent("") // Reset student selection when class changes
-    }
-  }, [selectedClassId])
-
-  useEffect(() => {
-    // Auto-select first student when analytics load
-    if (analytics && analytics.studentEngagement.length > 0 && !selectedStudent) {
-      setSelectedStudent(analytics.studentEngagement[0].name)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analytics])
-
   const loadClasses = async () => {
     const facultyId = localStorage.getItem("userId")
     if (!facultyId) return
@@ -75,7 +56,7 @@ export function AnalyticsTab() {
     }
   }
 
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     if (!selectedClassId) return
 
     try {
@@ -87,7 +68,39 @@ export function AnalyticsTab() {
     } catch (error) {
       console.error("[v0] Failed to load analytics:", error)
     }
-  }
+  }, [selectedClassId])
+
+  useEffect(() => {
+    loadClasses()
+  }, [])
+
+  useEffect(() => {
+    if (selectedClassId) {
+      loadAnalytics()
+      setSelectedStudent("") // Reset student selection when class changes
+    }
+  }, [selectedClassId, loadAnalytics])
+
+  useEffect(() => {
+    // Auto-select first student when analytics load
+    if (analytics && analytics.studentEngagement.length > 0 && !selectedStudent) {
+      setSelectedStudent(analytics.studentEngagement[0].name)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analytics])
+
+  // Auto-refresh analytics every 15 minutes (matching background worker interval)
+  useEffect(() => {
+    if (!selectedClassId) return
+
+    // Set up interval to refresh analytics every 15 minutes
+    const refreshInterval = setInterval(() => {
+      loadAnalytics()
+    }, 15 * 60 * 1000) // 15 minutes = 900,000 ms
+
+    // Cleanup interval on unmount or when class changes
+    return () => clearInterval(refreshInterval)
+  }, [selectedClassId, loadAnalytics])
 
   const SENTIMENT_COLORS = {
     Positive: "#10b981", // Green

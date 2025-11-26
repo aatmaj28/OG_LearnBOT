@@ -6,7 +6,45 @@ import type { ModelBackend } from "@/lib/types"
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, userId, sessionId, classId, chatType, preferredModel, stream } = await request.json()
+    // Check if request is FormData (file upload) or JSON
+    const contentType = request.headers.get('content-type') || ''
+    let message: string
+    let userId: string
+    let sessionId: string
+    let classId: string | undefined
+    let chatType: string | undefined
+    let preferredModel: ModelBackend
+    let stream: boolean
+    let deepThinking: boolean = false
+    let attachments: File[] = []
+
+    if (contentType.includes('multipart/form-data')) {
+      // Handle FormData (file uploads)
+      const formData = await request.formData()
+      message = formData.get('message') as string
+      userId = formData.get('userId') as string
+      sessionId = formData.get('sessionId') as string
+      classId = formData.get('classId') as string | undefined
+      chatType = formData.get('chatType') as string | undefined
+      preferredModel = (formData.get('preferredModel') as ModelBackend) || 'claude'
+      stream = formData.get('stream') === 'true'
+      deepThinking = formData.get('deepThinking') === 'true'
+      
+      // Extract file attachments
+      const attachmentFiles = formData.getAll('attachments') as File[]
+      attachments = attachmentFiles.filter(file => file && file.size > 0)
+    } else {
+      // Handle JSON
+      const body = await request.json()
+      message = body.message
+      userId = body.userId
+      sessionId = body.sessionId
+      classId = body.classId
+      chatType = body.chatType
+      preferredModel = body.preferredModel || 'claude'
+      stream = body.stream || false
+      deepThinking = body.deepThinking || false
+    }
 
     if (!message) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 })
@@ -36,7 +74,9 @@ export async function POST(request: NextRequest) {
                   userId,
                   classId,
                   preferredModel as ModelBackend,
-                  chatType || 'class_material' // Default to class_material if not specified
+                  chatType || 'class_material', // Default to class_material if not specified
+                  deepThinking,
+                  attachments
                 )) {
                   // Check if controller is already closed
                   if (streamClosed) {
@@ -117,7 +157,9 @@ export async function POST(request: NextRequest) {
           userId, 
           classId,
           preferredModel as ModelBackend,
-          chatType || 'class_material' // Default to class_material if not specified
+          chatType || 'class_material', // Default to class_material if not specified
+          deepThinking,
+          attachments
         )
         
         // The RAG system already saves the message to the conversation

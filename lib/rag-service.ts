@@ -152,12 +152,61 @@ const getPostCheckpointInstructions = (taMode: TAMode = 'normal'): string => {
   return prompts.getPostCheckpointInstructions()
 }
 
-// Main function to build complete prompt based on checkpoint state and TA mode
-const getSystemPrompt = (classId?: string, checkpointState?: any, taMode: TAMode = 'normal'): string => {
+/**
+ * Determine if model fallback is needed due to image attachments
+ * Claude API supports images, but Blackwell and A6000 do not
+ */
+const shouldFallbackToClaudeForImages = (
+  attachments: File[],
+  preferredModel: ModelBackend
+): boolean => {
+  if (!attachments || attachments.length === 0) {
+    return false
+  }
+  
+  // Check if any attachment is an image
+  const hasImages = attachments.some(file => file.type.startsWith('image/'))
+  
+  // If images are present and model is not Claude, need to fallback
+  if (hasImages && preferredModel !== 'claude') {
+    return true
+  }
+  
+  return false
+}
+
+/**
+ * Get the effective model to use, considering attachment requirements
+ */
+const getEffectiveModel = (
+  attachments: File[],
+  preferredModel: ModelBackend
+): ModelBackend => {
+  if (shouldFallbackToClaudeForImages(attachments, preferredModel)) {
+    console.log(`[RAG] Image attachment detected with ${preferredModel} - falling back to Claude API for image support`)
+    return 'claude'
+  }
+  return preferredModel
+}
+
+// Main function to build complete prompt based on checkpoint state, TA mode, Deep Thinking, and Attachments
+const getSystemPrompt = (
+  classId?: string, 
+  checkpointState?: any, 
+  taMode: TAMode = 'normal',
+  deepThinking: boolean = false,
+  attachments: File[] = []
+): string => {
   // Always include universal instructions
   let systemPrompt = getUniversalInstructions(classId, taMode)
   
   // Add ONLY the active checkpoint instructions
+  const isCheckpointContext = checkpointState && (
+    !checkpointState.checkpoint_1_passed ||
+    !checkpointState.checkpoint_2_passed ||
+    !checkpointState.checkpoint_3_passed
+  )
+  
   if (!checkpointState) {
     // Default: Start at Checkpoint 1
     systemPrompt += '\n\n' + getCheckpoint1Instructions(taMode)
@@ -173,6 +222,30 @@ const getSystemPrompt = (classId?: string, checkpointState?: any, taMode: TAMode
   } else {
     // All checkpoints complete - calculation support
     systemPrompt += '\n\n' + getPostCheckpointInstructions(taMode)
+  }
+  
+  // Enhance with Deep Thinking Mode if enabled
+  if (deepThinking) {
+    const { enhancePromptWithDeepThinking } = require('./prompts')
+    systemPrompt = enhancePromptWithDeepThinking(systemPrompt, isCheckpointContext)
+    console.log(`[RAG] Deep Thinking Mode enabled - combining with ${taMode} TA mode`)
+  }
+  
+  // Add attachment handling instructions if attachments are present
+  // Pass deepThinking flag so attachment instructions can be enhanced for Deep Thinking Mode
+  if (attachments && attachments.length > 0) {
+    const { getAttachmentHandlingInstructions } = require('./prompts')
+    const attachmentInfo = attachments.map(file => ({
+      name: file.name,
+      type: file.type
+    }))
+    const attachmentInstructions = getAttachmentHandlingInstructions(attachmentInfo, deepThinking)
+    systemPrompt += attachmentInstructions
+    console.log(`[RAG] Attachment handling instructions added for ${attachments.length} attachment(s)${deepThinking ? ' (with Deep Thinking Mode)' : ''}`)
+  } else {
+    // Explicitly note no attachments (optional, but helps AI know not to look for them)
+    const { getNoAttachmentInstructions } = require('./prompts')
+    systemPrompt += getNoAttachmentInstructions()
   }
   
   return systemPrompt
@@ -552,8 +625,31 @@ export class RAGService extends EventEmitter {
       
       console.log('[RAG] Using LlamaIndex-based RAG service at:', persistentScriptPath)
       
-      this.pythonProcess = spawn('python', [persistentScriptPath], {
-        stdio: ['pipe', 'pipe', 'pipe']
+      // Determine Python executable to use (prefer venv if available)
+      let pythonExecutable = 'python'
+      const venvPythonPath = process.platform === 'win32' 
+        ? path.join(process.cwd(), 'venv', 'Scripts', 'python.exe')
+        : path.join(process.cwd(), 'venv', 'bin', 'python')
+      
+      if (fs.existsSync(venvPythonPath)) {
+        pythonExecutable = venvPythonPath
+        console.log('[RAG] Using venv Python interpreter:', pythonExecutable)
+      } else {
+        // Check if PYTHON_PATH environment variable is set
+        if (process.env.PYTHON_PATH) {
+          pythonExecutable = process.env.PYTHON_PATH
+          console.log('[RAG] Using Python interpreter from PYTHON_PATH:', pythonExecutable)
+        } else {
+          console.log('[RAG] Using system Python interpreter (venv not found, using PATH)')
+        }
+      }
+      
+      this.pythonProcess = spawn(pythonExecutable, ['-u', persistentScriptPath], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PYTHONUNBUFFERED: '1'  // Force unbuffered output for immediate log visibility
+        }
       })
       
       if (this.pythonProcess.pid) {
@@ -712,10 +808,41 @@ export class RAGService extends EventEmitter {
     }
   }
 
-  async addMessage(conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any): Promise<void> {
+  // Helper function to convert File[] to ChatAttachment[]
+  private async convertFilesToAttachments(files: File[]): Promise<Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }>> {
+    const chatAttachments: Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }> = []
+    
+    for (const file of files) {
+      try {
+        const arrayBuffer = await file.arrayBuffer()
+        const buffer = Buffer.from(arrayBuffer)
+        const base64 = buffer.toString('base64')
+        const dataUrl = `data:${file.type};base64,${base64}`
+        
+        const isImage = file.type.startsWith('image/')
+        chatAttachments.push({
+          type: isImage ? 'image' : 'file',
+          url: dataUrl,
+          name: file.name,
+          mimeType: file.type,
+          size: file.size,
+          thumbnailUrl: isImage ? dataUrl : undefined
+        })
+      } catch (error) {
+        console.error(`[RAG] Failed to convert attachment ${file.name}:`, error)
+      }
+    }
+    
+    return chatAttachments
+  }
+
+  async addMessage(conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any, attachments?: Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }>): Promise<void> {
     try {
       console.log(`[RAG] Adding ${role} message to conversation ${conversationId}:`, content.substring(0, 100) + '...')
-      await addRAGMessage(conversationId, role, content, metadata)
+      if (attachments && attachments.length > 0) {
+        console.log(`[RAG] Message includes ${attachments.length} attachment(s)`)
+      }
+      await addRAGMessage(conversationId, role, content, metadata, attachments)
       console.log(`[RAG] Successfully added ${role} message to conversation ${conversationId}`)
     } catch (error) {
       console.error('Failed to add message:', error)
@@ -760,7 +887,9 @@ export class RAGService extends EventEmitter {
     userId: string,
     classId?: string,
     preferredModel?: ModelBackend,
-    chatType: 'class_material' | 'syllabus' = 'class_material'
+    chatType: 'class_material' | 'syllabus' = 'class_material',
+    deepThinking: boolean = false,
+    attachments: File[] = []
   ): Promise<RAGResponse> {
     try {
       let conversation = await this.getConversation(conversationId)
@@ -772,8 +901,11 @@ export class RAGService extends EventEmitter {
         }
       }
 
-      // Store original query for database (with PII)
-      await this.addMessage(conversationId, 'user', query)
+      // Convert File[] to ChatAttachment[] for storage
+      const chatAttachments = attachments.length > 0 ? await this.convertFilesToAttachments(attachments) : undefined
+
+      // Store original query for database (with PII and attachments)
+      await this.addMessage(conversationId, 'user', query, undefined, chatAttachments)
 
       if (conversation.message_history.length === 1) {
         const title = this.generateChatTitle(query)
@@ -789,7 +921,7 @@ export class RAGService extends EventEmitter {
       if (this.isInitialized) {
         try {
           console.log(`[RAG] Attempting RAG response with vector store... (chatType: ${chatType})`)
-          ragResponse = await this.callPythonRAGSystem(maskedQuery, conversationId, userId, classId, preferredModel, undefined, chatType)
+          ragResponse = await this.callPythonRAGSystem(maskedQuery, conversationId, userId, classId, preferredModel, undefined, chatType, deepThinking, attachments)
           ragResponse.mode = 'rag'
           console.log('[RAG] ✅ RAG response successful')
         } catch (ragError) {
@@ -799,14 +931,14 @@ export class RAGService extends EventEmitter {
           try {
             // Mask PII in message history as well
             const maskedHistory = maskPIIInHistory(conversation.message_history)
-            ragResponse = await this.callPureLLM(maskedQuery, conversationId, userId, maskedHistory, classId, preferredModel, chatType)
+            ragResponse = await this.callPureLLM(maskedQuery, conversationId, userId, maskedHistory, classId, preferredModel, chatType, deepThinking)
             ragResponse.mode = 'llm_fallback'
             console.log('[RAG] ✅ LLM fallback response successful')
           } catch (llmError) {
             console.error('[RAG] ❌ LLM fallback also failed:', llmError)
             ragResponse = {
               conversation_id: conversationId,
-              response: "I'm having trouble generating a response right now. Please check that at least one LLM backend is available (Claude API key configured, Remote Ollama tunnel active, or Local Ollama running).",
+              response: "I'm having trouble generating a response right now. Please check that at least one LLM backend is available (Claude API key configured or Remote Ollama/Blackwell tunnel active).",
               guard_result: {},
               retrieval_result: { results: [], content_found: false },
               leak_detected: false,
@@ -821,14 +953,14 @@ export class RAGService extends EventEmitter {
         try {
           // Mask PII in message history as well
           const maskedHistory = maskPIIInHistory(conversation.message_history)
-          ragResponse = await this.callPureLLM(maskedQuery, conversationId, userId, maskedHistory, classId, preferredModel, chatType)
+            ragResponse = await this.callPureLLM(maskedQuery, conversationId, userId, maskedHistory, classId, preferredModel, chatType, deepThinking)
           ragResponse.mode = 'llm_fallback'
           console.log('[RAG] ✅ LLM fallback response successful')
         } catch (llmError) {
           console.error('[RAG] ❌ LLM fallback failed:', llmError)
           ragResponse = {
             conversation_id: conversationId,
-            response: "I'm having trouble generating a response right now. Please check that at least one LLM backend is available (Claude API key configured, Remote Ollama tunnel active, or Local Ollama running).",
+            response: "I'm having trouble generating a response right now. Please check that at least one LLM backend is available (Claude API key configured or Remote Ollama/Blackwell tunnel active).",
             guard_result: {},
             retrieval_result: { results: [], content_found: false },
             leak_detected: false,
@@ -861,7 +993,9 @@ export class RAGService extends EventEmitter {
     userId: string,
     classId?: string,
     preferredModel?: ModelBackend,
-    chatType: 'class_material' | 'syllabus' = 'class_material'
+    chatType: 'class_material' | 'syllabus' = 'class_material',
+    deepThinking: boolean = false,
+    attachments: File[] = []
   ): AsyncGenerator<{content: string, done: boolean, modelUsed?: ModelBackend, error?: string}> {
     if (!this.isInitialized) {
       console.log('[RAG Streaming] RAG not initialized, using pure LLM fallback with checkpoint tracking...')
@@ -877,8 +1011,11 @@ export class RAGService extends EventEmitter {
           }
         }
 
-        // Store original query for database (with PII)
-        await this.addMessage(conversationId, 'user', query)
+        // Convert File[] to ChatAttachment[] for storage
+        const chatAttachments = attachments.length > 0 ? await this.convertFilesToAttachments(attachments) : undefined
+
+        // Store original query for database (with PII and attachments)
+        await this.addMessage(conversationId, 'user', query, undefined, chatAttachments)
 
         if (conversation.message_history.length === 1) {
           const title = this.generateChatTitle(query)
@@ -889,7 +1026,7 @@ export class RAGService extends EventEmitter {
         const maskedQuery = maskPII(query)
         const maskedHistory = maskPIIInHistory(conversation.message_history)
         console.log('[RAG Streaming] PII masking applied to query')
-        const llmResponse = await this.callPureLLM(maskedQuery, conversationId, userId, maskedHistory, classId, preferredModel, chatType)
+        const llmResponse = await this.callPureLLM(maskedQuery, conversationId, userId, maskedHistory, classId, preferredModel, chatType, deepThinking)
         
         // Always append checkpoint update line for class_material chats (matching Python RAG server behavior)
         // Use the checkpoint state from the response (which reflects any updates from the LLM)
@@ -948,8 +1085,11 @@ export class RAGService extends EventEmitter {
         }
       }
 
-      // Store original query for database (with PII)
-      await this.addMessage(conversationId, 'user', query)
+      // Convert File[] to ChatAttachment[] for storage
+      const chatAttachments = attachments.length > 0 ? await this.convertFilesToAttachments(attachments) : undefined
+
+      // Store original query for database (with PII and attachments)
+      await this.addMessage(conversationId, 'user', query, undefined, chatAttachments)
 
       if (conversation.message_history.length === 1) {
         const title = this.generateChatTitle(query)
@@ -988,7 +1128,10 @@ export class RAGService extends EventEmitter {
         }
       }
       
-      const systemPrompt = isSyllabus ? getSyllabusSystemPrompt() : getSystemPrompt(classId, checkpointState, taMode)
+      // Determine effective model (fallback to Claude if images are attached and model doesn't support them)
+      const effectiveModel = getEffectiveModel(attachments, preferredModel || 'claude')
+      
+      const systemPrompt = isSyllabus ? getSyllabusSystemPrompt() : getSystemPrompt(classId, checkpointState, taMode, deepThinking, attachments)
       let fullResponse = ''
       let modelUsed: ModelBackend | undefined
       const requestId = `req_${this.requestCounter++}_${Date.now()}`
@@ -1011,9 +1154,11 @@ export class RAGService extends EventEmitter {
           conversationId,
           userId,
           classId,
-          preferredModel,
+          effectiveModel,  // Use effective model (may fallback to Claude for images)
           requestId,
-          chatType
+          chatType,
+          deepThinking,
+          attachments
         ).then((result) => {
           pythonResult = result
           pythonFinished = true
@@ -1180,7 +1325,6 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import requests
 
 # Configuration
-LOCAL_OLLAMA_URL = "http://localhost:11434"
 REMOTE_OLLAMA_URL = "${process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'}"
 REMOTE_OLLAMA_MODEL = "${process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'}"
 REMOTE_BLACKWELL_URL = "${process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'}"
@@ -1188,7 +1332,7 @@ REMOTE_BLACKWELL_MODEL = "${process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = "${process.env.ENABLE_LLM_GUARDS || 'true'}".lower() == 'true'
 ANTHROPIC_API_KEY = "${process.env.ANTHROPIC_API_KEY || ''}"
-EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"  # Balanced: faster than nomic, better quality than MiniLM
+EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"  # Better for academic PDFs: longer context, better formula handling
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 ENABLE_RERANKING = "${process.env.ENABLE_RERANKING || 'false'}".lower() == 'true'
 TOP_K_INITIAL = 10
@@ -3274,7 +3418,9 @@ if __name__ == "__main__":
     classId?: string,
     preferredModel?: ModelBackend,
     providedRequestId?: string,
-    chatType: 'class_material' | 'syllabus' = 'class_material'
+    chatType: 'class_material' | 'syllabus' = 'class_material',
+    deepThinking: boolean = false,
+    attachments: File[] = []
   ): Promise<RAGResponse> {
     return new Promise(async (resolve, reject) => {
       try {
@@ -3304,9 +3450,12 @@ if __name__ == "__main__":
           }
         }
         
+        // Determine effective model (fallback to Claude if images are attached and model doesn't support them)
+        const effectiveModel = getEffectiveModel(attachments, preferredModel || 'claude')
+        
         const systemPromptContent = isSyllabus 
           ? getSyllabusSystemPrompt()
-          : getSystemPrompt(classId, conversation?.checkpointState, taMode)
+          : getSystemPrompt(classId, conversation?.checkpointState, taMode, deepThinking, attachments)
         
         const messageHistory = conversation?.messageHistory || []
         
@@ -3334,6 +3483,29 @@ if __name__ == "__main__":
         
         const requestId = providedRequestId || `req_${this.requestCounter++}_${Date.now()}`
         
+        // Process attachments (convert to base64 for now, Python backend will handle processing)
+        const attachmentData: Array<{ name: string; type: string; data: string }> = []
+        console.log(`[RAG] 📎 Processing ${attachments.length} attachment(s) for Python backend`)
+        for (const file of attachments) {
+          try {
+            const arrayBuffer = await file.arrayBuffer()
+            const buffer = Buffer.from(arrayBuffer)
+            const base64 = buffer.toString('base64')
+            const fileType = file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'PDF' : 'document'
+            console.log(`[RAG] 📎 Attachment: ${file.name} (${fileType}, ${(file.size / 1024).toFixed(2)} KB) - converted to base64`)
+            attachmentData.push({
+              name: file.name,
+              type: file.type,
+              data: base64
+            })
+          } catch (error) {
+            console.error(`[RAG] ❌ Failed to process attachment ${file.name}:`, error)
+          }
+        }
+        if (attachmentData.length > 0) {
+          console.log(`[RAG] ✅ ${attachmentData.length} attachment(s) ready to send to Python backend`)
+        }
+        
         const request = {
           request_id: requestId,
           query: maskedQuery,
@@ -3341,10 +3513,12 @@ if __name__ == "__main__":
           user_id: userId,
           vector_store_path: vectorStorePath.replace(/\\/g, '\\\\'),
           system_prompt: systemPromptContent,
-          preferred_model: preferredModel || (isSyllabus ? 'claude' : 'claude'),  // Default to Claude for best quality
+          preferred_model: effectiveModel || (isSyllabus ? 'claude' : 'claude'),  // Use effective model (may fallback to Claude for images)
           message_history: maskedHistory,
           checkpoint_state: checkpointState,
-          chat_type: chatType  // Pass chat type to Python for optimized retrieval
+          chat_type: chatType,  // Pass chat type to Python for optimized retrieval
+          deep_thinking: deepThinking,  // Pass deep thinking mode flag
+          attachments: attachmentData  // Pass attachments (base64 encoded)
         }
         
         const requestPromise = new Promise<RAGResponse>((resolveRequest, rejectRequest) => {
@@ -3362,9 +3536,14 @@ if __name__ == "__main__":
         })
         
         const requestLine = JSON.stringify(request) + '\n'
+        console.log(`[RAG] 📤 Sending request to Python backend (requestId: ${requestId}, attachments: ${attachmentData.length})`)
         this.pythonProcess.stdin?.write(requestLine)
         
         const response = await requestPromise
+        console.log(`[RAG] 📥 Received response from Python backend (requestId: ${requestId})`)
+        if (attachmentData.length > 0) {
+          console.log(`[RAG] ✅ Check Python stderr logs above for attachment extraction status`)
+        }
         
         const ragResponse: RAGResponse = {
           conversation_id: response.conversation_id,
@@ -3402,7 +3581,8 @@ if __name__ == "__main__":
     messageHistory: Array<{ role: 'user' | 'assistant'; content: string; timestamp: Date }>,
     classId?: string,
     preferredModel?: ModelBackend,
-    chatType: 'class_material' | 'syllabus' = 'class_material'
+    chatType: 'class_material' | 'syllabus' = 'class_material',
+    deepThinking: boolean = false
   ): Promise<RAGResponse> {
     try {
       const conversation = await getRAGConversationById(conversationId)
@@ -3424,26 +3604,27 @@ if __name__ == "__main__":
             awaiting_student_response: true
           })
 
-      // SMART CONTEXT: Use last 30 messages + summary of older ones
+      // SMART CONTEXT: Use last 6 messages (3 USER + 3 AI TA) + summary of older ones
       let conversationContext = ''
-      const contextWindowSize = 30
+      const contextWindowSize = 6
       
       if (messageHistory.length > contextWindowSize) {
-        // Summarize older messages
+        // Summarize older messages (everything before last 6)
         const olderMessages = messageHistory.slice(0, -contextWindowSize)
         const summary = summarizeConversationSegment(olderMessages)
         if (summary) {
           conversationContext += summary + '\n\n'
         }
         
-        // Include recent messages in full
+        // Include recent 6 messages in full
         const recentMessages = messageHistory.slice(-contextWindowSize)
         conversationContext += recentMessages
-          .map(msg => `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`)
+          .map(msg => `${msg.role === 'user' ? 'USER' : 'AI TA'}: ${msg.content}`)
           .join('\n\n')
       } else {
+        // Less than 6 messages, include all with proper labels
         conversationContext = messageHistory
-          .map(msg => `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`)
+          .map(msg => `${msg.role === 'user' ? 'USER' : 'AI TA'}: ${msg.content}`)
           .join('\n\n')
       }
       
@@ -3474,7 +3655,7 @@ if __name__ == "__main__":
 
 NOTE: You are running in FALLBACK MODE without access to syllabus documents.
 Provide general guidance but encourage students to check their syllabus.`
-        : getSystemPrompt(classId, checkpointState, taMode) + `
+        : getSystemPrompt(classId, checkpointState, taMode, deepThinking) + `
 
 NOTE: You are currently running in FALLBACK MODE without access to course textbook materials.
 Provide general guidance based on standard principles, but encourage students to consult their textbook.`

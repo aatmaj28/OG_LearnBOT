@@ -38,7 +38,6 @@ import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
 # Configuration from environment variables
-LOCAL_OLLAMA_URL = "http://localhost:11434"
 REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', 'http://localhost:5001/api/generate')
 REMOTE_OLLAMA_MODEL = os.getenv('REMOTE_OLLAMA_MODEL', 'gemma3:27b')
 REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.156.97:8000/v1/chat/completions')
@@ -1009,7 +1008,7 @@ def call_guard_llm(prompt, system_prompt, timeout=30):
         return None
 
 
-def call_llm_with_fallback(prompt, system_prompt, preferred_model):
+def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=None):
     """Call LLM with fallback logic (non-streaming)"""
     import time
     import json
@@ -1039,11 +1038,41 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model):
             clean_system_prompt = sanitize_utf8(system_prompt) if system_prompt else ""
             clean_prompt = sanitize_utf8(prompt) if prompt else ""
             
+            # Build message content - support images if attachments are provided
+            message_content = []
+            
+            # Add text prompt
+            message_content.append({"type": "text", "text": clean_prompt})
+            
+            # Add image attachments if any (Claude API supports images)
+            if attachments:
+                for att in attachments:
+                    att_type = att.get('type', '')
+                    if att_type.startswith('image/'):
+                        att_data = att.get('data', '')
+                        att_name = att.get('name', 'image')
+                        
+                        if att_data:
+                            # Determine media type
+                            media_type = att_type
+                            if not media_type or media_type == 'image':
+                                media_type = 'image/png'  # Default
+                            
+                            message_content.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": att_data
+                                }
+                            })
+                            print(f"   📷 Added image attachment to Claude API: {att_name} ({media_type})", file=sys.stderr)
+            
             payload = {
                 "model": CLAUDE_MODEL_ID,
                 "max_tokens": 4096,
                 "system": clean_system_prompt,
-                "messages": [{"role": "user", "content": clean_prompt}],
+                "messages": [{"role": "user", "content": message_content}],
                 "temperature": 0.2
             }
             
@@ -1053,8 +1082,9 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model):
                 print(f"   ❌ JSON encoding error before API call: {str(json_err)}", file=sys.stderr)
                 clean_system_prompt = clean_system_prompt.encode('ascii', errors='ignore').decode('ascii')
                 clean_prompt = clean_prompt.encode('ascii', errors='ignore').decode('ascii')
+                # Fallback: use text-only if encoding fails
                 payload["system"] = clean_system_prompt
-                payload["messages"][0]["content"] = clean_prompt
+                payload["messages"][0]["content"] = [{"type": "text", "text": clean_prompt}]
             
             response = requests.post(
                 "https://api.anthropic.com/v1/messages",
@@ -1152,6 +1182,8 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model):
             print(f"❌ Blackwell vLLM exception: {str(e)}", file=sys.stderr)
             return None, None
     
+    # Note: Image fallback is already handled in TypeScript, but we respect preferred_model here
+    # If images are present and model doesn't support them, TypeScript will have already changed preferred_model to 'claude'
     if preferred_model == 'claude':
         response_text, model_used = try_claude()
         if not response_text:
@@ -1179,7 +1211,7 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model):
         return None, None, time_taken
 
 
-def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, checkpoint_state=None, chat_type='class_material'):
+def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, checkpoint_state=None, chat_type='class_material', attachments=None):
     """Call LLM with streaming support"""
     import time
     import json
@@ -1211,11 +1243,41 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
             prompt_time = time.time() - prompt_start
             print(f"   ⏱️ LLM Stage 1 (Prompt construction): {prompt_time:.3f}s", file=sys.stderr)
             
+            # Build message content - support images if attachments are provided
+            message_content = []
+            
+            # Add text prompt
+            message_content.append({"type": "text", "text": clean_prompt})
+            
+            # Add image attachments if any (Claude API supports images)
+            if attachments:
+                for att in attachments:
+                    att_type = att.get('type', '')
+                    if att_type.startswith('image/'):
+                        att_data = att.get('data', '')
+                        att_name = att.get('name', 'image')
+                        
+                        if att_data:
+                            # Determine media type
+                            media_type = att_type
+                            if not media_type or media_type == 'image':
+                                media_type = 'image/png'  # Default
+                            
+                            message_content.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": att_data
+                                }
+                            })
+                            print(f"   📷 Added image attachment to Claude API (streaming): {att_name} ({media_type})", file=sys.stderr)
+            
             payload = {
                 "model": CLAUDE_MODEL_ID,
                 "max_tokens": 4096,
                 "system": clean_system_prompt,
-                "messages": [{"role": "user", "content": clean_prompt}],
+                "messages": [{"role": "user", "content": message_content}],
                 "temperature": 0.2,
                 "stream": True
             }
@@ -1223,10 +1285,12 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
             try:
                 json.dumps(payload, ensure_ascii=False)
             except (UnicodeEncodeError, ValueError) as json_err:
+                print(f"   ❌ JSON encoding error before API call: {str(json_err)}", file=sys.stderr)
                 clean_system_prompt = clean_system_prompt.encode('ascii', errors='ignore').decode('ascii')
                 clean_prompt = clean_prompt.encode('ascii', errors='ignore').decode('ascii')
+                # Fallback: use text-only if encoding fails
                 payload["system"] = clean_system_prompt
-                payload["messages"][0]["content"] = clean_prompt
+                payload["messages"][0]["content"] = [{"type": "text", "text": clean_prompt}]
             
             connection_start = time.time()
             response = requests.post(
@@ -1542,6 +1606,220 @@ def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
             'understanding_level': 0,
             'awaiting_student_response': True
         })
+        deep_thinking = request_data.get('deep_thinking', False)  # Deep thinking mode flag
+        attachments = request_data.get('attachments', [])  # File attachments (base64 encoded)
+        
+        # Check if images are present (for model fallback logic)
+        has_images = False
+        image_attachments = []
+        document_attachments = []
+        
+        if attachments:
+            for att in attachments:
+                att_type = att.get('type', '')
+                if att_type.startswith('image/'):
+                    has_images = True
+                    image_attachments.append(att)
+                else:
+                    document_attachments.append(att)
+        
+        # Model fallback: If images are present and preferred_model is not Claude, fallback to Claude
+        # (This is already handled in TypeScript, but we check here too for safety)
+        if has_images and preferred_model != 'claude':
+            print(f"🔄 Image attachment detected with {preferred_model} - falling back to Claude API for image support", file=sys.stderr)
+            preferred_model = 'claude'
+        
+        # Process attachments for text extraction (for non-image attachments or when not using Claude)
+        attachment_text = ""
+        if attachments:
+            print(f"📎 [PYTHON] Processing {len(attachments)} attachment(s) for text extraction", file=sys.stderr)
+            sys.stderr.flush()  # Ensure immediate output
+            for att in attachments:
+                try:
+                    att_name = att.get('name', 'unknown')
+                    att_type = att.get('type', '')
+                    att_data = att.get('data', '')
+                    
+                    print(f"   📎 [PYTHON] Processing attachment: {att_name} (type: {att_type}, data size: {len(att_data)} bytes)", file=sys.stderr)
+                    sys.stderr.flush()
+                    
+                    if att_type.startswith('image/'):
+                        # Images will be handled directly by Claude API in the message content
+                        # For other models, we can't process images, so just note it
+                        if preferred_model != 'claude':
+                            attachment_text += f"\n[Image attachment: {att_name} - cannot process with {preferred_model}, please use Claude API]\n"
+                        print(f"   📷 [PYTHON] Image attachment: {att_name} (will be sent to Claude API)", file=sys.stderr)
+                        sys.stderr.flush()
+                    elif att_type == 'application/pdf':
+                        # Extract text from PDF
+                        print(f"   📄 [PYTHON] Attempting to extract text from PDF: {att_name}", file=sys.stderr)
+                        try:
+                            import base64
+                            import io
+                            decoded = base64.b64decode(att_data)
+                            print(f"   📄 [PYTHON] PDF decoded successfully ({len(decoded)} bytes)", file=sys.stderr)
+                            sys.stderr.flush()
+                            
+                            # Try to extract text from PDF using pypdf (modern) or PyPDF2 (legacy)
+                            pdf_text = ""
+                            pdf_extracted = False
+                            extraction_error = None
+                            
+                            # Try pypdf first (modern package, already in requirements.txt)
+                            try:
+                                from pypdf import PdfReader
+                                pdf_file = io.BytesIO(decoded)
+                                pdf_reader = PdfReader(pdf_file)
+                                
+                                # Check if PDF is encrypted
+                                if pdf_reader.is_encrypted:
+                                    try:
+                                        pdf_reader.decrypt("")  # Try empty password
+                                    except:
+                                        extraction_error = "PDF is encrypted and password-protected"
+                                        print(f"🔒 PDF {att_name} is encrypted and requires a password", file=sys.stderr)
+                                
+                                if not extraction_error:
+                                    pdf_text = ""
+                                    for page_num, page in enumerate(pdf_reader.pages, 1):
+                                        try:
+                                            page_text = page.extract_text()
+                                            if page_text and page_text.strip():
+                                                pdf_text += page_text + "\n"
+                                        except Exception as page_error:
+                                            print(f"⚠️ Error extracting text from page {page_num} of {att_name}: {page_error}", file=sys.stderr)
+                                    
+                                    if pdf_text.strip():
+                                        pdf_extracted = True
+                                        attachment_text += f"\n[PDF content from {att_name}]:\n{pdf_text}\n"
+                                        print(f"✅ [PYTHON] PDF text extracted from {att_name} using pypdf ({len(pdf_text)} chars, {len(pdf_reader.pages)} pages)", file=sys.stderr)
+                                        print(f"   📄 First 200 chars: {pdf_text[:200].replace(chr(10), ' ').replace(chr(13), ' ')}...", file=sys.stderr)
+                                        sys.stderr.flush()
+                                    else:
+                                        extraction_error = "PDF text extraction returned empty (may be image-based or scanned PDF)"
+                                        print(f"⚠️ PDF text extraction returned empty for {att_name} - may be image-based", file=sys.stderr)
+                                        
+                            except ImportError:
+                                # pypdf not available, try PyPDF2 as fallback
+                                try:
+                                    from PyPDF2 import PdfReader
+                                    pdf_file = io.BytesIO(decoded)
+                                    pdf_reader = PdfReader(pdf_file)
+                                    
+                                    # Check if PDF is encrypted
+                                    if pdf_reader.is_encrypted:
+                                        try:
+                                            pdf_reader.decrypt("")  # Try empty password
+                                        except:
+                                            extraction_error = "PDF is encrypted and password-protected"
+                                            print(f"🔒 PDF {att_name} is encrypted and requires a password", file=sys.stderr)
+                                    
+                                    if not extraction_error:
+                                        pdf_text = ""
+                                        for page_num, page in enumerate(pdf_reader.pages, 1):
+                                            try:
+                                                page_text = page.extract_text()
+                                                if page_text and page_text.strip():
+                                                    pdf_text += page_text + "\n"
+                                            except Exception as page_error:
+                                                print(f"⚠️ Error extracting text from page {page_num} of {att_name}: {page_error}", file=sys.stderr)
+                                        
+                                        if pdf_text.strip():
+                                            pdf_extracted = True
+                                            attachment_text += f"\n[PDF content from {att_name}]:\n{pdf_text}\n"
+                                            print(f"✅ [PYTHON] PDF text extracted from {att_name} using PyPDF2 ({len(pdf_text)} chars, {len(pdf_reader.pages)} pages)", file=sys.stderr)
+                                            print(f"   📄 First 200 chars: {pdf_text[:200].replace(chr(10), ' ').replace(chr(13), ' ')}...", file=sys.stderr)
+                                            sys.stderr.flush()
+                                        else:
+                                            extraction_error = "PDF text extraction returned empty (may be image-based or scanned PDF)"
+                                            print(f"⚠️ PDF text extraction returned empty for {att_name} - may be image-based", file=sys.stderr)
+                                except ImportError:
+                                    # Neither library available
+                                    extraction_error = "PDF text extraction libraries not available"
+                                    print(f"⚠️ PDF text extraction not available - neither pypdf nor PyPDF2 installed", file=sys.stderr)
+                            except Exception as pdf_error:
+                                # PDF reading error (corrupted, etc.)
+                                extraction_error = str(pdf_error)
+                                print(f"⚠️ Failed to extract PDF text from {att_name}: {extraction_error}", file=sys.stderr)
+                            
+                            # If extraction failed, add a helpful note to the query
+                            if not pdf_extracted:
+                                error_note = f"\n[PDF attachment: {att_name}"
+                                if extraction_error:
+                                    error_note += f" - {extraction_error}"
+                                else:
+                                    error_note += " - text extraction was not successful"
+                                error_note += ". The PDF may be encrypted, image-based (scanned), or corrupted. Please provide the content in text format or describe what you need help with.]\n"
+                                attachment_text += error_note
+                                
+                        except Exception as e:
+                            print(f"⚠️ Failed to process PDF {att_name}: {e}", file=sys.stderr)
+                            attachment_text += f"\n[PDF attachment: {att_name} - could not process: {str(e)}]\n"
+                    else:
+                        # Try to decode and extract text from other file types
+                        try:
+                            import base64
+                            decoded = base64.b64decode(att_data)
+                            
+                            # Determine file type from extension or MIME type
+                            file_ext = att_name.lower().split('.')[-1] if '.' in att_name else ''
+                            
+                            # For text-based files, decode as UTF-8
+                            if (att_type.startswith('text/') or 
+                                file_ext in ['txt', 'csv', 'json', 'py', 'js', 'ts', 'jsx', 'tsx', 'md', 'xml', 'html', 'css', 'yaml', 'yml', 'sh', 'bat', 'log'] or
+                                att_type in ['application/json', 'application/csv', 'text/csv', 'application/x-python-code']):
+                                
+                                text_content = decoded.decode('utf-8', errors='ignore')
+                                
+                                # Special handling for CSV files
+                                if file_ext == 'csv' or att_type in ['text/csv', 'application/csv']:
+                                    print(f"📊 [PYTHON] CSV file attachment processed: {att_name} ({len(text_content)} chars)", file=sys.stderr)
+                                    attachment_text += f"\n[CSV file content from {att_name}]:\n{text_content}\n"
+                                # Special handling for JSON files
+                                elif file_ext == 'json' or att_type == 'application/json':
+                                    try:
+                                        import json
+                                        json_obj = json.loads(text_content)
+                                        # Pretty print JSON for better readability
+                                        formatted_json = json.dumps(json_obj, indent=2)
+                                        print(f"📋 [PYTHON] JSON file attachment processed: {att_name} ({len(text_content)} chars)", file=sys.stderr)
+                                        attachment_text += f"\n[JSON file content from {att_name}]:\n{formatted_json}\n"
+                                    except json.JSONDecodeError:
+                                        # If JSON parsing fails, just include raw text
+                                        print(f"⚠️ [PYTHON] JSON file {att_name} could not be parsed as valid JSON, including raw text", file=sys.stderr)
+                                        attachment_text += f"\n[JSON file content from {att_name} (raw text)]:\n{text_content}\n"
+                                # Special handling for Python files
+                                elif file_ext == 'py' or att_type == 'application/x-python-code':
+                                    print(f"🐍 [PYTHON] Python file attachment processed: {att_name} ({len(text_content)} chars)", file=sys.stderr)
+                                    attachment_text += f"\n[Python code from {att_name}]:\n{text_content}\n"
+                                # General text files
+                                else:
+                                    print(f"📝 [PYTHON] Text file attachment processed: {att_name} ({len(text_content)} chars, type: {att_type or file_ext})", file=sys.stderr)
+                                    attachment_text += f"\n[File content from {att_name}]:\n{text_content}\n"
+                                sys.stderr.flush()
+                            else:
+                                # Binary or unsupported file type
+                                print(f"⚠️ [PYTHON] Unsupported file type: {att_name} (type: {att_type}, ext: {file_ext}) - cannot extract text", file=sys.stderr)
+                                attachment_text += f"\n[File attachment: {att_name} - type {att_type or file_ext} (binary/unsupported, cannot extract text)]\n"
+                                sys.stderr.flush()
+                        except Exception as e:
+                            print(f"⚠️ [PYTHON] Failed to process attachment {att_name}: {e}", file=sys.stderr)
+                            attachment_text += f"\n[File attachment: {att_name} - could not process: {str(e)}]\n"
+                            sys.stderr.flush()
+                except Exception as e:
+                    print(f"⚠️ Error processing attachment: {e}", file=sys.stderr)
+            
+            # Append attachment text to query (for non-image attachments or when not using Claude)
+            if attachment_text:
+                query = query + "\n\n" + attachment_text
+                attachment_text_length = len(attachment_text)
+                print(f"✅ [PYTHON] Attachment text content appended to query ({attachment_text_length} chars total)", file=sys.stderr)
+                if attachment_text_length > 500:
+                    print(f"   📝 Preview: {attachment_text[:300].replace(chr(10), ' ').replace(chr(13), ' ')}...", file=sys.stderr)
+                sys.stderr.flush()
+            else:
+                print(f"⚠️ [PYTHON] No attachment text to append (extraction may have failed or attachment was image-only)", file=sys.stderr)
+                sys.stderr.flush()
         
         # SYLLABUS-SPECIFIC OPTIMIZATIONS: Only apply to syllabus queries
         is_syllabus = chat_type == 'syllabus'
@@ -1856,22 +2134,27 @@ Rules:
             # Build message history context
             history_text = ""
             if message_history and len(message_history) > 0:
-                context_window_size = 4
+                # Use last 6 messages (3 USER + 3 AI TA) before summarizing
+                context_window_size = 6
                 
                 if len(message_history) > context_window_size:
+                    # Summarize older messages (everything before last 6)
                     older_messages = message_history[:-context_window_size]
                     older_summary = summarize_older_messages(older_messages, is_syllabus)
                     if older_summary:
                         history_text += older_summary + "\n\n"
                     
+                    # Include recent 6 messages in full
                     recent_history = message_history[-context_window_size:]
                 else:
+                    # Less than 6 messages, include all
                     recent_history = message_history
                 
                 # Format history based on chat type
+                # Use consistent labels: "USER" and "AI TA" for both types
                 if is_syllabus:
                     for i, msg in enumerate(recent_history):
-                        role = "Student" if msg.get('role') == 'user' else "You (TA)"
+                        role = "USER" if msg.get('role') == 'user' else "AI TA"
                         content = msg.get('content', '')
                         content_lines = [line for line in content.split('\n') if not line.startswith('CHECKPOINT_UPDATE:')]
                         content = '\n'.join(content_lines).strip()
@@ -1895,7 +2178,7 @@ Rules:
                     }
                     
                     for msg in recent_history:
-                        role = "STUDENT" if msg.get('role') == 'user' else "YOU (ASSISTANT)"
+                        role = "USER" if msg.get('role') == 'user' else "AI TA"
                         content = msg.get('content', '')
                         
                         # Update checkpoint state based on assistant messages
@@ -1929,15 +2212,23 @@ IMPORTANT FORMATTING RULES:
 - Add emojis sparingly (1-2 per response) at the end of sentences to make it engaging, not overwhelming
 - Keep formatting clean and professional"""
             
+            # Deep thinking mode is already integrated into the system prompt from TypeScript
+            # The system_prompt passed from TypeScript already includes deep thinking instructions
+            # if deep_thinking was enabled, so we just use it as-is
+            final_system_prompt = system_prompt
+            if deep_thinking:
+                print(f"🧠 Deep thinking mode enabled (combined with TA mode)", file=sys.stderr)
+            
             # Teaching LLM Stage - Use streaming for real-time response
             llm_start = time.time()
             teaching_response, model_used, llm_time_ms = call_llm_with_streaming(
                 full_prompt,
-                system_prompt,
+                final_system_prompt,
                 preferred_model,
                 request_id,
                 checkpoint_state,
-                chat_type
+                chat_type,
+                attachments  # Pass attachments for image handling in Claude API
             )
             llm_time = time.time() - llm_start
             

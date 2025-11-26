@@ -10,10 +10,13 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LogoutButton } from "@/components/logout-button"
 import { ChatMessage } from "@/components/chat-message"
-import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, PanelLeftClose, PanelLeftOpen, Sun, Moon, Download, Clock, FileText, FolderOpen, ChevronLeft, ChevronRight, X, ExternalLink, Upload, CheckCircle2 } from "lucide-react"
+import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, PanelLeftClose, PanelLeftOpen, Sun, Moon, Download, Clock, FileText, FolderOpen, ChevronLeft, ChevronRight, X, ExternalLink, Upload, CheckCircle2, Mic, MicOff, Paperclip, File, Brain, BrainCircuit } from "lucide-react"
+import { VoiceWave } from "@/components/voice-wave"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import type { RAGConversation, Class, ModelBackend, Assignment, Resource } from "@/lib/types"
+import type { RAGConversation, Class, ModelBackend, Assignment, Resource, ChatAttachment } from "@/lib/types"
+import { speechToText } from "@/lib/speech-to-text"
+import { voiceLogger } from "@/lib/voice-logger"
 
 type ChatType = "class_material" | "syllabus"
 
@@ -194,8 +197,7 @@ export function StudentChatInterface() {
   const [classes, setClasses] = useState<Class[]>([])
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
-    ollamaAvailable: boolean
-  }>({ isAvailable: false, ollamaAvailable: false })
+  }>({ isAvailable: false })
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(256) // Default 256px (w-64)
@@ -226,12 +228,33 @@ export function StudentChatInterface() {
   
   // Download state
   const [isDownloading, setIsDownloading] = useState(false)
+  
+  // Corpus/PDF check state
+  const [hasCorpusPdfs, setHasCorpusPdfs] = useState<boolean | null>(null) // null = checking, true = has PDFs, false = no PDFs
+  const [isCheckingCorpus, setIsCheckingCorpus] = useState(false)
+  
+  // File/Photo Upload state
+  const [attachments, setAttachments] = useState<File[]>([])
+  const [attachmentPreviews, setAttachmentPreviews] = useState<Array<{ file: File; preview: string }>>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Deep Thinking Mode state
+  const [deepThinking, setDeepThinking] = useState(false)
+  
+  // Voice Input state
+  const [isRecording, setIsRecording] = useState(false)
+  const [isVoiceSupported, setIsVoiceSupported] = useState(false)
+  const speechRecognitionRef = useRef<any>(null)
+  const baseInputRef = useRef<string>('') // Store base input before recording
 
   useEffect(() => {
     loadUserData()
     loadClasses()
     loadConversations()
     checkRAGStatus()
+    
+    // Check voice input support
+    setIsVoiceSupported(speechToText.isBrowserSupported())
     
     // Load sidebar state from localStorage
     const savedSidebarState = localStorage.getItem("studentSidebarCollapsed")
@@ -252,6 +275,19 @@ export function StudentChatInterface() {
     const savedDarkMode = localStorage.getItem("studentDarkMode")
     if (savedDarkMode !== null) {
       setIsDarkMode(savedDarkMode === "true")
+    }
+    
+    // Cleanup: stop recording if component unmounts
+    return () => {
+      if (isRecording) {
+        speechToText.stop()
+      }
+      // Clean up preview URLs
+      attachmentPreviews.forEach(({ preview }) => {
+        if (preview.startsWith('blob:')) {
+          URL.revokeObjectURL(preview)
+        }
+      })
     }
     
     // Preload user's classes on mount (after RAG is ready)
@@ -296,8 +332,38 @@ export function StudentChatInterface() {
   useEffect(() => {
     if (selectedClassId) {
       loadConversations()
+      checkCorpusPdfs()
+    } else {
+      setHasCorpusPdfs(null)
     }
-  }, [selectedClassId])
+  }, [selectedClassId, chatType])
+
+  // Check if selected class has PDFs uploaded
+  const checkCorpusPdfs = async () => {
+    if (!selectedClassId || selectedClassId === 'entire-corpus') {
+      // Entire corpus always allows chat (it's a merged corpus)
+      setHasCorpusPdfs(true)
+      return
+    }
+
+    setIsCheckingCorpus(true)
+    try {
+      const response = await fetch(`/api/corpus/stats?classId=${selectedClassId}&materialType=${chatType}`)
+      if (response.ok) {
+        const data = await response.json()
+        const hasPdfs = (data.pdfCount || 0) > 0
+        setHasCorpusPdfs(hasPdfs)
+      } else {
+        // If API fails, assume no PDFs (safer to disable)
+        setHasCorpusPdfs(false)
+      }
+    } catch (error) {
+      console.error('[Student Chat] Failed to check corpus PDFs:', error)
+      setHasCorpusPdfs(false)
+    } finally {
+      setIsCheckingCorpus(false)
+    }
+  }
 
   // Auto-resort conversations when they change (e.g., after updates)
   useEffect(() => {
@@ -355,13 +421,8 @@ export function StudentChatInterface() {
       const ragResponse = await fetch('/api/rag/status')
       const ragData = ragResponse.ok ? await ragResponse.json() : { isAvailable: false }
       
-      // Check Ollama status as fallback
-      const ollamaResponse = await fetch('/api/ollama/status')
-      const ollamaData = ollamaResponse.ok ? await ollamaResponse.json() : { isRunning: false, modelAvailable: false }
-      
       setRagStatus({
-        isAvailable: ragData.isAvailable || false,
-        ollamaAvailable: ollamaData.isRunning && ollamaData.modelAvailable
+        isAvailable: ragData.isAvailable || false
       })
     } catch (error) {
       console.error('Failed to check AI status:', error)
@@ -645,6 +706,226 @@ export function StudentChatInterface() {
     }
   }
 
+  // File Upload Handlers
+  // Helper function to get file category
+  const getFileCategory = (file: File): string => {
+    if (file.type.startsWith('image/')) return 'Image'
+    if (file.type === 'application/pdf') return 'PDF'
+    if (file.type.includes('document') || file.type.includes('word')) return 'Document'
+    
+    // Check by file extension for better accuracy
+    const ext = file.name.toLowerCase().split('.').pop() || ''
+    if (ext === 'csv' || file.type === 'text/csv' || file.type === 'application/csv') return 'CSV'
+    if (ext === 'json' || file.type === 'application/json') return 'JSON'
+    if (ext === 'py' || file.type === 'text/x-python' || file.type === 'application/x-python-code') return 'Python'
+    if (['js', 'jsx'].includes(ext) || file.type === 'text/javascript') return 'JavaScript'
+    if (['ts', 'tsx'].includes(ext) || file.type === 'text/typescript') return 'TypeScript'
+    if (ext === 'md' || file.type === 'text/x-markdown') return 'Markdown'
+    if (ext === 'xml' || file.type === 'text/xml') return 'XML'
+    if (ext === 'html' || file.type === 'text/html') return 'HTML'
+    if (ext === 'css' || file.type === 'text/css') return 'CSS'
+    if (['yaml', 'yml'].includes(ext) || file.type === 'text/yaml' || file.type === 'application/x-yaml') return 'YAML'
+    if (file.type === 'text/plain' || ext === 'txt') return 'Text'
+    
+    return 'File'
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+
+    // Filter valid file types (images and common document types)
+    const validFiles = files.filter(file => {
+      const validTypes = [
+        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+        'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'text/plain', 'text/csv', 'application/csv', 'application/json',
+        'text/x-python', 'application/x-python-code', 'text/javascript', 'text/typescript',
+        'text/x-markdown', 'text/xml', 'text/html', 'text/css', 'text/yaml', 'application/x-yaml'
+      ]
+      return validTypes.includes(file.type) || file.name.match(/\.(jpg|jpeg|png|gif|webp|pdf|doc|docx|txt|csv|json|py|js|ts|jsx|tsx|md|xml|html|css|yaml|yml|sh|bat|log)$/i)
+    })
+
+    if (validFiles.length !== files.length) {
+      toast.error('Some files were skipped. Only images, PDFs, and documents are supported.')
+    }
+
+    if (validFiles.length === 0) return
+
+    // Limit to 5 attachments
+    const newFiles = [...attachments, ...validFiles].slice(0, 5)
+    setAttachments(newFiles)
+
+    // Generate previews for images
+    const newPreviews: Array<{ file: File; preview: string }> = []
+    validFiles.forEach(file => {
+      if (file.type.startsWith('image/')) {
+        const preview = URL.createObjectURL(file)
+        newPreviews.push({ file, preview })
+      } else {
+        // For non-images, we still need an entry for consistency
+        newPreviews.push({ file, preview: '' })
+      }
+    })
+    setAttachmentPreviews(prev => [...prev, ...newPreviews].slice(0, 5))
+
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const removeAttachment = (index: number) => {
+    const fileToRemove = attachments[index]
+    setAttachments(prev => prev.filter((_, i) => i !== index))
+    
+    // Clean up preview URL if it's an image
+    const previewIndex = attachmentPreviews.findIndex(p => p.file === fileToRemove)
+    if (previewIndex !== -1) {
+      const preview = attachmentPreviews[previewIndex].preview
+      if (preview.startsWith('blob:')) {
+        URL.revokeObjectURL(preview)
+      }
+      setAttachmentPreviews(prev => prev.filter((_, i) => i !== previewIndex))
+    }
+  }
+
+  // Voice Input Handlers
+  const startVoiceInput = async () => {
+    voiceLogger.info('[Voice UI] 🎤 startVoiceInput called', { isVoiceSupported, isRecording })
+    
+    if (!isVoiceSupported) {
+      voiceLogger.warn('[Voice UI] ❌ Voice not supported')
+      toast.error('Voice input is not supported in your browser')
+      return
+    }
+
+    if (isRecording) {
+      voiceLogger.info('[Voice UI] ⏹️ Already recording, stopping...')
+      stopVoiceInput()
+      return
+    }
+
+    // Store the current input as base before starting
+    baseInputRef.current = input
+    voiceLogger.info('[Voice UI] 📝 Base input stored', { 
+      base: baseInputRef.current.substring(0, 50),
+      baseLength: baseInputRef.current.length
+    })
+    setIsRecording(true)
+
+    try {
+      voiceLogger.info('[Voice UI] 🚀 Starting speech recognition...')
+      await speechToText.start(
+        (result) => {
+          voiceLogger.info('[Voice UI] 📨 Result callback', {
+            isFinal: result.isFinal,
+            transcript: result.transcript.substring(0, 50),
+            length: result.transcript.length
+          })
+          
+          if (result.isFinal) {
+            // Final result - append to CURRENT base input (not accumulated)
+            // The baseInputRef should already have all previous final results
+            const currentBase = baseInputRef.current || ''
+            
+            // Check if this transcript is already in the base to prevent duplicates
+            const transcriptLower = result.transcript.trim().toLowerCase()
+            const baseLower = currentBase.toLowerCase()
+            
+            // Only append if this transcript is not already in the base
+            let newText: string
+            if (currentBase && baseLower.includes(transcriptLower)) {
+              // Transcript already exists in base, don't duplicate
+              voiceLogger.info('[Voice UI] ⚠️ Final result already in base, skipping duplicate', {
+                base: currentBase.substring(0, 50),
+                transcript: result.transcript.substring(0, 30)
+              })
+              newText = currentBase // Keep existing base
+            } else {
+              // New transcript, append it
+              newText = currentBase 
+                ? `${currentBase} ${result.transcript}`.trim()
+                : result.transcript.trim()
+              voiceLogger.info('[Voice UI] ✅ Final result - appending to base', {
+                base: currentBase.substring(0, 30),
+                new: result.transcript.substring(0, 30),
+                combined: newText.substring(0, 50)
+              })
+            }
+            
+            setInput(newText)
+            baseInputRef.current = newText // Update base for next final result
+            // DON'T stop here - keep listening in continuous mode
+            // Only stop when user clicks stop button
+          } else {
+            // Interim result - show base input + latest interim (will be replaced by next interim or final)
+            const currentBase = baseInputRef.current || ''
+            const displayText = currentBase 
+              ? `${currentBase} ${result.transcript}`.trim()
+              : result.transcript.trim()
+            voiceLogger.info('[Voice UI] ⏳ Interim result - showing', {
+              base: currentBase.substring(0, 30),
+              interim: result.transcript.substring(0, 30),
+              display: displayText.substring(0, 50)
+            })
+            setInput(displayText)
+            // DON'T update baseInputRef for interim results - only for final
+          }
+        },
+        (error) => {
+          voiceLogger.error('[Voice UI] ❌ Error callback', { error })
+          toast.error(error)
+          setIsRecording(false)
+          // Restore base input on error
+          setInput(baseInputRef.current)
+        },
+        {
+          continuous: true, // Keep listening until stopped
+          interimResults: true,
+          lang: 'en-US'
+        }
+      )
+      voiceLogger.info('[Voice UI] ✅ Speech recognition started successfully')
+    } catch (error: any) {
+      voiceLogger.error('[Voice UI] ❌ Exception starting recognition', { error })
+      toast.error(error.message || 'Failed to start voice input')
+      setIsRecording(false)
+      setInput(baseInputRef.current)
+    }
+  }
+
+  const stopVoiceInput = () => {
+    voiceLogger.info('[Voice UI] 🛑 stopVoiceInput called', { isRecording })
+    if (isRecording) {
+      // Don't immediately stop - wait a bit for final results to come through
+      // The recognition will finalize any pending results when stopped
+      setTimeout(() => {
+        speechToText.stop()
+        setIsRecording(false)
+        voiceLogger.info('[Voice UI] ✅ Recording stopped')
+        // Finalize any interim results by updating baseInputRef
+        // The current input may have interim results that need to be finalized
+        if (input && input !== baseInputRef.current) {
+          // If input has changed, it might have interim results
+          // Wait a bit more for final results, then update base
+          setTimeout(() => {
+            baseInputRef.current = input
+            voiceLogger.info('[Voice UI] 📝 Finalized input after stop', { final: input.substring(0, 50) })
+          }, 500)
+        }
+      }, 300) // Small delay to allow final results to process
+    }
+  }
+
+  // Toggle Deep Thinking Mode
+  const toggleDeepThinking = () => {
+    setDeepThinking(prev => !prev)
+    if (!deepThinking) {
+      toast.info('Deep Thinking Mode enabled - AI will provide more detailed analysis')
+    }
+  }
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return
 
@@ -658,7 +939,16 @@ export function StudentChatInterface() {
     }
 
     const userMessage = input.trim()
+    const messageAttachments = attachments // Store attachments before clearing
     setInput("")
+    setAttachments([])
+    // Clean up preview URLs
+    attachmentPreviews.forEach(({ preview }) => {
+      if (preview.startsWith('blob:')) {
+        URL.revokeObjectURL(preview)
+      }
+    })
+    setAttachmentPreviews([])
     setLoading(true)
     // Reset auto-scroll when sending a new message
     shouldAutoScrollRef.current = true
@@ -672,7 +962,14 @@ export function StudentChatInterface() {
       role: "user" as const,
       content: userMessage,
       timestamp: new Date(),
-      metadata: {}
+      metadata: {},
+      attachments: messageAttachments.length > 0 ? messageAttachments.map(file => ({
+        type: (file.type.startsWith('image/') ? 'image' : 'file') as 'image' | 'file',
+        url: '', // Will be set by backend after upload
+        name: file.name,
+        mimeType: file.type,
+        size: file.size
+      })) : undefined
     }
     
     // Update current conversation state immediately
@@ -704,18 +1001,47 @@ export function StudentChatInterface() {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
       
-      const response = await fetch("/api/chat/ai-response", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      // Prepare FormData if we have attachments, otherwise use JSON
+      let requestBody: FormData | string
+      let headers: HeadersInit
+
+      if (messageAttachments.length > 0) {
+        // Use FormData for file uploads
+        const formData = new FormData()
+        formData.append('message', userMessage)
+        formData.append('userId', userId)
+        formData.append('sessionId', currentConversation.id)
+        if (selectedClassId) formData.append('classId', selectedClassId)
+        formData.append('chatType', chatType)
+        formData.append('preferredModel', preferredModel)
+        formData.append('stream', 'true')
+        formData.append('deepThinking', deepThinking.toString())
+        
+        messageAttachments.forEach((file, index) => {
+          formData.append(`attachments`, file)
+        })
+        
+        requestBody = formData
+        headers = {} // Let browser set Content-Type for FormData
+      } else {
+        // Use JSON for text-only messages
+        requestBody = JSON.stringify({
           message: userMessage,
           userId,
           sessionId: currentConversation.id,
           classId: selectedClassId,
           chatType: chatType,
           preferredModel: preferredModel,
-          stream: true, // Enable streaming
-        }),
+          stream: true,
+          deepThinking: deepThinking
+        })
+        headers = { "Content-Type": "application/json" }
+      }
+
+      const response = await fetch("/api/chat/ai-response", {
+        method: "POST",
+        headers,
+        body: requestBody,
         signal: controller.signal
       })
 
@@ -1434,11 +1760,6 @@ export function StudentChatInterface() {
                     <Wifi className={`h-3.5 w-3.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
                     <span className={`text-xs font-medium ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>RAG</span>
                   </div>
-                ) : ragStatus.ollamaAvailable ? (
-                  <div className="flex items-center gap-1.5">
-                    <Wifi className={`h-3.5 w-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
-                    <span className={`text-xs font-medium ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>Ollama</span>
-                  </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <WifiOff className={`h-3.5 w-3.5 ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`} />
@@ -1473,6 +1794,23 @@ export function StudentChatInterface() {
                     <MessageSquare className={`h-10 w-10 ${isDarkMode ? 'text-white' : 'text-blue-600'}`} />
                   </div>
                   <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Start a conversation</h2>
+                  {isCheckingCorpus ? (
+                    <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
+                      Checking corpus...
+                    </p>
+                  ) : hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? (
+                    <>
+                      <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
+                        No PDFs have been uploaded for this class yet. Please ask your faculty to upload course materials before you can start chatting.
+                      </p>
+                      <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-yellow-900/20 border border-yellow-700/50' : 'bg-yellow-50 border border-yellow-200'}`}>
+                        <p className={`text-sm ${isDarkMode ? 'text-yellow-300' : 'text-yellow-800'}`}>
+                          📚 Chat is disabled until course materials (PDFs) are uploaded and indexed.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
                   <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
                     {selectedClassId === 'entire-corpus'
                       ? "Ask me anything across ALL DMSB courses! I'm your universal teaching assistant for the entire business school curriculum."
@@ -1484,12 +1822,14 @@ export function StudentChatInterface() {
                   <Button 
                     size="lg" 
                     onClick={createNewConversation} 
-                    disabled={!selectedClassId}
+                        disabled={!selectedClassId || hasCorpusPdfs === false}
                     className={isDarkMode ? 'bg-white text-black hover:bg-white/90' : ''}
                   >
                     <Plus className="h-5 w-5 mr-2" />
                     New Chat
                   </Button>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1517,6 +1857,7 @@ export function StudentChatInterface() {
                           content={message.content}
                           timestamp={message.timestamp}
                           metadata={message.metadata}
+                          attachments={message.attachments}
                           isDarkMode={isDarkMode}
                         />
                       ))
@@ -1551,27 +1892,195 @@ export function StudentChatInterface() {
                 {/* Input Area */}
                 <div className={`border-t p-6 ${isDarkMode ? 'bg-black border-white/10' : 'bg-white/80 backdrop-blur-sm'}`}>
                   <div className="max-w-4xl mx-auto">
+                    {/* Attachment Previews */}
+                    {attachmentPreviews.length > 0 && (
+                      <div className="mb-3 flex flex-wrap gap-3">
+                        {attachmentPreviews.map(({ file, preview }, index) => {
+                          const isImage = file.type.startsWith('image/')
+                          const category = getFileCategory(file)
+                          const fileSize = formatFileSize(file.size)
+                          
+                          return (
+                            <div 
+                              key={index} 
+                              className={`relative group rounded-lg border overflow-hidden transition-all hover:shadow-md ${
+                                isDarkMode 
+                                  ? 'bg-gray-900 border-gray-700' 
+                                  : 'bg-white border-gray-300'
+                              }`}
+                              style={{ width: isImage ? '140px' : '200px' }}
+                            >
+                              {isImage ? (
+                                <>
+                                  {/* Image Thumbnail */}
+                                  <div className="relative w-full h-32 bg-gray-100">
+                                    <img 
+                                      src={preview} 
+                                      alt={file.name} 
+                                      className="w-full h-full object-cover" 
+                                    />
+                                    {/* Category Badge */}
+                                    <div className="absolute top-2 left-2">
+                                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                        isDarkMode 
+                                          ? 'bg-blue-600/90 text-white' 
+                                          : 'bg-blue-500 text-white'
+                                      }`}>
+                                        {category}
+                                      </span>
+                                    </div>
+                                    {/* Remove Button */}
+                                    <button
+                                      onClick={() => removeAttachment(index)}
+                                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                                      aria-label="Remove attachment"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                  {/* Image Info */}
+                                  <div className={`p-2 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
+                                    <p className={`text-xs font-medium truncate mb-0.5 ${
+                                      isDarkMode ? 'text-white' : 'text-gray-900'
+                                    }`}>
+                                      {file.name}
+                                    </p>
+                                    <p className={`text-xs ${
+                                      isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                    }`}>
+                                      {fileSize}
+                                    </p>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  {/* Document Preview */}
+                                  <div className={`p-2 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
+                                    <div className="flex items-center gap-2">
+                                      {/* File Icon */}
+                                      <div className={`flex-shrink-0 w-8 h-8 rounded flex items-center justify-center ${
+                                        isDarkMode 
+                                          ? 'bg-gray-800 border border-gray-700' 
+                                          : 'bg-gray-100 border border-gray-200'
+                                      }`}>
+                                        <File className={`h-4 w-4 ${
+                                          isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                        }`} />
+                                      </div>
+                                      {/* File Info */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 mb-0.5">
+                                          <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+                                            isDarkMode 
+                                              ? 'bg-purple-600/90 text-white' 
+                                              : 'bg-purple-500 text-white'
+                                          }`}>
+                                            {category}
+                                          </span>
+                                        </div>
+                                        <p className={`text-xs font-medium truncate ${
+                                          isDarkMode ? 'text-white' : 'text-gray-900'
+                                        }`}>
+                                          {file.name}
+                                        </p>
+                                        <p className={`text-xs ${
+                                          isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                        }`}>
+                                          {fileSize}
+                                        </p>
+                                      </div>
+                                      {/* Remove Button */}
+                                      <button
+                                        onClick={() => removeAttachment(index)}
+                                        className="flex-shrink-0 text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                        aria-label="Remove attachment"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                    
                     <div className={`flex items-center gap-4 px-5 py-3.5 rounded-3xl ${
                       isDarkMode 
                         ? 'bg-white/5 border border-white/10 hover:border-white/20' 
                         : 'bg-gray-50 border border-gray-200'
                     } shadow-lg transition-all duration-300 ease-out focus-within:shadow-2xl ${isDarkMode ? 'focus-within:border-white/30 focus-within:bg-white/[0.07]' : 'focus-within:border-blue-500'}`}>
+                      {/* File Upload Button - Pin Icon */}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        accept="image/*,.pdf,.doc,.docx,.txt,.csv,.json,.py,.js,.ts,.jsx,.tsx,.md,.xml,.html,.css"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={loading || hasCorpusPdfs === false || attachments.length >= 5}
+                        className={`h-8 w-8 ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                        title="Attach file or image"
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                      
+                      {/* Deep Thinking Mode - Brain Icon */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleDeepThinking}
+                        disabled={loading || hasCorpusPdfs === false}
+                        className={`h-8 w-8 ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                        title="Deep thinking mode"
+                      >
+                        <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
+                      </Button>
+                      
                       <Input
-                        placeholder="Message LearnBOT..."
+                        placeholder={hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? "No PDFs uploaded for this class..." : "Message LearnBOT..."}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyPress={handleKeyPress}
-                        disabled={loading}
+                        disabled={loading || hasCorpusPdfs === false}
                         className={`flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base ${
                           isDarkMode ? 'text-white placeholder:text-white/50' : 'text-gray-900 placeholder:text-gray-500'
                         }`}
                       />
+                      
+                      {/* Voice Input Button */}
+                      {isVoiceSupported && (
+                        <div className="flex items-center gap-2">
+                          {isRecording && <VoiceWave isActive={isRecording} className={isDarkMode ? "text-red-400" : "text-red-500"} />}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={isRecording ? stopVoiceInput : startVoiceInput}
+                            disabled={loading || hasCorpusPdfs === false}
+                            className={`h-8 w-8 ${isRecording ? 'text-red-500' : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                            title={isRecording ? "Stop recording" : "Start voice input"}
+                          >
+                            {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      )}
+                      
                       <Button 
                         onClick={sendMessage} 
-                        disabled={loading || !input.trim()} 
+                        disabled={loading || (!input.trim() && attachments.length === 0) || hasCorpusPdfs === false} 
                         size="icon"
                         className={`rounded-full w-10 h-10 flex items-center justify-center transition-all duration-300 ease-out ${
-                          loading || !input.trim()
+                          loading || (!input.trim() && attachments.length === 0)
                             ? isDarkMode
                               ? 'bg-white/5 text-white/30 cursor-not-allowed'
                               : 'bg-gray-200 text-gray-400 cursor-not-allowed'

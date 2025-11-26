@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -16,6 +16,7 @@ interface StudentActivityData {
   totalSessions: number
   averageSentiment: number
   topTopics: { topic: string; count: number }[]
+  sentimentWords: string[]
   lastActive: Date
   sessions: ChatSession[]
 }
@@ -33,16 +34,6 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null)
   const [sessionMessages, setSessionMessages] = useState<ChatMessage[]>([])
   const [showChatDialog, setShowChatDialog] = useState(false)
-
-  useEffect(() => {
-    loadClasses()
-  }, [])
-
-  useEffect(() => {
-    if (selectedClassId) {
-      loadStudentActivities()
-    }
-  }, [selectedClassId])
 
   const loadClasses = async () => {
     const facultyId = localStorage.getItem("userId")
@@ -62,7 +53,7 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
     }
   }
 
-  const loadStudentActivities = async () => {
+  const loadStudentActivities = useCallback(async () => {
     if (!selectedClassId) return
 
     try {
@@ -74,7 +65,30 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
     } catch (error) {
       console.error("[v0] Failed to load student activities:", error)
     }
-  }
+  }, [selectedClassId])
+
+  useEffect(() => {
+    loadClasses()
+  }, [])
+
+  useEffect(() => {
+    if (selectedClassId) {
+      loadStudentActivities()
+    }
+  }, [selectedClassId, loadStudentActivities])
+
+  // Auto-refresh student activities (sentiment and topics) every 1 hour
+  useEffect(() => {
+    if (!selectedClassId) return
+
+    // Set up interval to refresh student activities every 1 hour
+    const refreshInterval = setInterval(() => {
+      loadStudentActivities()
+    }, 60 * 60 * 1000) // 1 hour = 3,600,000 ms
+
+    // Cleanup interval on unmount or when class changes
+    return () => clearInterval(refreshInterval)
+  }, [selectedClassId, loadStudentActivities])
 
   const viewStudentChats = async (student: User) => {
     setSelectedStudent(student)
@@ -211,6 +225,25 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
                               {new Date(activity.lastActive).toLocaleDateString()}
                             </span>
                           </div>
+                          {activity.sentimentWords && activity.sentimentWords.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {activity.sentimentWords.map((word, index) => (
+                                <Badge 
+                                  key={index} 
+                                  variant="outline" 
+                                  className={`text-xs ${
+                                    activity.averageSentiment > 0.3 
+                                      ? 'border-green-500 text-green-700 dark:text-green-400' 
+                                      : activity.averageSentiment < -0.3
+                                      ? 'border-red-500 text-red-700 dark:text-red-400'
+                                      : 'border-yellow-500 text-yellow-700 dark:text-yellow-400'
+                                  }`}
+                                >
+                                  {word}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                           {activity.topTopics.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {activity.topTopics.slice(0, 3).map((topic) => (

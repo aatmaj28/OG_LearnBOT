@@ -80,12 +80,12 @@ export async function DELETE(request: NextRequest) {
         ? fs.readdirSync(pdfDir).filter(f => f.toLowerCase().endsWith('.pdf'))
         : []
       
-      // Delete chunks from ChromaDB collection
+      // Delete chunks from Qdrant collection
       const configPath = path.join(basePath, "config.json")
       
       if (fs.existsSync(configPath)) {
         try {
-          // Use Python script to delete chunks from ChromaDB
+          // Use Python script to delete chunks from Qdrant
           const { spawn } = require('child_process')
           
           // If no PDFs left, clear all chunks
@@ -284,10 +284,16 @@ except Exception as e:
     sys.exit(1)
 `
           
-          const tmpScript = path.join(basePath, "temp_delete_chroma.py")
+          const tmpScript = path.join(basePath, "temp_delete_qdrant.py")
           fs.writeFileSync(tmpScript, deleteScript)
           
-          const py = spawn("python", [tmpScript, basePath, filename, shouldClearAll.toString()])
+          // Determine Python executable to use (prefer venv if available)
+          const venvPython = process.platform === 'win32' 
+            ? path.join(process.cwd(), 'venv', 'Scripts', 'python.exe')
+            : path.join(process.cwd(), 'venv', 'bin', 'python')
+          const pythonExec = fs.existsSync(venvPython) ? venvPython : (process.env.PYTHON_PATH || 'python')
+          
+          const py = spawn(pythonExec, [tmpScript, basePath, filename, shouldClearAll.toString()])
           
           let stdout = ""
           let stderr = ""
@@ -382,12 +388,12 @@ except Exception as e:
               message: "Removed PDFs successfully"
           })
           } else {
-            const errorMsg = deleteResult.error || "Failed to delete chunks from ChromaDB"
+            const errorMsg = deleteResult.error || "Failed to delete chunks from Qdrant"
             console.error("[Corpus Delete] Deletion failed:", errorMsg)
             throw new Error(errorMsg)
           }
         } catch (e) {
-          console.error("[Corpus Delete] Error deleting from ChromaDB:", e)
+          console.error("[Corpus Delete] Error deleting from Qdrant:", e)
           const errorMessage = e instanceof Error ? e.message : String(e)
           // Fallback: just confirm PDF deletion (chunks will remain, but PDF is gone)
           return NextResponse.json({ 
@@ -572,7 +578,13 @@ except Exception as e:
           const tmpScript = path.join(basePath, "temp_clear_all.py")
           fs.writeFileSync(tmpScript, clearAllScript)
           
-          const py = spawn("python", [tmpScript, basePath])
+          // Determine Python executable to use (prefer venv if available)
+          const venvPython = process.platform === 'win32' 
+            ? path.join(process.cwd(), 'venv', 'Scripts', 'python.exe')
+            : path.join(process.cwd(), 'venv', 'bin', 'python')
+          const pythonExec = fs.existsSync(venvPython) ? venvPython : (process.env.PYTHON_PATH || 'python')
+          
+          const py = spawn(pythonExec, [tmpScript, basePath])
           
           let stdout = ""
           let stderr = ""

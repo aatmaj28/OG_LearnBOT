@@ -8,7 +8,8 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
-import { Bot, User } from 'lucide-react'
+import { Bot, User, Image as ImageIcon, File, Download } from 'lucide-react'
+import type { ChatAttachment } from '@/lib/types'
 
 interface ChatMessageProps {
   role: 'user' | 'assistant'
@@ -21,6 +22,7 @@ interface ChatMessageProps {
     totalResponseTime?: number
     timeTaken?: number
   }
+  attachments?: ChatAttachment[]
   isDarkMode?: boolean
 }
 
@@ -65,8 +67,15 @@ function sanitizeContent(content: string): string {
   return result.trim()
 }
 
-export function ChatMessage({ role, content, timestamp, metadata, isDarkMode = false }: ChatMessageProps) {
+export function ChatMessage({ role, content, timestamp, metadata, attachments, isDarkMode = false }: ChatMessageProps) {
   const sanitizedContent = sanitizeContent(content)
+  
+  const handleDownload = (attachment: ChatAttachment) => {
+    if (attachment.url) {
+      window.open(attachment.url, '_blank')
+    }
+  }
+  
   return (
     <div className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'} group animate-in fade-in slide-in-from-bottom-4 duration-500`}>
       <div className={`flex gap-3 max-w-[85%] ${role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -91,6 +100,45 @@ export function ChatMessage({ role, content, timestamp, metadata, isDarkMode = f
 
         {/* Message Content */}
         <div className={`flex flex-col ${role === 'user' ? 'items-end' : 'items-start'}`}>
+        {/* Attachments */}
+        {attachments && attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {attachments.map((attachment, index) => (
+              <div key={index} className="relative">
+                {attachment.type === 'image' ? (
+                  <div className="relative rounded-lg overflow-hidden border border-gray-300 max-w-xs">
+                    {attachment.url ? (
+                      <img 
+                        src={attachment.url} 
+                        alt={attachment.name} 
+                        className="max-h-48 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => handleDownload(attachment)}
+                      />
+                    ) : (
+                      <div className="w-32 h-32 bg-gray-100 flex items-center justify-center">
+                        <ImageIcon className="h-8 w-8 text-gray-400" />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div 
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer hover:bg-opacity-80 transition-colors ${
+                      isDarkMode 
+                        ? 'bg-white/5 border-white/20 text-white' 
+                        : 'bg-gray-50 border-gray-300 text-gray-700'
+                    }`}
+                    onClick={() => handleDownload(attachment)}
+                  >
+                    <File className="h-4 w-4" />
+                    <span className="text-sm max-w-[150px] truncate">{attachment.name}</span>
+                    <Download className="h-3 w-3 opacity-60" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        
         {/* Message Bubble */}
         <div className={`rounded-2xl px-5 py-3 ${
           role === 'user'

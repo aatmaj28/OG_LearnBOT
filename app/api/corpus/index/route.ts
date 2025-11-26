@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Corpus Index] Found ${pdfFiles.length} PDFs to index`)
 
     // Check if index already exists (for incremental indexing)
-    // Check for ChromaDB collection via config.json (which indicates indexing was done)
+    // Check for Qdrant collection via config.json (which indicates indexing was done)
     const configPath = path.join(storePath, "config.json")
     const hasExistingIndex = fs.existsSync(configPath)
     
@@ -71,8 +71,14 @@ export async function POST(request: NextRequest) {
     console.log('[Corpus Index] Service path:', indexingServicePath)
 
     // Execute LlamaIndex indexing service
+    // Determine Python executable to use (prefer venv if available)
+    const venvPython = process.platform === 'win32' 
+      ? path.join(process.cwd(), 'venv', 'Scripts', 'python.exe')
+      : path.join(process.cwd(), 'venv', 'bin', 'python')
+    const pythonExec = fs.existsSync(venvPython) ? venvPython : (process.env.PYTHON_PATH || 'python')
+    
     const result = await new Promise<{ success: boolean; chunks?: number; pdfs?: number; newChunks?: number; chunks_per_file?: Record<string, number>; error?: string }>((resolve) => {
-      const pythonProcess = spawn('python', args)
+      const pythonProcess = spawn(pythonExec, args)
       let stdoutData = ''
       let stderrData = ''
 

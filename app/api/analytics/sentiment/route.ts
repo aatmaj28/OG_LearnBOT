@@ -74,89 +74,13 @@ Respond in JSON format:
   "indicators": ["Uses positive language", "Asks clarifying questions", "Shows appreciation"]
 }`
 
-    // Call Ollama for sentiment analysis with timeout
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
-
-    try {
-      const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'mistral:latest', // or whatever model is available
-          prompt: prompt,
-          stream: false,
-          options: {
-            temperature: 0.3, // Lower temperature for more consistent analysis
-            top_p: 0.9
-          }
-        }),
-        signal: controller.signal
-      })
-
-      clearTimeout(timeoutId)
-
-      if (!ollamaResponse.ok) {
-        console.error('Ollama sentiment analysis failed:', ollamaResponse.status)
-        // Fallback to simple keyword analysis
-        return NextResponse.json({ 
-          sentiment: calculateSimpleSentiment(allUserMessages),
-          analysis: "Sentiment analysis using keyword matching (LLM unavailable)",
-          method: "fallback",
-          reason: "ollama_error"
-        })
-      }
-
-      const ollamaData = await ollamaResponse.json()
-      const responseText = ollamaData.response
-
-      // Try to parse JSON response
-      try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const analysis = JSON.parse(jsonMatch[0])
-          return NextResponse.json({
-            sentiment: analysis.sentiment,
-            analysis: analysis.analysis,
-            indicators: analysis.indicators,
-            method: "llm"
-          })
-        }
-      } catch (parseError) {
-        console.error('Failed to parse LLM response:', parseError)
-      }
-
-      // Fallback if JSON parsing fails
-      return NextResponse.json({
-        sentiment: calculateSimpleSentiment(allUserMessages),
-        analysis: "Sentiment analysis completed but response format was unexpected",
-        method: "fallback",
-        reason: "parse_error"
-      })
-
-    } catch (error) {
-      clearTimeout(timeoutId)
-      
-      if (error.name === 'AbortError') {
-        console.error('Ollama request timed out')
-        return NextResponse.json({ 
-          sentiment: calculateSimpleSentiment(allUserMessages),
-          analysis: "Sentiment analysis using keyword matching (LLM timeout)",
-          method: "fallback",
-          reason: "timeout"
-        })
-      }
-      
-      console.error('Ollama request failed:', error)
-      return NextResponse.json({ 
-        sentiment: calculateSimpleSentiment(allUserMessages),
-        analysis: "Sentiment analysis using keyword matching (LLM error)",
-        method: "fallback",
-        reason: "request_error"
-      })
-    }
+    // Use keyword-based sentiment analysis (local Ollama removed)
+    // For LLM-based analysis, use the RAG service with Claude/Blackwell/A6000 instead
+    return NextResponse.json({ 
+      sentiment: calculateSimpleSentiment(allUserMessages),
+      analysis: "Sentiment analysis using keyword matching",
+      method: "fallback"
+    })
 
   } catch (error) {
     console.error("[v0] Sentiment analysis error:", error)

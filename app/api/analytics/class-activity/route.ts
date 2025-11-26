@@ -19,11 +19,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Class not found" }, { status: 404 })
     }
 
+    // Use ENABLE_LLM_ANALYTICS to determine analysis method
+    // true = LLM-based (Blackwell), false = Enhanced keyword-based (n-grams)
+    // Always pass skipLLMAnalysis=false so analyzeLatestConversation() can respect ENABLE_LLM_ANALYTICS
     const activities = await Promise.all(classItem.studentIds.map(async (studentId) => {
       const student = await getUserById(studentId)
       // Pass classId to get class-specific activity data
-      // Skip LLM analysis for fast loading (use simple keyword-based sentiment)
-      const activity = await getStudentActivity(studentId, classId, true)
+      // skipLLMAnalysis=false allows analyzeLatestConversation() to use ENABLE_LLM_ANALYTICS
+      // This means: true = LLM (Blackwell), false = Enhanced keyword-based (n-grams)
+      const activity = await getStudentActivity(studentId, classId, false)
       // Get RAG conversations for this student in this class
       const conversations = await getRAGConversationsByUser(studentId, classId)
       

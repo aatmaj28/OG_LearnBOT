@@ -828,56 +828,73 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
     setIsSendingReminders(true)
 
-    try {
-      // Get faculty name
-      const facultyId = localStorage.getItem("userId")
-      let facultyName = ""
-      
-      if (facultyId) {
-        const facultyResponse = await fetch(`/api/users?id=${facultyId}`)
-        if (facultyResponse.ok) {
-          const facultyData = await facultyResponse.json()
-          facultyName = facultyData.user?.name || ""
-        }
-      }
+    // Show spinner for a short time (1.5 seconds), then hide it while emails continue sending in background
+    setTimeout(() => {
+      setIsSendingReminders(false)
+    }, 1500)
 
-      const response = await fetch("/api/classes/send-reminder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          emails: bulkUploadResult.notRegistered,
-          className: selectedClass.name,
-          facultyName,
-        }),
-      })
+    // Fire off the request in the background (don't wait for it)
+    ;(async () => {
+      try {
+        // Get faculty name
+        const facultyId = localStorage.getItem("userId")
+        let facultyName = ""
+        
+        if (facultyId) {
+          const facultyResponse = await fetch(`/api/users?id=${facultyId}`)
+          if (facultyResponse.ok) {
+            const facultyData = await facultyResponse.json()
+            facultyName = facultyData.user?.name || ""
+          }
+        }
 
-      if (response.ok) {
-        const data = await response.json()
-        
-        if (data.results.success.length > 0) {
-          toast.success(`Reminder emails sent successfully!`, {
-            description: `Sent to ${data.results.success.length} student(s).`
+        // Fire and forget - don't await, let it process in background
+        fetch("/api/classes/send-reminder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            emails: bulkUploadResult.notRegistered,
+            className: selectedClass.name,
+            facultyName,
+          }),
+        }).then(async (response) => {
+          if (response.ok) {
+            const data = await response.json()
+            
+            if (data.results.success.length > 0) {
+              toast.success(`Reminder emails sent successfully!`, {
+                description: `Sent to ${data.results.success.length} student(s).`
+              })
+            }
+            
+            if (data.results.failed.length > 0) {
+              toast.warning(`Some emails failed to send`, {
+                description: `Failed to send to ${data.results.failed.length} student(s).`
+              })
+            }
+          } else {
+            toast.error('Failed to send reminder emails', {
+              description: 'Please try again later.'
+            })
+          }
+        }).catch((error) => {
+          console.error("[v0] Failed to send reminder emails:", error)
+          toast.error('Failed to send reminder emails', {
+            description: 'An unexpected error occurred. Please try again.'
           })
-        }
-        
-        if (data.results.failed.length > 0) {
-          toast.warning(`Some emails failed to send`, {
-            description: `Failed to send to ${data.results.failed.length} student(s).`
-          })
-        }
-      } else {
+        })
+      } catch (error) {
+        console.error("[v0] Failed to send reminder emails:", error)
         toast.error('Failed to send reminder emails', {
-          description: 'Please try again later.'
+          description: 'An unexpected error occurred. Please try again.'
         })
       }
-    } catch (error) {
-      console.error("[v0] Failed to send reminder emails:", error)
-      toast.error('Failed to send reminder emails', {
-        description: 'An unexpected error occurred. Please try again.'
-      })
-    } finally {
-      setIsSendingReminders(false)
-    }
+    })()
+
+    // Show immediate feedback that emails are being sent in background
+    toast.info('Sending reminder emails...', {
+      description: `Processing ${bulkUploadResult.notRegistered.length} email(s) in the background. You'll be notified when complete.`
+    })
   }
 
 

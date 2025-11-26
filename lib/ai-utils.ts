@@ -1,9 +1,8 @@
 // AI utilities for chat and analytics
 import { createChatAnalytics } from "./mock-db"
-import { generateOllamaResponse, generateOllamaResponseWithHistory, checkOllamaStatus } from "./ollama-service"
 import { ragService, type RAGResponse } from "./rag-service"
 
-// Generate AI response using RAG system (with Ollama fallback)
+// Generate AI response using RAG system
 export const generateChatResponse = async (
   message: string,
   conversationId?: string,
@@ -20,30 +19,11 @@ export const generateChatResponse = async (
       }
     }
     
-    // Fallback to Ollama
-    console.log('RAG system not available, trying Ollama')
-    const { isRunning, modelAvailable } = await checkOllamaStatus()
-    
-    if (isRunning && modelAvailable) {
-      console.log('Using Ollama for AI response')
-      return await generateOllamaResponse(message, 'llama3.1:8b')
-    } else {
-      console.warn('Ollama not available, using fallback responses')
-      return await generateFallbackResponse(message)
-    }
+    // Fallback to mock responses if RAG is not available
+    console.warn('RAG system not available, using fallback responses')
+    return await generateFallbackResponse(message)
   } catch (error) {
     console.error('Error generating AI response:', error)
-    
-    // Try Ollama as final fallback
-    try {
-      const { isRunning, modelAvailable } = await checkOllamaStatus()
-      if (isRunning && modelAvailable) {
-        return await generateOllamaResponse(message, 'llama3.1:8b')
-      }
-    } catch (ollamaError) {
-      console.error('Ollama fallback also failed:', ollamaError)
-    }
-    
     return await generateFallbackResponse(message)
   }
 }
@@ -72,37 +52,18 @@ export const generateChatResponseWithHistory = async (
       }
     }
     
-    // Fallback to Ollama with history
-    console.log('RAG system not available, trying Ollama with history')
-    const { isRunning, modelAvailable } = await checkOllamaStatus()
-    
-    if (isRunning && modelAvailable) {
-      console.log('Using Ollama for AI response with history')
-      return await generateOllamaResponseWithHistory(messages, 'llama3.1:8b')
-    } else {
-      console.warn('Ollama not available, using fallback responses')
-      const lastMessage = messages[messages.length - 1]
-      return await generateFallbackResponse(lastMessage?.content || '')
-    }
+    // Fallback to mock responses if RAG is not available
+    console.warn('RAG system not available, using fallback responses')
+    const lastMessage = messages[messages.length - 1]
+    return await generateFallbackResponse(lastMessage?.content || '')
   } catch (error) {
     console.error('Error generating AI response with history:', error)
-    
-    // Try Ollama as final fallback
-    try {
-      const { isRunning, modelAvailable } = await checkOllamaStatus()
-      if (isRunning && modelAvailable) {
-        return await generateOllamaResponseWithHistory(messages, 'llama3.1:8b')
-      }
-    } catch (ollamaError) {
-      console.error('Ollama fallback also failed:', ollamaError)
-    }
-    
     const lastMessage = messages[messages.length - 1]
     return await generateFallbackResponse(lastMessage?.content || '')
   }
 }
 
-// Fallback mock responses when Ollama is not available
+// Fallback mock responses when RAG system is not available
 const generateFallbackResponse = async (message: string): Promise<string> => {
   // Simulate API delay
   await new Promise((resolve) => setTimeout(resolve, 1000))

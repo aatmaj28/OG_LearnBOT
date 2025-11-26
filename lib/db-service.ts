@@ -929,6 +929,7 @@ export const getStudentActivity = async (userId: string, classId?: string, skipL
         totalSessions: 0,
         averageSentiment: 0,
         topTopics: [],
+        sentimentWords: [],
         lastActive: new Date()
       }
     }
@@ -964,32 +965,40 @@ export const getStudentActivity = async (userId: string, classId?: string, skipL
     const latestConversation = conversations.length > 0 ? conversations[0] : null
     let averageSentiment = 0
     let topTopics: { topic: string; count: number }[] = []
+    let sentimentWords: string[] = []
 
     if (latestConversation && latestConversation.messageHistory && latestConversation.messageHistory.length > 0) {
+      const latestMessages = latestConversation.messageHistory
+      const userMessages = latestMessages.filter((m: any) => m.role === 'user')
+      
       // PRIORITY 1: Use cached analytics if available (instant!)
       if (latestConversation.cachedSentiment !== undefined && latestConversation.cachedTopics) {
         console.log(`[v0] Using cached analytics for user ${userId}`)
         averageSentiment = latestConversation.cachedSentiment
         topTopics = latestConversation.cachedTopics
+        // Extract sentiment words from messages (always use keyword-based for words)
+        sentimentWords = extractSentimentWords(userMessages)
       } 
       // PRIORITY 2: Use fast keyword-based fallback for batch operations
       else if (skipLLMAnalysis) {
         console.log(`[v0] No cache available, using fast fallback for user ${userId}`)
-        const latestMessages = latestConversation.messageHistory
-        averageSentiment = calculateSimpleSentiment(latestMessages.filter((m: any) => m.role === 'user'))
+        averageSentiment = calculateSimpleSentiment(userMessages)
         topTopics = extractSimpleTopics(latestMessages)
+        sentimentWords = extractSentimentWords(userMessages)
       } 
       // PRIORITY 3: Run LLM analysis only when specifically requested AND no cache
       else {
         console.log(`[v0] Running LLM analysis for user ${userId} (no cache, not skipped)`)
-        const latestMessages = latestConversation.messageHistory
         const analysisResult = await analyzeLatestConversation(userId, classId, latestMessages, latestConversation.title)
         averageSentiment = analysisResult.sentiment
         topTopics = analysisResult.topics
+        // Extract sentiment words from messages (always use keyword-based for words)
+        sentimentWords = extractSentimentWords(userMessages)
         
         console.log(`[v0] Latest conversation analysis for user ${userId}:`, {
           sentiment: averageSentiment,
           topics: topTopics,
+          sentimentWords,
           conversationTitle: latestConversation.title
         })
       }
@@ -1003,6 +1012,7 @@ export const getStudentActivity = async (userId: string, classId?: string, skipL
       totalSessions,
       averageSentiment,
       topTopics,
+      sentimentWords,
       lastActive,
     }
   } finally {
@@ -1446,6 +1456,75 @@ const generateEnhancedSummary = (messages: any[], existingSummary?: string): str
 /**
  * Enhanced sentiment analysis with negation handling and intensity modifiers
  */
+// Helper function to extract top sentiment words
+const extractSentimentWords = (messages: any[]): string[] => {
+  if (messages.length === 0) return []
+
+  // Expanded sentiment lexicons with weights
+  const positiveWords = new Map<string, number>([
+    // Strong positive
+    ['excellent', 1.0], ['amazing', 1.0], ['brilliant', 1.0], ['perfect', 1.0],
+    ['wonderful', 0.9], ['fantastic', 0.9], ['outstanding', 0.9], ['awesome', 0.9],
+    // Moderate positive
+    ['good', 0.7], ['great', 0.8], ['helpful', 0.7], ['useful', 0.6],
+    ['clear', 0.6], ['understand', 0.6], ['understood', 0.6], ['makes sense', 0.7],
+    ['correct', 0.7], ['right', 0.6], ['yes', 0.5], ['yeah', 0.5],
+    // Gratitude
+    ['thanks', 0.7], ['thank you', 0.8], ['appreciate', 0.7], ['grateful', 0.8],
+    // Learning positive
+    ['learned', 0.6], ['learning', 0.6], ['got it', 0.7], ['makes sense', 0.7],
+    ['clear now', 0.7], ['understand now', 0.7]
+  ])
+
+  const negativeWords = new Map<string, number>([
+    // Strong negative
+    ['terrible', -1.0], ['awful', -1.0], ['horrible', -1.0], ['hate', -1.0],
+    ['frustrated', -0.9], ['frustrating', -0.9], ['annoying', -0.8], ['useless', -0.9],
+    // Moderate negative
+    ['bad', -0.7], ['wrong', -0.7], ['incorrect', -0.7], ['unclear', -0.7],
+    ['confused', -0.8], ['confusing', -0.8], ['difficult', -0.6], ['hard', -0.6],
+    ['problem', -0.6], ['error', -0.7], ['stuck', -0.7], ['lost', -0.7],
+    // Learning negative
+    ["don't understand", -0.8], ["doesn't make sense", -0.8], ["can't understand", -0.8],
+    ['no idea', -0.7], ['not clear', -0.7], ['still confused', -0.8]
+  ])
+
+  // Track word occurrences and their impact
+  const wordImpact = new Map<string, number>()
+
+  messages.forEach(message => {
+    if (message.role === 'user') {
+      const content = message.content.toLowerCase()
+
+      // Check for positive words
+      positiveWords.forEach((weight, word) => {
+        const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+        const matches = content.match(regex)
+        if (matches) {
+          const currentImpact = wordImpact.get(word) || 0
+          wordImpact.set(word, currentImpact + Math.abs(weight * matches.length))
+        }
+      })
+
+      // Check for negative words
+      negativeWords.forEach((weight, word) => {
+        const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+        const matches = content.match(regex)
+        if (matches) {
+          const currentImpact = wordImpact.get(word) || 0
+          wordImpact.set(word, currentImpact + Math.abs(weight * matches.length))
+        }
+      })
+    }
+  })
+
+  // Sort by impact and return top 3
+  return Array.from(wordImpact.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([word]) => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize first letter
+}
+
 const calculateEnhancedSentiment = (messages: any[]): number => {
   if (messages.length === 0) return 0
 
@@ -2473,7 +2552,7 @@ export const archiveRAGConversation = async (id: string): Promise<void> => {
   }
 }
 
-export const addRAGMessage = async (conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any): Promise<void> => {
+export const addRAGMessage = async (conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any, attachments?: Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }>): Promise<void> => {
   console.log(`[DB] Adding ${role} message to conversation ${conversationId}`)
   const client = await pool.connect()
   try {
@@ -2485,13 +2564,21 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
     }
 
     console.log(`[DB] Current conversation has ${conversation.messageHistory.length} messages`)
+    if (attachments && attachments.length > 0) {
+      console.log(`[DB] Message includes ${attachments.length} attachment(s)`)
+    }
 
     // Add new message to history
-    const newMessage = {
+    const newMessage: any = {
       role,
       content,
       timestamp: new Date(),
       metadata
+    }
+    
+    // Include attachments if provided
+    if (attachments && attachments.length > 0) {
+      newMessage.attachments = attachments
     }
 
     const updatedHistory = [...conversation.messageHistory, newMessage]

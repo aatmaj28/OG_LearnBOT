@@ -64,8 +64,8 @@ export class VectorStoreManager {
               class_id: classId,
               class_name: classData.name,
               created_at: new Date().toISOString(),
-              embedding_model: "sentence-transformers/all-mpnet-base-v2",
-              vector_store_type: "chromadb"
+              embedding_model: "nomic-ai/nomic-embed-text-v1.5",
+              vector_store_type: "qdrant"
             }, null, 2))
           } else {
             // Create empty placeholder files

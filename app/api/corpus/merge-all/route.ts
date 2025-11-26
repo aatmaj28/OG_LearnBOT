@@ -80,9 +80,15 @@ export async function POST(request: NextRequest) {
     console.log('[Merge All] Using LlamaIndex indexing service')
     console.log('[Merge All] Service path:', indexingServicePath)
 
+    // Determine Python executable to use (prefer venv if available)
+    const venvPython = process.platform === 'win32' 
+      ? path.join(process.cwd(), 'venv', 'Scripts', 'python.exe')
+      : path.join(process.cwd(), 'venv', 'bin', 'python')
+    const pythonExec = fs.existsSync(venvPython) ? venvPython : (process.env.PYTHON_PATH || 'python')
+    
     // Execute LlamaIndex indexing service
     return new Promise<NextResponse>((resolve) => {
-      const python = spawn('python', args)
+      const python = spawn(pythonExec, args)
 
       let stdout = ''
       let stderr = ''

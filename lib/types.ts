@@ -41,6 +41,15 @@ export interface Class {
   createdAt: Date
 }
 
+export interface ChatAttachment {
+  type: 'file' | 'image'
+  url: string
+  name: string
+  mimeType: string
+  size?: number
+  thumbnailUrl?: string // For images
+}
+
 export interface ChatMessage {
   id: string
   userId: string
@@ -49,6 +58,7 @@ export interface ChatMessage {
   timestamp: Date
   sessionId: string
   metadata?: ModelResponseMetadata // Add metadata for model info and timing
+  attachments?: ChatAttachment[] // File/image attachments
 }
 
 export interface ChatSession {
@@ -79,6 +89,7 @@ export interface StudentActivity {
   totalSessions: number
   averageSentiment: number // -1 to 1
   topTopics: { topic: string; count: number }[]
+  sentimentWords: string[] // Top 3 sentiment-indicating words
   lastActive: Date
 }
 
@@ -106,6 +117,7 @@ export interface RAGConversation {
     content: string
     timestamp: Date
     metadata?: ModelResponseMetadata | any
+    attachments?: ChatAttachment[] // File/image attachments
   }>
   studentProblemData: {
     numbers: string[]

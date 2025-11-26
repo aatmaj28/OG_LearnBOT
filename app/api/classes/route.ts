@@ -102,10 +102,10 @@ async function createVectorStoreManually(folderName: string, className: string) 
       class_name: className,
       vector_store_folder: folderName,
       created_at: new Date().toISOString(),
-      embedding_model: "sentence-transformers/all-mpnet-base-v2",
-      vector_store_type: "chromadb",
+      embedding_model: "nomic-ai/nomic-embed-text-v1.5",
+      vector_store_type: "qdrant",
       status: "ready_for_indexing",
-      note: "Upload PDFs and index them using the corpus management interface. ChromaDB will store the vectors automatically."
+      note: "Upload PDFs and index them using the corpus management interface. Qdrant will store the vectors automatically."
     }
     
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
