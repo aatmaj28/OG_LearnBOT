@@ -836,13 +836,13 @@ export class RAGService extends EventEmitter {
     return chatAttachments
   }
 
-  async addMessage(conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any, attachments?: Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }>): Promise<void> {
+  async addMessage(conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any, attachments?: Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }>, timestamp?: Date): Promise<void> {
     try {
       console.log(`[RAG] Adding ${role} message to conversation ${conversationId}:`, content.substring(0, 100) + '...')
       if (attachments && attachments.length > 0) {
         console.log(`[RAG] Message includes ${attachments.length} attachment(s)`)
       }
-      await addRAGMessage(conversationId, role, content, metadata, attachments)
+      await addRAGMessage(conversationId, role, content, metadata, attachments, timestamp)
       console.log(`[RAG] Successfully added ${role} message to conversation ${conversationId}`)
     } catch (error) {
       console.error('Failed to add message:', error)
@@ -995,7 +995,8 @@ export class RAGService extends EventEmitter {
     preferredModel?: ModelBackend,
     chatType: 'class_material' | 'syllabus' = 'class_material',
     deepThinking: boolean = false,
-    attachments: File[] = []
+    attachments: File[] = [],
+    assistantMessageTimestamp?: Date
   ): AsyncGenerator<{content: string, done: boolean, modelUsed?: ModelBackend, error?: string}> {
     if (!this.isInitialized) {
       console.log('[RAG Streaming] RAG not initialized, using pure LLM fallback with checkpoint tracking...')
@@ -1021,6 +1022,12 @@ export class RAGService extends EventEmitter {
           const title = this.generateChatTitle(query)
           await this.updateConversation(conversationId, { title })
         }
+
+        // Create empty assistant message placeholder with timestamp to preserve frontend timestamp
+        // Use the timestamp from frontend if provided, otherwise use current time
+        const placeholderTimestamp = assistantMessageTimestamp || new Date()
+        await this.addMessage(conversationId, 'assistant', '', { timeToFirstToken: null }, undefined, placeholderTimestamp)
+        console.log(`[RAG Streaming] Created assistant message placeholder with timestamp: ${placeholderTimestamp.toISOString()} (from frontend: ${!!assistantMessageTimestamp})`)
 
         // Mask PII from query and history before sending to LLM
         const maskedQuery = maskPII(query)
@@ -1095,6 +1102,12 @@ export class RAGService extends EventEmitter {
         const title = this.generateChatTitle(query)
         await this.updateConversation(conversationId, { title })
       }
+
+      // Create empty assistant message placeholder with timestamp to preserve frontend timestamp
+      // Use the timestamp from frontend if provided, otherwise use current time
+      const placeholderTimestamp = assistantMessageTimestamp || new Date()
+      await this.addMessage(conversationId, 'assistant', '', { timeToFirstToken: null }, undefined, placeholderTimestamp)
+      console.log(`[RAG Streaming] Created assistant message placeholder with timestamp: ${placeholderTimestamp.toISOString()} (from frontend: ${!!assistantMessageTimestamp})`)
 
       // Mask PII from query before sending to LLM
       const maskedQuery = maskPII(query)
@@ -1171,6 +1184,75 @@ export class RAGService extends EventEmitter {
         let checkpointBuffer = ''
         let isCollectingCheckpoint = false
         
+        // Emoji formatting state - track accumulated text and emojis added
+        let accumulatedText = '' // Text accumulated so far (for sentence detection)
+        let emojisAdded = 0 // Count of emojis added during streaming
+        const emojiOptions = ['✨', '💡', '🎯', '👍', '📚']
+        const emojiPattern = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]/gu
+        
+        // Helper function to count existing emojis in text
+        const countEmojis = (text: string): number => {
+          const matches = text.match(emojiPattern)
+          return matches ? matches.length : 0
+        }
+        
+        // Helper function to add emoji to sentence if needed
+        const addEmojiIfNeeded = (text: string, chunk: string): string => {
+          // Only add emojis if we haven't added 2 yet
+          if (emojisAdded >= 2) {
+            return chunk
+          }
+          
+          // Combine accumulated text with new chunk to check for sentence endings
+          const combined = text + chunk
+          
+          // Find sentence endings in the combined text
+          // Look for patterns like ". ", "! ", "? " or ".", "!", "?" at end of text
+          const sentenceEndRegex = /([.!?])(\s+|$)/g
+          let match
+          let lastMatch: RegExpExecArray | null = null
+          
+          // Find all sentence endings
+          while ((match = sentenceEndRegex.exec(combined)) !== null) {
+            lastMatch = match
+          }
+          
+          if (lastMatch) {
+            const sentenceEndIndex = lastMatch.index + lastMatch[0].length
+            const textAfterSentenceEnd = combined.substring(sentenceEndIndex)
+            
+            // Check if there's already an emoji near the end of this sentence (within 10 chars)
+            const hasEmojiNearEnd = emojiPattern.test(textAfterSentenceEnd.substring(0, 10))
+            
+            // Check if next part starts with a numbered item (don't add emoji before numbered lists)
+            const isNumberedItem = /^\s*\d+[\)\.]\s/.test(textAfterSentenceEnd)
+            
+            if (!hasEmojiNearEnd && !isNumberedItem) {
+              // Find where the sentence ending is in the chunk
+              // The sentence ending might span across accumulated text and chunk
+              const chunkStartInCombined = text.length
+              const sentenceEndInCombined = lastMatch.index + lastMatch[0].length
+              
+              // If the sentence ending is in the chunk (or at the boundary)
+              if (sentenceEndInCombined >= chunkStartInCombined) {
+                const emoji = emojiOptions[emojisAdded % emojiOptions.length]
+                const sentenceEndInChunk = sentenceEndInCombined - chunkStartInCombined
+                
+                // Add emoji right after the sentence ending punctuation
+                const beforeEnd = chunk.substring(0, sentenceEndInChunk)
+                const afterEnd = chunk.substring(sentenceEndInChunk)
+                
+                // Add space before emoji if needed (if there's text after, add space)
+                const needsSpace = afterEnd.trim().length > 0 && !afterEnd.startsWith(' ')
+                emojisAdded++
+                return beforeEnd + (needsSpace ? ' ' : '') + emoji + afterEnd
+              }
+            }
+          }
+          
+          return chunk
+        }
+        
         while (!pythonFinished || chunkQueue.length > 0) {
           if (chunkQueue.length > 0) {
             const chunk = chunkQueue.shift()!
@@ -1217,8 +1299,22 @@ export class RAGService extends EventEmitter {
               }
             }
             
-            // Yield the clean chunk (without CHECKPOINT_UPDATE)
-            fullResponse += chunk // Keep original in fullResponse for state tracking
+            // Apply emoji formatting incrementally
+            // Count existing emojis in accumulated text + new chunk
+            const existingEmojis = countEmojis(accumulatedText + cleanChunk)
+            // Only add emojis if total (existing + added) is less than 2
+            if (existingEmojis + emojisAdded < 2) {
+              cleanChunk = addEmojiIfNeeded(accumulatedText, cleanChunk)
+            }
+            
+            // Update accumulated text (for sentence detection) - use the potentially modified chunk
+            accumulatedText += cleanChunk
+            
+            // IMPORTANT: Add the cleanChunk (with emojis) to fullResponse, not the original chunk
+            // This ensures the final response has inline emojis in the correct positions
+            fullResponse += cleanChunk
+            
+            // Yield the clean chunk (with emojis added if needed) for display
             yield { content: cleanChunk, done: false }
           } else if (!pythonFinished) {
             await new Promise(resolve => setImmediate(resolve))
@@ -1237,7 +1333,39 @@ export class RAGService extends EventEmitter {
         }
         
         modelUsed = pythonResult.modelUsed as ModelBackend
-        await this.addMessage(conversationId, 'assistant', fullResponse, {
+        
+        // Use the streamed response (which has inline emojis) instead of Python's formatted response
+        // Python's enforce_response_formatting adds emojis at the end, which overwrites our inline emojis
+        // Prefer the streamed response which has emojis in the correct positions
+        const pythonResponse = pythonResult.response || ''
+        const pythonResponseLength = pythonResponse.length
+        const fullResponseLength = fullResponse.length
+        
+        // Always prefer the accumulated streaming response (with inline emojis) over Python's formatted response
+        // Python's formatting is still applied during streaming via enforce_response_formatting,
+        // but we want to preserve the inline emoji positions from streaming
+        let finalResponse: string
+        if (fullResponseLength > 0) {
+          // Use accumulated streaming response (it has inline emojis in correct positions)
+          finalResponse = fullResponse
+          console.log(`[RAG] Using accumulated streaming response (${fullResponseLength} chars) with inline emojis`)
+        } else if (pythonResponse && pythonResponseLength > 0) {
+          // Fallback to Python response if streaming failed
+          finalResponse = pythonResponse
+          console.log(`[RAG] Using Python response as fallback (${pythonResponseLength} chars)`)
+        } else {
+          finalResponse = ''
+          console.log(`[RAG] No response available`)
+        }
+        
+        // Debug: Check for emojis in the response we're about to save
+        // Reuse the emojiPattern from the streaming section above
+        const emojiPatternDebug = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]/gu
+        const emojisFound = finalResponse.match(emojiPatternDebug)
+        console.log(`[EMOJI DEBUG] Emojis in final response to save: ${emojisFound ? emojisFound.join(', ') : 'none'}`)
+        console.log(`[EMOJI DEBUG] Using ${pythonResult.response ? 'Python formatted response' : 'accumulated streaming response'}`)
+        
+        await this.addMessage(conversationId, 'assistant', finalResponse, {
           mode: 'rag',
           modelUsed: pythonResult.modelUsed,
           ragMetadata: {
@@ -1248,8 +1376,10 @@ export class RAGService extends EventEmitter {
           success: true
         })
         
+        // Send the final formatted response (with emojis) in the done event
+        // This ensures emojis appear during streaming, not just after reload
         yield { 
-          content: '', 
+          content: finalResponse, // Send the formatted response with emojis
           done: true, 
           modelUsed: pythonResult.modelUsed as ModelBackend
         }
@@ -3663,6 +3793,11 @@ Provide general guidance based on standard principles, but encourage students to
       const fullPrompt = `${conversationContext ? `CONVERSATION HISTORY:\n${conversationContext}\n\n` : ''}STUDENT QUERY: ${query}
 
 Now respond to the student's query following the checkpoint system instructions in your system prompt.
+
+CRITICAL FORMATTING REMINDER BEFORE YOU RESPOND:
+- Use "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form) - NEVER use "CP1", "CP2", "CP3"
+- When listing numbered items (1), 2), 3), 4)), put each item on a separate line with blank lines between them
+- Add blank lines between major sections for readability
 
 Response:`
 

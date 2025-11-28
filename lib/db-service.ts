@@ -1886,7 +1886,7 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: row.message_history || [],
+      messageHistory: normalizeMessageHistory(row.message_history || []),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -1902,6 +1902,21 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
   } finally {
     client.release()
   }
+}
+
+// Helper function to normalize message history timestamps from strings to Date objects
+const normalizeMessageHistory = (messageHistory: any[]): any[] => {
+  if (!Array.isArray(messageHistory)) {
+    return []
+  }
+  return messageHistory.map((msg: any) => ({
+    ...msg,
+    timestamp: msg.timestamp instanceof Date 
+      ? msg.timestamp 
+      : msg.timestamp 
+        ? new Date(msg.timestamp) 
+        : new Date()
+  }))
 }
 
 export const getRAGConversationById = async (id: string): Promise<RAGConversation | null> => {
@@ -1928,7 +1943,7 @@ export const getRAGConversationById = async (id: string): Promise<RAGConversatio
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: row.message_history || [],
+      messageHistory: normalizeMessageHistory(row.message_history || []),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -1994,7 +2009,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: row.message_history || [],
+      messageHistory: normalizeMessageHistory(row.message_history || []),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -2306,7 +2321,16 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
     }
     if (updates.messageHistory !== undefined) {
       updateFields.push(`message_history = $${paramCount}`)
-      values.push(JSON.stringify(updates.messageHistory, null, 0))
+      // Sanitize Unicode subscripts before saving
+      const sanitizedHistory = sanitizeForDatabase(updates.messageHistory)
+      // Convert Date objects to ISO strings for proper JSON serialization
+      const serializedHistory = sanitizedHistory.map((msg: any) => ({
+        ...msg,
+        timestamp: msg.timestamp instanceof Date 
+          ? msg.timestamp.toISOString() 
+          : msg.timestamp
+      }))
+      values.push(JSON.stringify(serializedHistory, null, 0))
       paramCount++
     }
     if (updates.studentProblemData !== undefined) {
@@ -2371,7 +2395,7 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: row.message_history || [],
+      messageHistory: normalizeMessageHistory(row.message_history || []),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -2390,22 +2414,113 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
 }
 
 /**
+ * Helper function to sanitize Unicode subscript characters that cause database encoding issues
+ * Replaces subscript characters (₀-₉) with plain text equivalents (_0-_9)
+ * Also handles corrupted UTF-16 surrogate pairs that can cause database errors
+ */
+const sanitizeUnicodeSubscripts = (text: string): string => {
+  if (!text || typeof text !== 'string') return text
+  
+  // First, fix any corrupted UTF-16 surrogate pairs
+  // This handles cases where subscripts get corrupted during encoding/decoding
+  let result = text
+  
+  // Remove orphaned surrogate pairs (high surrogate without low, or low without high)
+  // High surrogates: 0xD800-0xDBFF
+  // Low surrogates: 0xDC00-0xDFFF
+  result = result.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '') // Remove orphaned high surrogates
+  result = result.replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '') // Remove orphaned low surrogates
+  
+  // Map of subscript characters to their plain text equivalents
+  const subscriptMap: { [key: string]: string } = {
+    '₀': '_0', '₁': '_1', '₂': '_2', '₃': '_3', '₄': '_4',
+    '₅': '_5', '₆': '_6', '₇': '_7', '₈': '_8', '₉': '_9',
+    'ₐ': '_a', 'ₑ': '_e', 'ₕ': '_h', 'ᵢ': '_i', 'ⱼ': '_j',
+    'ₖ': '_k', 'ₗ': '_l', 'ₘ': '_m', 'ₙ': '_n', 'ₒ': '_o',
+    'ₚ': '_p', 'ᵣ': '_r', 'ₛ': '_s', 'ₜ': '_t', 'ᵤ': '_u',
+    'ᵥ': '_v', 'ₓ': '_x'
+  }
+  
+  // Replace subscript characters
+  for (const [subscript, replacement] of Object.entries(subscriptMap)) {
+    result = result.replace(new RegExp(subscript, 'g'), replacement)
+  }
+  
+  // Additional safety: Remove any remaining problematic Unicode characters
+  // that might cause encoding issues (keep only safe ranges)
+  result = result.replace(/[\uD800-\uDFFF]/g, '') // Remove any remaining surrogate pairs
+  
+  return result
+}
+
+/**
+ * Helper function to sanitize message content for database storage
+ * Recursively sanitizes strings in objects/arrays to handle Unicode issues
+ */
+const sanitizeForDatabase = (value: any): any => {
+  if (value === null || value === undefined) return value
+  
+  if (typeof value === 'string') {
+    return sanitizeUnicodeSubscripts(value)
+  }
+  
+  if (Array.isArray(value)) {
+    return value.map(item => sanitizeForDatabase(item))
+  }
+  
+  if (typeof value === 'object') {
+    const sanitized: any = {}
+    for (const [key, val] of Object.entries(value)) {
+      sanitized[key] = sanitizeForDatabase(val)
+    }
+    return sanitized
+  }
+  
+  return value
+}
+
+/**
  * Helper function to safely convert to JSON string for JSONB fields
  */
 const toJsonString = (value: any): string | null => {
   if (value === null || value === undefined) return null
-  if (typeof value === 'string') {
+  
+  // Sanitize Unicode subscripts before stringifying
+  const sanitized = sanitizeForDatabase(value)
+  
+  // Custom replacer function to convert Date objects to ISO strings
+  const dateReplacer = (key: string, val: any) => {
+    if (val instanceof Date) {
+      return val.toISOString()
+    }
+    // Handle nested objects (like messageHistory arrays)
+    if (Array.isArray(val)) {
+      return val.map(item => {
+        if (item && typeof item === 'object') {
+          const converted: any = {}
+          for (const [k, v] of Object.entries(item)) {
+            converted[k] = v instanceof Date ? v.toISOString() : v
+          }
+          return converted
+        }
+        return item
+      })
+    }
+    return val
+  }
+  
+  if (typeof sanitized === 'string') {
     // Already a string, validate it's valid JSON
     try {
-      JSON.parse(value)
-      return value
+      JSON.parse(sanitized)
+      return sanitized
     } catch {
       // Invalid JSON string, stringify it
-      return JSON.stringify(value, null, 0)
+      return JSON.stringify(sanitized, dateReplacer, 0)
     }
   }
-  // It's an object, stringify it with UTF-8 support
-  return JSON.stringify(value, null, 0)
+  // It's an object, stringify it with UTF-8 support and date conversion
+  return JSON.stringify(sanitized, dateReplacer, 0)
 }
 
 /**
@@ -2552,7 +2667,7 @@ export const archiveRAGConversation = async (id: string): Promise<void> => {
   }
 }
 
-export const addRAGMessage = async (conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any, attachments?: Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }>): Promise<void> => {
+export const addRAGMessage = async (conversationId: string, role: 'user' | 'assistant', content: string, metadata?: any, attachments?: Array<{ type: 'file' | 'image'; url: string; name: string; mimeType: string; size?: number; thumbnailUrl?: string }>, timestamp?: Date): Promise<void> => {
   console.log(`[DB] Adding ${role} message to conversation ${conversationId}`)
   const client = await pool.connect()
   try {
@@ -2569,19 +2684,102 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
     }
 
     // Add new message to history
-    const newMessage: any = {
-      role,
-      content,
-      timestamp: new Date(),
-      metadata
-    }
+    // Sanitize content to handle Unicode subscript characters that cause database encoding issues
+    const sanitizedContent = sanitizeUnicodeSubscripts(content)
     
-    // Include attachments if provided
-    if (attachments && attachments.length > 0) {
-      newMessage.attachments = attachments
+    // Sanitize the entire history array (including existing messages) to handle any corrupted Unicode
+    // This ensures that even if previous messages had encoding issues, they'll be fixed now
+    const sanitizedExistingHistory = conversation.messageHistory.map((msg: any) => ({
+      ...msg,
+      content: sanitizeUnicodeSubscripts(msg.content || ''),
+      metadata: msg.metadata ? sanitizeForDatabase(msg.metadata) : msg.metadata,
+      // Preserve existing timestamps - normalize them to Date objects
+      timestamp: msg.timestamp instanceof Date 
+        ? msg.timestamp 
+        : msg.timestamp 
+          ? new Date(msg.timestamp) 
+          : new Date()
+    }))
+    
+    // Check if the last message is an assistant message with the same role
+    // If so, update it instead of creating a new one to preserve the original timestamp
+    // This handles the case where streaming has already added content to the message
+    const lastMessage = sanitizedExistingHistory[sanitizedExistingHistory.length - 1]
+    const isUpdatingLastMessage = lastMessage && 
+      lastMessage.role === role && 
+      role === 'assistant'
+    
+    let updatedHistory: any[]
+    if (isUpdatingLastMessage) {
+      // Update the existing message instead of creating a new one - preserve the original timestamp
+      // Normalize the timestamp to ensure it's a Date object
+      let preservedTimestamp: Date
+      if (lastMessage.timestamp instanceof Date) {
+        preservedTimestamp = lastMessage.timestamp
+      } else if (lastMessage.timestamp) {
+        preservedTimestamp = new Date(lastMessage.timestamp)
+      } else {
+        preservedTimestamp = new Date()
+      }
+      
+      // Validate timestamp is valid before using it
+      if (isNaN(preservedTimestamp.getTime())) {
+        console.warn(`[DB] Invalid timestamp found, using current time instead:`, lastMessage.timestamp)
+        preservedTimestamp = new Date()
+      }
+      
+      console.log(`[DB] Updating existing ${role} message - preserving timestamp: ${preservedTimestamp.toISOString()}`)
+      
+      const updatedMessage = {
+        ...lastMessage,
+        content: sanitizedContent,
+        metadata: metadata ? sanitizeForDatabase(metadata) : lastMessage.metadata,
+        // Preserve the original timestamp
+        timestamp: preservedTimestamp
+      }
+      
+      // Include attachments if provided
+      if (attachments && attachments.length > 0) {
+        updatedMessage.attachments = attachments
+      }
+      
+      updatedHistory = [...sanitizedExistingHistory.slice(0, -1), updatedMessage]
+      const timestampStr = updatedMessage.timestamp instanceof Date && !isNaN(updatedMessage.timestamp.getTime())
+        ? updatedMessage.timestamp.toISOString()
+        : 'INVALID DATE'
+      console.log(`[DB] Updated message timestamp preserved: ${timestampStr}`)
+    } else {
+      // Create a new message - use provided timestamp if available, otherwise use current time
+      let messageTimestamp = timestamp || new Date()
+      
+      // Validate timestamp is valid
+      if (messageTimestamp instanceof Date && isNaN(messageTimestamp.getTime())) {
+        console.warn(`[DB] Invalid timestamp provided, using current time instead:`, timestamp)
+        messageTimestamp = new Date()
+      } else if (timestamp && !(timestamp instanceof Date)) {
+        // If timestamp is provided but not a Date, try to convert it
+        messageTimestamp = new Date(timestamp)
+        if (isNaN(messageTimestamp.getTime())) {
+          console.warn(`[DB] Invalid timestamp format, using current time instead:`, timestamp)
+          messageTimestamp = new Date()
+        }
+      }
+      
+      const newMessage: any = {
+        role,
+        content: sanitizedContent,
+        timestamp: messageTimestamp,
+        metadata: metadata ? sanitizeForDatabase(metadata) : metadata
+      }
+      
+      // Include attachments if provided
+      if (attachments && attachments.length > 0) {
+        newMessage.attachments = attachments
+      }
+      
+      updatedHistory = [...sanitizedExistingHistory, newMessage]
+      console.log(`[DB] Creating new ${role} message with timestamp: ${messageTimestamp.toISOString()}`)
     }
-
-    const updatedHistory = [...conversation.messageHistory, newMessage]
     console.log(`[DB] Updated history will have ${updatedHistory.length} messages`)
 
     // Update conversation with new message

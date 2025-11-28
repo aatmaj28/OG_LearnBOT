@@ -41,34 +41,179 @@ function sanitizeContent(content: string): string {
   if (!hasNonASCII) return content // Early exit for ASCII-only
   
   // Character whitelist filter (same as Python side and streaming sanitization)
+  // Use codePointAt for proper emoji handling (emojis are multi-byte)
   let result = ''
   for (let i = 0; i < content.length; i++) {
-    const code = content.charCodeAt(i)
-    // Allow: ASCII (0-127), safe Unicode ranges only
-    if (code <= 127 || 
-        (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
-        (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
-        (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
-        (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
-        (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
-        (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
-        (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
-        (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
-        (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
-        (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
-      result += content[i]
+    const codePoint = content.codePointAt(i) || 0
+    // Skip surrogate pairs (second half of emoji)
+    if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
+      continue
     }
-    // Skip all other characters (emojis, complex Unicode, corrupted sequences)
+    
+    // Allow: ASCII (0-127), safe Unicode ranges, and emojis
+    if (codePoint <= 127 || 
+        (codePoint >= 0x2000 && codePoint <= 0x206F) ||  // General Punctuation
+        (codePoint >= 0x20A0 && codePoint <= 0x20CF) ||  // Currency symbols
+        (codePoint >= 0x2100 && codePoint <= 0x214F) ||  // Letterlike Symbols
+        (codePoint >= 0x2190 && codePoint <= 0x21FF) ||  // Arrows
+        (codePoint >= 0x2200 && codePoint <= 0x22FF) ||  // Mathematical Operators
+        (codePoint >= 0x2300 && codePoint <= 0x23FF) ||  // Miscellaneous Technical
+        (codePoint >= 0x2400 && codePoint <= 0x243F) ||  // Control Pictures
+        (codePoint >= 0x25A0 && codePoint <= 0x25FF) ||  // Geometric Shapes
+        (codePoint >= 0x2600 && codePoint <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
+        (codePoint >= 0x2700 && codePoint <= 0x27BF) ||  // Dingbats
+        (codePoint >= 0x1F300 && codePoint <= 0x1F9FF) || // Emoticons and Symbols
+        (codePoint >= 0x1F600 && codePoint <= 0x1F64F) || // Emoticons
+        (codePoint >= 0x1F900 && codePoint <= 0x1F9FF) || // Supplemental Symbols and Pictographs
+        (codePoint >= 0x1FA00 && codePoint <= 0x1FAFF) || // Symbols and Pictographs Extended-A
+        (codePoint >= 0xFE00 && codePoint <= 0xFE0F) ||   // Variation Selectors
+        (codePoint >= 0xFE20 && codePoint <= 0xFE2F)) {   // Combining Half Marks
+      // Use String.fromCodePoint for proper emoji handling
+      result += String.fromCodePoint(codePoint)
+      // Skip the next character if this was a surrogate pair
+      if (codePoint > 0xFFFF) {
+        i++
+      }
+    }
+    // Skip corrupted sequences but allow emojis
   }
   
-  // Clean up multiple spaces that might result from removals
-  result = result.replace(/\s{2,}/g, ' ')
+  // Clean up multiple spaces (but preserve newlines)
+  // Replace multiple spaces/tabs with single space, but keep newlines
+  result = result.replace(/[ \t]+/g, ' ')  // Collapse spaces/tabs only
+  result = result.replace(/\n{3,}/g, '\n\n')  // Limit consecutive newlines to 2
   
   return result.trim()
 }
 
 export function ChatMessage({ role, content, timestamp, metadata, attachments, isDarkMode = false }: ChatMessageProps) {
-  const sanitizedContent = sanitizeContent(content)
+  let sanitizedContent = sanitizeContent(content)
+  
+  // Debug: Log content to see what we're working with
+  if (role === 'assistant') {
+    const emojiRegex = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]/gu
+    const emojisInOriginal = content.match(emojiRegex) || []
+    const emojisInSanitized = sanitizedContent.match(emojiRegex) || []
+    console.log('[CHAT MESSAGE DEBUG] Original content length:', content.length)
+    console.log('[CHAT MESSAGE DEBUG] Emojis in ORIGINAL content:', emojisInOriginal)
+    console.log('[CHAT MESSAGE DEBUG] Emojis in SANITIZED content:', emojisInSanitized)
+    console.log('[CHAT MESSAGE DEBUG] First 300 chars of sanitized:', sanitizedContent.substring(0, 300))
+  }
+  
+  // Convert "1) " format to "1. " format for ReactMarkdown (it only recognizes "1. " as numbered lists)
+  const beforeConversion = sanitizedContent
+  // Check for numbered lines - match "1)" or "1) " at start of line
+  const numberedLinesBefore = beforeConversion.split('\n').filter(line => /^\s*\d+\)/.test(line))
+  
+  if (role === 'assistant') {
+    console.log('[CHAT MESSAGE DEBUG] Lines with "1)" format BEFORE conversion:', numberedLinesBefore.length)
+    if (numberedLinesBefore.length > 0) {
+      console.log('[CHAT MESSAGE DEBUG] Sample numbered lines:', numberedLinesBefore.slice(0, 3))
+    }
+  }
+  
+  // Convert "1) " to "1. " - handle both "1)" and "1) " formats
+  // Pattern 1: "1) " at start of line (with space after parenthesis)
+  sanitizedContent = sanitizedContent.replace(/^(\s*)(\d+)\)\s+/gm, '$1$2. ')
+  // Pattern 2: "1)" at start of line (without space, but followed by text or end of line)
+  sanitizedContent = sanitizedContent.replace(/^(\s*)(\d+)\)([^\s])/gm, '$1$2. $3')
+  
+  if (role === 'assistant') {
+    const numberedLinesAfter = sanitizedContent.split('\n').filter(line => /^\s*\d+\.\s/.test(line))
+    console.log('[CHAT MESSAGE DEBUG] Lines with "1." format AFTER conversion:', numberedLinesAfter.length)
+    if (numberedLinesAfter.length > 0) {
+      console.log('[CHAT MESSAGE DEBUG] Sample converted lines:', numberedLinesAfter.slice(0, 3))
+      console.log('[CHAT MESSAGE DEBUG] First 300 chars AFTER conversion:', sanitizedContent.substring(0, 300))
+    } else if (numberedLinesBefore.length > 0) {
+      // This is not necessarily an error - the lines might have been processed differently
+      // Only log as warning, not error
+      console.warn('[CHAT MESSAGE DEBUG] Note: Found', numberedLinesBefore.length, 'numbered lines before conversion but 0 after. This may be normal if they were processed differently.')
+      console.warn('[CHAT MESSAGE DEBUG] Original numbered lines:', numberedLinesBefore)
+      console.warn('[CHAT MESSAGE DEBUG] Content after conversion (first 300 chars):', sanitizedContent.substring(0, 300))
+    }
+  }
+  
+  // IMPORTANT: Preserve numbered list formatting for ReactMarkdown
+  // ReactMarkdown recognizes numbered lists when items start with "1. " at the beginning of a line
+  // Each numbered item MUST be on its own line, and there should be a blank line before the list
+  
+  // First, ensure numbered list items are on separate lines (in case they got collapsed)
+  // This regex finds numbered items that might be on the same line and splits them
+  sanitizedContent = sanitizedContent.replace(/(\d+\.\s[^\n]+?)\s+(\d+\.\s)/g, '$1\n$2')
+  
+  // Normalize multiple newlines to double (but preserve list structure)
+  sanitizedContent = sanitizedContent.replace(/\n{3,}/g, '\n\n')
+  
+  // Process line by line to ensure proper formatting
+  const lines = sanitizedContent.split('\n')
+  const processedLines: string[] = []
+  let inNumberedList = false
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const isNumberedItem = /^\s*\d+\.\s/.test(line)
+    const nextIsNumbered = i + 1 < lines.length && /^\s*\d+\.\s/.test(lines[i + 1])
+    const isBlank = line.trim() === ''
+    
+    if (isNumberedItem) {
+      // Numbered list item
+      if (!inNumberedList) {
+        // First numbered item - ensure blank line before it
+        if (processedLines.length > 0 && processedLines[processedLines.length - 1].trim() !== '') {
+          processedLines.push('')
+        }
+        inNumberedList = true
+      }
+      // Add the numbered item as-is (on its own line)
+      processedLines.push(line)
+      
+      // If next line is not numbered and not blank, end the list
+      if (!nextIsNumbered && !isBlank && i + 1 < lines.length && lines[i + 1].trim() !== '') {
+        processedLines.push('')  // Blank line after list
+        inNumberedList = false
+      }
+    } else if (isBlank) {
+      // Blank line - preserve it
+      processedLines.push(line)
+      if (inNumberedList && i + 1 < lines.length && !/^\s*\d+\.\s/.test(lines[i + 1])) {
+        inNumberedList = false
+      }
+    } else {
+      // Regular text line
+      inNumberedList = false
+      // Don't add markdown line breaks for regular text - let ReactMarkdown handle it
+      processedLines.push(line)
+    }
+  }
+  
+  sanitizedContent = processedLines.join('\n')
+  
+  // Fix spacing around numbers with commas (e.g., "95,200and" -> "95,200 and", "is95,200" -> "is 95,200")
+  sanitizedContent = sanitizedContent.replace(/([a-zA-Z])(\d{1,3}(?:,\d{3})*(?:\.\d+)?)/g, '$1 $2')
+  sanitizedContent = sanitizedContent.replace(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?)([a-zA-Z])/g, '$1 $2')
+  
+  if (role === 'assistant') {
+    const finalNumberedLines = sanitizedContent.split('\n').filter(line => /^\s*\d+\.\s/.test(line))
+    console.log('[CHAT MESSAGE DEBUG] Final numbered lines count:', finalNumberedLines.length)
+    
+    // Check if numbered items are on separate lines
+    const numberedItemsOnSameLine = sanitizedContent.match(/\d+\.\s[^\n]+\s+\d+\.\s/g)
+    if (numberedItemsOnSameLine) {
+      console.warn('[CHAT MESSAGE DEBUG] ⚠️ Found numbered items on same line:', numberedItemsOnSameLine)
+    }
+    
+    // Show the actual structure around numbered items
+    const numberedItemIndex = sanitizedContent.search(/^\d+\.\s/m)
+    if (numberedItemIndex !== -1) {
+      const contextStart = Math.max(0, numberedItemIndex - 50)
+      const contextEnd = Math.min(sanitizedContent.length, numberedItemIndex + 300)
+      console.log('[CHAT MESSAGE DEBUG] Context around first numbered item:', sanitizedContent.substring(contextStart, contextEnd))
+    }
+    
+    if (finalNumberedLines.length > 0) {
+      console.log('[CHAT MESSAGE DEBUG] Final numbered lines:', finalNumberedLines.slice(0, 4))
+    }
+  }
   
   const handleDownload = (attachment: ChatAttachment) => {
     if (attachment.url) {
@@ -154,8 +299,8 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
           <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-gray'} prose-sm max-w-none
             prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
             prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
-            prose-p:my-2 prose-p:leading-7
-            prose-ul:my-2 prose-ol:my-2 prose-li:my-1
+            prose-p:my-4 prose-p:leading-7 prose-p:whitespace-pre-wrap
+            prose-ul:my-2 prose-ol:my-3 prose-li:my-1.5
             prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono
             ${role === 'user' 
               ? isDarkMode 
@@ -205,16 +350,19 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
                     </code>
                   )
                 },
-                // Custom rendering for paragraphs to handle line breaks better
+                // Custom rendering for paragraphs to handle line breaks better with more spacing
                 p({ children }) {
-                  return <p className="leading-7">{children}</p>
+                  return <p className="leading-7 whitespace-pre-wrap my-4">{children}</p>
                 },
                 // Custom rendering for lists
                 ul({ children }) {
                   return <ul className="space-y-1 pl-4">{children}</ul>
                 },
                 ol({ children }) {
-                  return <ol className="space-y-1 pl-4">{children}</ol>
+                  return <ol className="space-y-2 pl-6 list-decimal list-outside my-3">{children}</ol>
+                },
+                li({ children }) {
+                  return <li className="ml-4 mb-1">{children}</li>
                 },
               }}
             >
@@ -226,7 +374,17 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
         {/* Metadata */}
         <div className={`flex items-center gap-2 mt-1.5 px-2 flex-wrap ${role === 'user' ? 'justify-end' : 'justify-start'}`}>
           <span className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'} font-medium`}>
-            {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {(() => {
+              try {
+                const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
+                if (isNaN(date.getTime())) {
+                  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                }
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              } catch (e) {
+                return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+            })()}
           </span>
           
           {role === 'assistant' && metadata?.mode && (

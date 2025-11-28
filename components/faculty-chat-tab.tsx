@@ -258,15 +258,59 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       requestAnimationFrame(() => {
         if (scrollRef.current) {
           isScrollingProgrammaticallyRef.current = true
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+          scrollRef.current.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          })
           shouldAutoScrollRef.current = true
           setTimeout(() => {
             isScrollingProgrammaticallyRef.current = false
-          }, 100)
+          }, 500) // Increased timeout to account for smooth scroll animation
         }
       })
     }
   }, [currentConversation?.id]) // Only when conversation ID changes, not on every message update
+
+  // Smooth scroll when new messages are added (for assistant responses)
+  useEffect(() => {
+    if (scrollRef.current && currentConversation?.messageHistory && shouldAutoScrollRef.current) {
+      // Small delay to ensure DOM is updated with new message
+      const timeoutId = setTimeout(() => {
+        if (scrollRef.current && shouldAutoScrollRef.current) {
+          isScrollingProgrammaticallyRef.current = true
+          scrollRef.current.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          })
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false
+          }, 500)
+        }
+      }, 100)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [currentConversation?.messageHistory?.length]) // Trigger when message count changes
+
+  // Smooth scroll when Deep Thinking animation appears
+  useEffect(() => {
+    if (isDeepThinking && scrollRef.current) {
+      // Scroll to show the Deep Thinking animation when it appears
+      const timeoutId = setTimeout(() => {
+        if (scrollRef.current) {
+          isScrollingProgrammaticallyRef.current = true
+          scrollRef.current.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          })
+          shouldAutoScrollRef.current = true
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false
+          }, 500)
+        }
+      }, 200) // Small delay to ensure animation component is rendered
+      return () => clearTimeout(timeoutId)
+    }
+  }, [isDeepThinking])
 
   const loadClasses = async () => {
     const userId = localStorage.getItem("userId")
@@ -309,7 +353,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     let result = ''
     for (let i = 0; i < content.length; i++) {
       const code = content.charCodeAt(i)
-      // Allow: ASCII (0-127), safe Unicode ranges only
+      // Allow: ASCII (0-127), safe Unicode ranges, and emojis
       if (code <= 127 || 
           (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
           (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
@@ -319,12 +363,23 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
           (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
           (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
+          (code >= 0x2600 && code <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
+          (code >= 0x2700 && code <= 0x27BF) ||  // Dingbats
+          (code >= 0x1F300 && code <= 0x1F9FF) || // Emoticons and Symbols
+          (code >= 0x1F600 && code <= 0x1F64F) || // Emoticons
+          (code >= 0x1F900 && code <= 0x1F9FF) || // Supplemental Symbols and Pictographs
+          (code >= 0x1FA00 && code <= 0x1FAFF) || // Symbols and Pictographs Extended-A
           (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
           (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
         result += content[i]
       }
-      // Skip all other characters (emojis, complex Unicode, corrupted sequences)
+      // Skip corrupted sequences but allow emojis
     }
+    
+    // Clean up multiple spaces (but preserve newlines)
+    result = result.replace(/[ \t]+/g, ' ')  // Collapse spaces/tabs only
+    result = result.replace(/\n{3,}/g, '\n\n')  // Limit consecutive newlines to 2
+    
     return result
   }
 
@@ -713,9 +768,36 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     // If Deep Thinking Mode is enabled, show animation and delay
     if (deepThinking) {
       setIsDeepThinking(true)
+      // Scroll to show the animation immediately
+      setTimeout(() => {
+        if (scrollRef.current) {
+          isScrollingProgrammaticallyRef.current = true
+          scrollRef.current.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          })
+          shouldAutoScrollRef.current = true
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false
+          }, 500)
+        }
+      }, 100) // Small delay to ensure user message is rendered
       // Wait 3 seconds before starting the request
       await new Promise(resolve => setTimeout(resolve, 3000))
       setIsDeepThinking(false)
+      // Scroll again after animation completes to ensure we're at the bottom
+      setTimeout(() => {
+        if (scrollRef.current) {
+          isScrollingProgrammaticallyRef.current = true
+          scrollRef.current.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          })
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false
+          }, 500)
+        }
+      }, 100)
     }
 
     // Track time to first token (TTFT)
@@ -746,21 +828,45 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       }
     })
 
-    // Force scroll to bottom immediately after adding user message
+    // Force smooth scroll to bottom immediately after adding user message
+    // If Deep Thinking Mode is enabled, scroll will happen again when animation appears
     setTimeout(() => {
       if (scrollRef.current) {
         isScrollingProgrammaticallyRef.current = true
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        scrollRef.current.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: 'smooth'
+        })
         shouldAutoScrollRef.current = true
         setTimeout(() => {
           isScrollingProgrammaticallyRef.current = false
-        }, 100)
+        }, 500) // Increased timeout to account for smooth scroll animation
       }
     }, 0)
+    
+    // If Deep Thinking Mode is enabled, scroll again when animation appears
+    if (deepThinking) {
+      // Scroll after a short delay to ensure animation is rendered
+      setTimeout(() => {
+        if (scrollRef.current) {
+          isScrollingProgrammaticallyRef.current = true
+          scrollRef.current.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          })
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false
+          }, 500)
+        }
+      }, 200) // Small delay to ensure animation component is rendered
+    }
 
     try {
       console.log("[v0] Starting fetch request to /api/chat/ai-response")
       console.log("[v0] Request body:", { message: userMessage, userId, sessionId: currentConversation.id })
+      
+      // Capture timestamp BEFORE sending request - this will be used for the assistant message
+      const assistantMessageTimestamp = new Date()
       
       // Send message and get AI response with timeout
       const controller = new AbortController()
@@ -781,6 +887,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         formData.append('preferredModel', preferredModel)
         formData.append('stream', 'true')
         formData.append('deepThinking', deepThinking.toString())
+        formData.append('assistantMessageTimestamp', assistantMessageTimestamp.toISOString())
         
         messageAttachments.forEach((file) => {
           formData.append(`attachments`, file)
@@ -798,7 +905,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           chatType: chatType,
           preferredModel: preferredModel,
           stream: true,
-          deepThinking: deepThinking
+          deepThinking: deepThinking,
+          assistantMessageTimestamp: assistantMessageTimestamp.toISOString()
         })
         headers = { "Content-Type": "application/json" }
       }
@@ -819,11 +927,11 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         if (contentType?.includes('text/event-stream')) {
           console.log("[v0] Streaming response detected")
           
-          // Create placeholder for assistant message
+          // Create placeholder for assistant message - use the same timestamp we sent to backend
           const assistantMessageObj = {
             role: "assistant" as const,
             content: "",
-            timestamp: new Date(),
+            timestamp: assistantMessageTimestamp,
             metadata: { timeToFirstToken: null }
           }
           
@@ -843,6 +951,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           const reader = response.body?.getReader()
           const decoder = new TextDecoder()
           let accumulatedResponse = '' // Declare outside the if block so it's accessible later
+          let capturedModelUsed: string | undefined = undefined // Capture modelUsed from done event
           
           if (reader) {
             while (true) {
@@ -898,11 +1007,14 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                           requestAnimationFrame(() => {
                             if (scrollRef.current && isNearBottom(scrollRef.current)) {
                               isScrollingProgrammaticallyRef.current = true
-                              scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-                              // Reset flag quickly
+                              scrollRef.current.scrollTo({
+                                top: scrollRef.current.scrollHeight,
+                                behavior: 'smooth'
+                              })
+                              // Reset flag after smooth scroll animation
                               setTimeout(() => {
                                 isScrollingProgrammaticallyRef.current = false
-                              }, 10)
+                              }, 500)
                             }
                           })
                         } else {
@@ -914,8 +1026,20 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     
                     if (data.done) {
                       console.log("[v0] Streaming completed, modelUsed:", data.modelUsed, "Final content length:", accumulatedResponse.length)
-                      // Capture modelUsed from the done event
+                      
+                      // Capture modelUsed from done event
                       if (data.modelUsed) {
+                        capturedModelUsed = data.modelUsed
+                      }
+                      
+                      // Use the formatted response from the done event (includes emojis)
+                      // If data.content is provided, it's the final formatted response from Python
+                      const finalFormattedContent = data.content || accumulatedResponse
+                      
+                      console.log("[v0] Final formatted content length:", finalFormattedContent.length)
+                      console.log("[v0] Final formatted content preview:", finalFormattedContent.substring(0, 200))
+                      
+                      // Update the message with the final formatted content (includes emojis)
                         setCurrentConversation(prev => {
                           if (!prev) return prev
                           const messages = [...(prev.messageHistory || [])]
@@ -924,17 +1048,20 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                             if (lastMsg.role === 'assistant') {
                               messages[messages.length - 1] = {
                                 ...lastMsg,
-                                content: accumulatedResponse, // Ensure final content is set
+                              content: finalFormattedContent, // Use formatted response with emojis
                                 metadata: {
                                   ...lastMsg.metadata,
-                                  modelUsed: data.modelUsed
+                                  modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed
                                 }
                               }
                             }
                           }
                           return { ...prev, messageHistory: messages }
                         })
-                      }
+                      
+                      // Update accumulatedResponse for consistency
+                      accumulatedResponse = finalFormattedContent
+                      
                       // Don't break here - continue reading until stream is done
                       // The break will happen when reader.read() returns done=true
                     }
@@ -952,41 +1079,32 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
           console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
           
-          // Preserve the streamed content (including checkpoint update) before reloading
-          const streamedContent = accumulatedResponse
-          
-          // Reload conversation to get the saved version from DB
-          console.log("[v0] Reloading conversation:", currentConversation.id)
-          await loadConversation(currentConversation.id)
-          await loadConversations()
-          console.log("[v0] Conversation reloaded successfully")
-          
-          // Merge frontend timing metrics with DB data and preserve streamed content (including checkpoint update)
-          // Also preserve modelUsed if it was captured from the done event
-          let capturedModelUsed: string | undefined = undefined
+          // Update the final message with metadata - NO RELOAD to prevent timestamp blink
+          // The backend already saved the message, we just need to update metadata in state
           setCurrentConversation(prev => {
             if (!prev?.messageHistory) return prev
             const messages = [...prev.messageHistory]
             if (messages.length > 0) {
               const lastMsg = messages[messages.length - 1]
               if (lastMsg.role === 'assistant') {
-                // Preserve modelUsed if it was set during streaming
-                capturedModelUsed = lastMsg.metadata?.modelUsed
-                // Preserve the streamed content which includes the checkpoint update
+                // Update metadata but preserve the original timestamp to prevent blink
                 messages[messages.length - 1] = {
                   ...lastMsg,
-                  content: streamedContent, // Use streamed content which includes checkpoint update
+                  // Content is already updated during streaming, just update metadata
                   metadata: {
                     ...lastMsg.metadata,
                     timeToFirstToken: ttft,
                     totalResponseTime: totalResponseTime,
-                    modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed // Preserve modelUsed
+                    modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed
                   }
                 }
               }
             }
             return { ...prev, messageHistory: messages }
           })
+          
+          // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
+          loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
         } else {
           // Non-streaming response (fallback)
           const responseData = await response.json()

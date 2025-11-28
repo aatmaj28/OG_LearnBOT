@@ -92,14 +92,48 @@ class SentenceTransformerEmbedding(BaseEmbedding):
         # nomic models require trust_remote_code=True
         object.__setattr__(self, '_model', SentenceTransformer(model_name, trust_remote_code=True))
     
+    def _sanitize_for_embedding(self, text: str) -> str:
+        """Sanitize text before embedding to ensure it's a valid string that the tokenizer can handle"""
+        if not text:
+            return ""
+        
+        # Ensure it's a string type
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # Remove null bytes and control characters (except newlines, tabs, carriage returns)
+        text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\r\t')
+        
+        # Remove any remaining problematic Unicode characters that might break tokenization
+        # Keep only printable characters and common whitespace
+        try:
+            # Try to encode/decode to ensure valid UTF-8
+            text = text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+        except:
+            # If encoding fails, return empty string
+            return ""
+        
+        return text.strip()
+    
     def _get_query_embedding(self, query: str):
-        return self._model.encode(query, convert_to_numpy=True).tolist()
+        # Sanitize query before embedding
+        sanitized_query = self._sanitize_for_embedding(query)
+        if not sanitized_query:
+            # If sanitization results in empty string, use a fallback
+            sanitized_query = "query"
+        return self._model.encode(sanitized_query, convert_to_numpy=True).tolist()
     
     def _get_text_embedding(self, text: str):
-        return self._model.encode(text, convert_to_numpy=True).tolist()
+        # Sanitize text before embedding
+        sanitized_text = self._sanitize_for_embedding(text)
+        if not sanitized_text:
+            sanitized_text = "text"
+        return self._model.encode(sanitized_text, convert_to_numpy=True).tolist()
     
     def _get_text_embeddings(self, texts: List[str]):
-        embeddings = self._model.encode(texts, convert_to_numpy=True)
+        # Sanitize all texts before embedding
+        sanitized_texts = [self._sanitize_for_embedding(text) if text else "text" for text in texts]
+        embeddings = self._model.encode(sanitized_texts, convert_to_numpy=True)
         return [emb.tolist() for emb in embeddings]
     
     async def _aget_query_embedding(self, query: str):
@@ -1571,6 +1605,313 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
         return None, None, time_taken
 
 
+def enforce_response_formatting(text: str) -> str:
+    """
+    FRESH IMPLEMENTATION - Simple and clean formatting
+    
+    Rules:
+    1. Replace CP1/CP2/CP3 with Checkpoint 1/2/3
+    2. Remove markdown (**, *, __, _)
+    3. Format numbered lists: split items on same line, add blank lines between
+    4. Add 1-2 emojis at end of sentences (if not already present)
+    """
+    if not text:
+        return text
+    
+    import re
+    import unicodedata
+    
+    print(f"[FORMATTING] Starting fresh formatting - length: {len(text)} chars", file=sys.stderr)
+    
+    # Step 1: Remove markdown (but preserve ALL bold formatting that LLM added)
+    # The LLM now decides what to bold based on context, so we preserve all **text** formatting
+    # Only remove other markdown like headers, list markers, etc.
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # Remove headers
+    text = re.sub(r'^[\s]*[-*+]\s+', '', text, flags=re.MULTILINE)  # Remove list markers
+    # Keep **bold** and *italic* formatting - don't remove it (LLM decides what to bold)
+    
+    # Step 2: Replace checkpoint abbreviations (but don't add bold - LLM will do it)
+    # Just convert abbreviations to full form, LLM will bold them if needed
+    text = re.sub(r'\bCP\s*1\b', 'Checkpoint 1', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bCP\s*2\b', 'Checkpoint 2', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bCP\s*3\b', 'Checkpoint 3', text, flags=re.IGNORECASE)
+    
+    # Step 2.5: Fix nested numbering inside numbered list items
+    # Convert numbered lists (1., 2., 3.) that appear inside numbered list items to plain text
+    # This prevents ReactMarkdown from creating nested lists
+    lines = text.split('\n')
+    fixed_lines = []
+    in_numbered_list = False
+    
+    for i, line in enumerate(lines):
+        # Check if this line starts a numbered list item
+        if re.match(r'^\s*\d+\.\s', line):
+            in_numbered_list = True
+            # Check if this line contains nested numbering (e.g., "1. something (e.g., 1. example)")
+            # Replace nested "1. " with "- " or just remove the number
+            line = re.sub(r'\(e\.g\.\s*,?\s*(\d+)\.\s+', r'(e.g., ', line)
+            line = re.sub(r',\s*(\d+)\.\s+', r', ', line)
+            # If there's still nested numbering in the middle of the line, convert it
+            # Match patterns like "1. text (e.g., 1. example)" but not at the start of line
+            line = re.sub(r'(?<!^)\s+(\d+)\.\s+', r' - ', line)
+        elif line.strip() == '':
+            # Blank line might end the numbered list
+            if in_numbered_list and i + 1 < len(lines) and not re.match(r'^\s*\d+\.\s', lines[i + 1]):
+                in_numbered_list = False
+        else:
+            # Non-numbered line - check if we're still in a numbered list context
+            if in_numbered_list:
+                # If this line doesn't continue the list, we're out of it
+                if not line.strip().startswith(('(', 'e.g.', 'for example', 'such as')):
+                    in_numbered_list = False
+        
+        fixed_lines.append(line)
+    
+    text = '\n'.join(fixed_lines)
+    
+    # Step 3: Detect and number questions that don't have numbers
+    # Look for sequences of questions (ending with "?") without numbers
+    lines = text.split('\n')
+    new_lines = []
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i]
+        
+        # Check if this line looks like it starts a question sequence
+        # Look for intro phrases like "could you tell me:", "can you tell me:", etc.
+        intro_patterns = [
+            r'could you tell me[:\s]*$',
+            r'can you tell me[:\s]*$',
+            r'tell me[:\s]*$',
+            r'please tell me[:\s]*$',
+            r'let me know[:\s]*$',
+        ]
+        
+        is_intro = any(re.search(pattern, line, re.IGNORECASE) for pattern in intro_patterns)
+        
+        if is_intro:
+            # FIRST: Check if the following lines are already numbered
+            # If they are, skip this entire step - don't add numbers to already-numbered items
+            j = i + 1
+            # Skip blank lines after intro
+            while j < len(lines) and lines[j].strip() == '':
+                j += 1
+            
+            # Check the first non-blank line after intro - if it's already numbered, skip Step 3 entirely
+            if j < len(lines):
+                first_line_after_intro = lines[j].strip()
+                numbered_pattern = r'^\d+[\)\.]\s+'
+                is_numbered = bool(re.match(numbered_pattern, first_line_after_intro))
+                print(f"[FORMATTING DEBUG] First line after intro: '{first_line_after_intro[:60]}'", file=sys.stderr)
+                print(f"[FORMATTING DEBUG] Regex match result: {is_numbered}", file=sys.stderr)
+                if is_numbered:
+                    # Items are already numbered, skip Step 3 entirely
+                    print(f"[FORMATTING] ✓ Items after intro are already numbered, skipping Step 3 entirely", file=sys.stderr)
+                    # Just add all lines as-is without processing - they'll be handled in next iterations
+                    new_lines.append(line)
+                    i += 1
+                    continue
+                else:
+                    print(f"[FORMATTING] Items after intro are NOT numbered, proceeding with Step 3", file=sys.stderr)
+            
+            # Only proceed if items are NOT already numbered
+            # Collect following lines that are questions without numbers
+            questions = []
+            j = i + 1
+            intro_line = line
+            
+            # Skip blank lines after intro
+            while j < len(lines) and lines[j].strip() == '':
+                j += 1
+            
+            # Collect consecutive questions
+            while j < len(lines):
+                next_line = lines[j].strip()
+                
+                # Stop if we hit a non-question line (not blank, not a question)
+                if next_line == '':
+                    j += 1
+                    continue
+                
+                # Check if it's already numbered (either "1) " or "1. " format) - MUST check BEFORE processing
+                # This check must be very strict to avoid double numbering
+                # Check for patterns like "1. ", "1) ", "3. ", etc. at the start of the line
+                # Since next_line is already stripped, we check for number at the start
+                if re.match(r'^\d+[\)\.]\s+', next_line):
+                    # This line already has a number, skip the entire question detection
+                    print(f"[FORMATTING] Skipping already-numbered line: {next_line[:50]}", file=sys.stderr)
+                    break  # Already numbered, stop here - this prevents processing numbered items
+                
+                # Check if it's a question (ends with "?" and looks like a question)
+                if next_line.endswith('?') and len(next_line) > 5:
+                    # Check if it starts with a question word or capital letter
+                    question_words = ['what', 'which', 'how', 'why', 'when', 'where', 'who', 
+                                    'can', 'could', 'would', 'should', 'are', 'is', 'do', 'does', 
+                                    'does', 'will', 'did', 'have', 'has', 'had']
+                    first_word = next_line.split()[0].lower().rstrip('?:.,!')
+                    
+                    if first_word in question_words or next_line[0].isupper():
+                        questions.append(next_line)
+                        j += 1
+                        # Skip blank lines between questions
+                        while j < len(lines) and lines[j].strip() == '':
+                            j += 1
+                    else:
+                        break
+                else:
+                    break
+            
+            # If we found unnumbered questions, add numbers
+            if len(questions) > 0:
+                print(f"[FORMATTING] Found {len(questions)} unnumbered questions after intro, adding numbers", file=sys.stderr)
+                new_lines.append(intro_line)
+                new_lines.append('')  # blank line
+                
+                for idx, q in enumerate(questions, 1):
+                    # Check if question already has a number at the start and remove it
+                    # This is a safety check - we should have filtered these out earlier
+                    q_clean = re.sub(r'^\d+[\)\.]\s+', '', q).strip()
+                    # Double-check: if after cleaning, the question is empty or still starts with a number, skip it
+                    if not q_clean or re.match(r'^\d+[\)\.]\s', q_clean):
+                        print(f"[FORMATTING] Skipping question that already has number: {q}", file=sys.stderr)
+                        continue
+                    new_lines.append(f"{idx}. {q_clean}")  # Use "1. " format (ReactMarkdown compatible)
+                    new_lines.append('')  # blank line after each
+                
+                i = j  # Skip the lines we processed
+            else:
+                # No unnumbered questions found - either items are already numbered or no questions
+                # Add the intro line and continue (numbered items will be added in next iteration)
+                new_lines.append(line)
+                i += 1
+        else:
+            new_lines.append(line)
+            i += 1
+    
+    text = '\n'.join(new_lines)
+    
+    # Step 4: Format numbered lists - split cluttered numbered items
+    # Handle both "1) " and "1. " formats
+    # IMPORTANT: Only match numbered items at the START of a line (after optional whitespace)
+    # Do NOT match numbers in the middle of text (like "Chapter 3" or "(e.g., 1. example)")
+    lines = text.split('\n')
+    formatted_lines = []
+    
+    for line in lines:
+        # Find all "number) " or "number. " patterns at the START of the line only
+        # Pattern: start of line, optional whitespace, number, ) or ., then space
+        # We're iterating line by line, so we check from the start of each line
+        # Only match if it's at the beginning (after optional whitespace)
+        line_stripped = line.lstrip()
+        leading_whitespace = len(line) - len(line_stripped)
+        
+        # Find numbered items that start at the beginning of the line (after whitespace)
+        # Look for patterns like "1. ", "1) ", "2. ", etc. at the start
+        matches = []
+        pos = leading_whitespace
+        while pos < len(line):
+            # Try to match a numbered item starting at this position
+            match = re.match(r'(\d+)[\)\.]\s+', line[pos:])
+            if match:
+                # Found a numbered item at the start - record it
+                matches.append((pos, match))
+                # Move past this item to find the next one
+                pos += match.end()
+                # Skip any whitespace
+                while pos < len(line) and line[pos] in ' \t':
+                    pos += 1
+            else:
+                # No match at this position, stop looking
+                break
+        
+        if len(matches) > 1:
+            # Multiple numbered items on same line - split them
+            print(f"[FORMATTING] Splitting {len(matches)} numbered items on one line: {line[:80]}", file=sys.stderr)
+            
+            # Extract intro text (before first number)
+            first_match_pos, first_match = matches[0]
+            intro = line[:first_match_pos].strip()
+            
+            # Extract each numbered item
+            items = []
+            for i, (match_pos, match) in enumerate(matches):
+                start = match_pos
+                if i + 1 < len(matches):
+                    next_match_pos, _ = matches[i + 1]
+                    end = next_match_pos
+                else:
+                    end = len(line)
+                item = line[start:end].strip()
+                if item:
+                    items.append(item)
+            
+            # Rebuild with proper spacing
+            if intro:
+                formatted_lines.append(intro)
+                formatted_lines.append('')  # blank line
+            
+            for item in items:
+                formatted_lines.append(item)
+                formatted_lines.append('')  # blank line after each
+            
+            # Handle text after last item
+            last_match_pos, last_match = matches[-1]
+            last_end = last_match_pos + last_match.end()
+            if last_end < len(line):
+                after = line[last_end:].strip()
+                if after:
+                    formatted_lines.pop()  # remove last blank
+                    formatted_lines.append(after)
+            else:
+                formatted_lines.pop()  # remove trailing blank
+        else:
+            formatted_lines.append(line)
+    
+    text = '\n'.join(formatted_lines)
+    
+    # Step 5: Ensure numbered items have blank lines between them (handle both formats)
+    # For "1) " format
+    text = re.sub(r'(\d+\)[^\n]+)\n(\d+\))', r'\1\n\n\2', text)
+    # For "1. " format
+    text = re.sub(r'(\d+\.\s[^\n]+)\n(\d+\.\s)', r'\1\n\n\2', text)
+    
+    # Step 6: Add blank line before numbered list if missing (handle both formats)
+    text = re.sub(r'([^\n])\n(\d+\))', r'\1\n\n\2', text)
+    text = re.sub(r'([^\n])\n(\d+\.\s)', r'\1\n\n\2', text)
+    
+    # Step 7: Ensure blank lines between paragraphs and numbered lists
+    # Add blank line after numbered list if followed by text
+    text = re.sub(r'(\d+[\)\.]\s[^\n]+)\n([A-Z][a-z])', r'\1\n\n\2', text)
+    
+    # Step 8: Clean up excessive blank lines (but preserve double newlines for spacing)
+    text = re.sub(r'\n{4,}', '\n\n\n', text)  # Allow up to 3 newlines for extra spacing
+    
+    # Step 7: Add emojis (1-2 total) - DISABLED
+    # NOTE: Emojis are now added incrementally during streaming in the frontend TypeScript code
+    # We skip emoji addition here to avoid duplicate emojis at the end
+    # The streamed response already has emojis in the correct inline positions
+    emoji_pattern = re.compile(
+        "[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
+        "\U00002702-\U000027B0\U00002600-\U000026FF\U0001F900-\U0001F9FF"
+        "\U0001FA00-\U0001FAFF]+", flags=re.UNICODE)
+    existing_emojis = emoji_pattern.findall(text)
+    emoji_count = len(''.join(existing_emojis))
+    
+    print(f"[FORMATTING] Found {emoji_count} existing emojis - skipping emoji addition (emojis added during streaming)", file=sys.stderr)
+    
+    # Skip emoji addition entirely - emojis are added during streaming in the frontend
+    # This prevents duplicate emojis at the end of the response
+    
+    # Final cleanup
+    text = text.strip()
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    print(f"[FORMATTING] Finished - final length: {len(text)} chars", file=sys.stderr)
+    
+    return text
+
+
 def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Process RAG query using LlamaIndex - preserves all existing logic
@@ -2007,11 +2348,24 @@ Rules:
         
         # RAG Retrieval Stage - Use LlamaIndex retriever with Qdrant
         embed_start = time.time()
+        
+        # Sanitize query before creating embedding query string
+        # Ensure query is a valid string and doesn't contain problematic characters
+        if not isinstance(query, str):
+            query = str(query) if query else ""
+        # Remove any null bytes or control characters that might break tokenization
+        query = ''.join(char for char in query if ord(char) >= 32 or char in '\n\r\t')
+        # Ensure valid UTF-8 encoding
+        try:
+            query = query.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+        except:
+            query = ""
+        
         # Optimize query embedding prefix for syllabus queries
         if is_syllabus:
-            query_for_embedding = f"syllabus question: {query}"
+            query_for_embedding = f"syllabus question: {query}" if query else "syllabus question"
         else:
-            query_for_embedding = f"search_query: {query}"
+            query_for_embedding = f"search_query: {query}" if query else "search_query"
         
         embed_time = time.time() - embed_start
         print(f"⏱️ Query embedding time: {embed_time:.3f}s", file=sys.stderr)
@@ -2205,12 +2559,65 @@ Rules:
             full_prompt += f"Student question: {query}\n\n"
             full_prompt += """Please provide a helpful, educational response.
 
-IMPORTANT FORMATTING RULES:
-- DO NOT use markdown formatting (no asterisks ** for bold, no markdown syntax)
-- Write in clean, plain text like Claude or ChatGPT - natural and conversational
-- Use simple line breaks for paragraphs, no special formatting symbols
+================================================================================
+CRITICAL FORMATTING REQUIREMENTS - YOU MUST FOLLOW THESE EXACTLY:
+================================================================================
+
+1. CHECKPOINT NAMING:
+   - ALWAYS use "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form)
+   - NEVER use abbreviations like "CP1", "CP2", "CP3" or "CP 1", "CP 2", "CP 3"
+
+2. NUMBERED LISTS FORMATTING (MANDATORY):
+   When you list numbered items like (1), 2), 3), 4)), you MUST format them EXACTLY like this:
+   
+   CORRECT FORMAT (DO THIS):
+   
+   1) First item text here
+   
+   2) Second item text here
+   
+   3) Third item text here
+   
+   4) Fourth item text here
+   
+   WRONG FORMAT (NEVER DO THIS):
+   1) First item 2) Second item 3) Third item 4) Fourth item
+   
+   RULES:
+   - Add a blank line BEFORE the numbered list starts
+   - Each numbered item MUST be on its own separate line
+   - Add a blank line AFTER each numbered item
+   - NEVER put multiple numbered items on the same line
+   - NEVER put numbered items together without blank lines between them
+   - DO NOT use numbered lists (1., 2., 3.) inside numbered list items
+   - When providing examples inside numbered items, use plain text with commas or dashes, NOT numbered lists
+
+3. SECTION SPACING:
+   - Add blank lines between major sections to improve readability
+   - Separate paragraphs with blank lines
+
+4. BOLD FORMATTING FOR IMPORTANT TERMS:
+   - Use markdown bold syntax (**text**) to highlight important terms and concepts that students shouldn't miss
+   - Examples of what to bold:
+     * Checkpoint names: **Checkpoint 1**, **Checkpoint 2**, **Checkpoint 3**
+     * Key concepts: **mean**, **median**, **outlier**, **formula**, **calculation**
+     * Important phrases: **the key point**, **remember**, **important**, **don't forget**
+     * Critical instructions: **make sure**, **pay attention**, **be careful**
+     * Problem-solving steps: **Step 1**, **Step 2**, **first**, **second**, **finally**
+     * Answers/conclusions: **the answer is**, **the solution is**, **in summary**
+   - Use bold sparingly - only for truly important terms (3-5 per response maximum)
+   - Let the context guide you - bold terms that are critical for understanding or that students might miss
+
+5. GENERAL FORMATTING:
+   - Write in clean, natural text like Claude or ChatGPT - conversational and professional
+   - Use simple line breaks for paragraphs
 - Add emojis sparingly (1-2 per response) at the end of sentences to make it engaging, not overwhelming
-- Keep formatting clean and professional"""
+   - Keep formatting clean and professional
+
+================================================================================
+REMEMBER: Every numbered list item MUST be on its own line with blank lines 
+before and after. This is MANDATORY, not optional.
+================================================================================"""
             
             # Deep thinking mode is already integrated into the system prompt from TypeScript
             # The system_prompt passed from TypeScript already includes deep thinking instructions
@@ -2236,6 +2643,25 @@ IMPORTANT FORMATTING RULES:
                 teaching_response = "I found relevant information, but I'm having trouble generating a response. Please try rephrasing your question."
                 model_used = "fallback"
                 llm_time_ms = int(llm_time * 1000)
+            else:
+                # Apply post-processing to enforce formatting rules
+                original_response = teaching_response
+                teaching_response = enforce_response_formatting(teaching_response)
+                if original_response != teaching_response:
+                    print(f"[FORMATTING] Applied formatting changes to response", file=sys.stderr)
+                    # Debug: Check for emojis in formatted response
+                    import unicodedata
+                    emojis_in_response = []
+                    for char in teaching_response:
+                        try:
+                            if unicodedata.category(char) == 'So' and ord(char) > 0x1F000:
+                                emojis_in_response.append(char)
+                        except:
+                            pass
+                    print(f"[EMOJI DEBUG] Emojis found in formatted response: {emojis_in_response}", file=sys.stderr)
+                    print(f"[EMOJI DEBUG] Formatted response snippet (first 300 chars): {repr(teaching_response[:300])}", file=sys.stderr)
+                else:
+                    print(f"[FORMATTING] No formatting changes detected (response may already be formatted)", file=sys.stderr)
             
             time_taken = int(llm_time_ms)
         
@@ -2418,6 +2844,18 @@ Return ONLY a JSON object:
         print(f"   Stage 4 (Leak Detection): {leak_time:.3f}s", file=sys.stderr)
         print(f"", file=sys.stderr)
         print(f"{'='*80}", file=sys.stderr)
+        
+        # Debug: Check for emojis before returning
+        import unicodedata
+        emojis_before_return = []
+        for char in teaching_response:
+            try:
+                if unicodedata.category(char) == 'So' and ord(char) > 0x1F000:
+                    emojis_before_return.append(char)
+            except:
+                pass
+        print(f"[EMOJI DEBUG] Emojis in response before returning to frontend: {emojis_before_return}", file=sys.stderr)
+        print(f"[EMOJI DEBUG] Response length: {len(teaching_response)} chars", file=sys.stderr)
         
         return {
             "request_id": request_id,

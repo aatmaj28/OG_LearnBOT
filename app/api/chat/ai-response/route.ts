@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
     let stream: boolean
     let deepThinking: boolean = false
     let attachments: File[] = []
+    let assistantMessageTimestamp: Date | undefined = undefined
 
     if (contentType.includes('multipart/form-data')) {
       // Handle FormData (file uploads)
@@ -29,6 +30,12 @@ export async function POST(request: NextRequest) {
       preferredModel = (formData.get('preferredModel') as ModelBackend) || 'claude'
       stream = formData.get('stream') === 'true'
       deepThinking = formData.get('deepThinking') === 'true'
+      
+      // Extract frontend timestamp if provided
+      const timestampStr = formData.get('assistantMessageTimestamp') as string | null
+      if (timestampStr) {
+        assistantMessageTimestamp = new Date(timestampStr)
+      }
       
       // Extract file attachments
       const attachmentFiles = formData.getAll('attachments') as File[]
@@ -44,6 +51,11 @@ export async function POST(request: NextRequest) {
       preferredModel = body.preferredModel || 'claude'
       stream = body.stream || false
       deepThinking = body.deepThinking || false
+      
+      // Extract frontend timestamp if provided
+      if (body.assistantMessageTimestamp) {
+        assistantMessageTimestamp = new Date(body.assistantMessageTimestamp)
+      }
     }
 
     if (!message) {
@@ -76,7 +88,8 @@ export async function POST(request: NextRequest) {
                   preferredModel as ModelBackend,
                   chatType || 'class_material', // Default to class_material if not specified
                   deepThinking,
-                  attachments
+                  attachments,
+                  assistantMessageTimestamp
                 )) {
                   // Check if controller is already closed
                   if (streamClosed) {

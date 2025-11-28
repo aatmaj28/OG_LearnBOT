@@ -288,22 +288,22 @@ def index_pdfs(
             if metadata_files:
                 already_processed_files = metadata_files
             else:
-                try:
-                    # Qdrant scroll API to get all points with payload
-                    scroll_result = qdrant_client.scroll(
-                        collection_name=collection_name,
-                        limit=10000,  # Adjust if you have more than 10k chunks
-                        with_payload=True,
-                        with_vectors=False
-                    )
-                    points = scroll_result[0]  # First element is the list of points
-                    for point in points:
-                        if point.payload and "source_file" in point.payload:
-                            already_processed_files.add(point.payload["source_file"])
-                    print(
-                        f"[LlamaIndex] Found {len(already_processed_files)} already processed files",
-                        file=sys.stderr
-                    )
+            try:
+                # Qdrant scroll API to get all points with payload
+                scroll_result = qdrant_client.scroll(
+                    collection_name=collection_name,
+                    limit=10000,  # Adjust if you have more than 10k chunks
+                    with_payload=True,
+                    with_vectors=False
+                )
+                points = scroll_result[0]  # First element is the list of points
+                for point in points:
+                    if point.payload and "source_file" in point.payload:
+                        already_processed_files.add(point.payload["source_file"])
+                print(
+                    f"[LlamaIndex] Found {len(already_processed_files)} already processed files",
+                    file=sys.stderr
+                )
                 except Exception as e:
                     print(f"[LlamaIndex] Warning: Could not check existing files via Qdrant scroll: {e}", file=sys.stderr)
                     # Final fallback: no already-processed info; proceed but may reindex
@@ -363,26 +363,26 @@ def index_pdfs(
                 # Get exact chunk counts per file, preferring metadata.json to avoid scroll issues
                 exact_chunks_per_file = _get_chunks_per_file_from_metadata(output_path)
                 if not exact_chunks_per_file:
-                    try:
-                        scroll_result = qdrant_client.scroll(
-                            collection_name=collection_name,
-                            limit=10000,
-                            with_payload=True,
-                            with_vectors=False
-                        )
-                        points = scroll_result[0]
-                        
-                        for point in points:
-                            payload = point.payload or {}
-                            source_file = payload.get("source_file", "unknown")
-                            if source_file not in exact_chunks_per_file:
-                                exact_chunks_per_file[source_file] = 0
-                            exact_chunks_per_file[source_file] += 1
-                        
+                try:
+                    scroll_result = qdrant_client.scroll(
+                        collection_name=collection_name,
+                        limit=10000,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    points = scroll_result[0]
+                    
+                    for point in points:
+                        payload = point.payload or {}
+                        source_file = payload.get("source_file", "unknown")
+                        if source_file not in exact_chunks_per_file:
+                            exact_chunks_per_file[source_file] = 0
+                        exact_chunks_per_file[source_file] += 1
+                    
                         print(f"[LlamaIndex] Exact chunk counts per file (from Qdrant): {exact_chunks_per_file}", file=sys.stderr)
-                    except Exception as e:
+                except Exception as e:
                         print(f"[LlamaIndex] Warning: Could not get exact counts per file from Qdrant: {e}", file=sys.stderr)
-                        exact_chunks_per_file = {}
+                    exact_chunks_per_file = {}
                 
                 # Update config.json with current counts
                 config = {
