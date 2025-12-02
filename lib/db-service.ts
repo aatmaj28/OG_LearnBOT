@@ -1860,9 +1860,14 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
     const params: any[] = [userId, 'active']
     
     if (classId && classId !== 'entire-corpus') {
+      // Regular class: filter by specific class_id
       query += ' AND class_id = $3'
       params.push(classId)
+    } else if (classId === 'entire-corpus') {
+      // Entire corpus: only return conversations with class_id = NULL
+      query += ' AND class_id IS NULL'
     }
+    // If classId is undefined/null, return all conversations (no class_id filter)
     
     // Filter by chat type if provided
     if (chatType) {
@@ -1968,6 +1973,10 @@ export const createRAGConversation = async (userId: string, title?: string, clas
     // Generate masked user ID (simple hash for privacy)
     const userMaskedId = crypto.createHash('sha256').update(userId.toString()).digest('hex').substring(0, 16)
     
+    // Handle "entire-corpus" special case - it's not a real class ID, so set to null
+    // The database class_id column is an integer, so we can't store "entire-corpus" as a string
+    const dbClassId = (classId && classId !== 'entire-corpus') ? classId : null
+    
     const result = await client.query(
       `INSERT INTO rag_conversations (user_id, user_masked_id, class_id, title, chat_type, checkpoint_state, message_history, student_problem_data) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
@@ -1975,7 +1984,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
       [
         userId,
         userMaskedId,
-        classId || null,
+        dbClassId,
         conversationTitle,
         chatType,
         JSON.stringify({
