@@ -610,6 +610,47 @@ export function StudentChatInterface() {
     }
   }
 
+  // Helper function to normalize timestamps from API response (JSON serializes Date to string)
+  const normalizeConversation = (conversation: any): RAGConversation => {
+    if (!conversation) return conversation
+    
+    // Helper to safely parse a timestamp - only converts if valid, otherwise preserves original
+    const safeParseTimestamp = (ts: any): Date => {
+      if (ts instanceof Date) {
+        // Validate the Date object is not invalid
+        return isNaN(ts.getTime()) ? ts : ts
+      }
+      if (!ts) {
+        // If timestamp is missing, we can't recover it - but this shouldn't happen
+        console.warn('[Normalize] Missing timestamp, this should not happen')
+        return new Date(0) // Return epoch instead of current time to make it obvious
+      }
+      const parsed = new Date(ts)
+      // Only use parsed date if it's valid
+      if (!isNaN(parsed.getTime())) {
+        return parsed
+      }
+      // If parsing failed, log warning but return epoch (not current time)
+      console.warn('[Normalize] Failed to parse timestamp:', ts)
+      return new Date(0) // Return epoch instead of current time
+    }
+    
+    return {
+      ...conversation,
+      createdAt: safeParseTimestamp(conversation.createdAt),
+      updatedAt: safeParseTimestamp(conversation.updatedAt),
+      analyticsLastUpdated: conversation.analyticsLastUpdated 
+        ? safeParseTimestamp(conversation.analyticsLastUpdated)
+        : undefined,
+      messageHistory: Array.isArray(conversation.messageHistory) 
+        ? conversation.messageHistory.map((msg: any) => ({
+            ...msg,
+            timestamp: safeParseTimestamp(msg.timestamp)
+          }))
+        : []
+    }
+  }
+
   const loadConversations = async () => {
     const userId = localStorage.getItem("userId")
     if (!userId) return
@@ -628,8 +669,10 @@ export function StudentChatInterface() {
         const data = await response.json()
         console.log("[v0] Conversations API response:", data)
         
-        // Ensure conversations is an array and sort by updatedAt (newest first)
+        // Ensure conversations is an array and normalize timestamps
         const conversations = Array.isArray(data.conversations) ? data.conversations : []
+        // Normalize all conversations to convert timestamp strings to Date objects
+        const normalizedConversations = conversations.map(conv => normalizeConversation(conv))
         
         // Helper function to get date value (handles both Date objects and strings)
         const getDateValue = (date: Date | string | undefined): number => {
@@ -645,7 +688,7 @@ export function StudentChatInterface() {
         
         // Sort in reverse chronological order (newest first) - ChatGPT style
         // Prioritize updatedAt, fallback to createdAt
-        const sortedConversations = [...conversations].sort((a, b) => {
+        const sortedConversations = [...normalizedConversations].sort((a, b) => {
           const dateA = getDateValue(a.updatedAt) || getDateValue(a.createdAt) || 0
           const dateB = getDateValue(b.updatedAt) || getDateValue(b.createdAt) || 0
           
@@ -673,7 +716,9 @@ export function StudentChatInterface() {
       const response = await fetch(`/api/chat/conversations/${conversationId}`)
       if (response.ok) {
         const data = await response.json()
-        setCurrentConversation(data.conversation)
+        // Normalize timestamps from strings to Date objects
+        const normalizedConversation = normalizeConversation(data.conversation)
+        setCurrentConversation(normalizedConversation)
         // Reset auto-scroll when loading a conversation
         shouldAutoScrollRef.current = true
         // Don't close the history pane when loading a conversation
@@ -701,7 +746,9 @@ export function StudentChatInterface() {
 
       if (response.ok) {
         const data = await response.json()
-        setCurrentConversation(data.conversation)
+        // Normalize timestamps from strings to Date objects
+        const normalizedConversation = normalizeConversation(data.conversation)
+        setCurrentConversation(normalizedConversation)
         // Reset auto-scroll when creating a new conversation
         shouldAutoScrollRef.current = true
         await loadConversations()

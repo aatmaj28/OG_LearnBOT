@@ -1891,7 +1891,7 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: normalizeMessageHistory(row.message_history || []),
+      messageHistory: normalizeMessageHistory(row.message_history || [], new Date(row.updated_at)),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -1910,18 +1910,65 @@ export const getRAGConversationsByUser = async (userId: string, classId?: string
 }
 
 // Helper function to normalize message history timestamps from strings to Date objects
-const normalizeMessageHistory = (messageHistory: any[]): any[] => {
+// Accepts optional fallback dates to use when timestamps are missing or invalid
+const normalizeMessageHistory = (messageHistory: any[], fallbackDate?: Date): any[] => {
   if (!Array.isArray(messageHistory)) {
     return []
   }
-  return messageHistory.map((msg: any) => ({
-    ...msg,
-    timestamp: msg.timestamp instanceof Date 
-      ? msg.timestamp 
-      : msg.timestamp 
-        ? new Date(msg.timestamp) 
-        : new Date()
-  }))
+  return messageHistory.map((msg: any, index: number) => {
+    let normalizedTimestamp: Date
+    
+    // Check if timestamp is an empty object {} or invalid object
+    if (msg.timestamp && typeof msg.timestamp === 'object' && !(msg.timestamp instanceof Date)) {
+      // Empty object {} or other invalid object - treat as null
+      msg.timestamp = null
+    }
+    
+    // Handle Date objects
+    if (msg.timestamp instanceof Date) {
+      // Validate the Date object is not invalid
+      if (!isNaN(msg.timestamp.getTime())) {
+        normalizedTimestamp = msg.timestamp
+      } else {
+        // Invalid Date object - use fallback
+        if (fallbackDate && !isNaN(fallbackDate.getTime())) {
+          normalizedTimestamp = fallbackDate
+        } else {
+          normalizedTimestamp = new Date(0)
+        }
+      }
+    } 
+    // Handle string timestamps
+    else if (typeof msg.timestamp === 'string' && msg.timestamp) {
+      // Try to parse string timestamp
+      const parsed = new Date(msg.timestamp)
+      if (!isNaN(parsed.getTime())) {
+        normalizedTimestamp = parsed
+      } else {
+        // Invalid string - use fallback
+        if (fallbackDate && !isNaN(fallbackDate.getTime())) {
+          normalizedTimestamp = fallbackDate
+        } else {
+          normalizedTimestamp = new Date(0)
+        }
+      }
+    }
+    // Handle null, undefined, or missing timestamps
+    else {
+      // Use fallback date if provided, otherwise use epoch
+      if (fallbackDate && !isNaN(fallbackDate.getTime())) {
+        normalizedTimestamp = fallbackDate
+      } else {
+        // No fallback available - use epoch (not current time)
+        normalizedTimestamp = new Date(0)
+      }
+    }
+    
+    return {
+      ...msg,
+      timestamp: normalizedTimestamp
+    }
+  })
 }
 
 export const getRAGConversationById = async (id: string): Promise<RAGConversation | null> => {
@@ -1948,7 +1995,7 @@ export const getRAGConversationById = async (id: string): Promise<RAGConversatio
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: normalizeMessageHistory(row.message_history || []),
+      messageHistory: normalizeMessageHistory(row.message_history || [], new Date(row.updated_at)),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -2018,7 +2065,7 @@ export const createRAGConversation = async (userId: string, title?: string, clas
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: normalizeMessageHistory(row.message_history || []),
+      messageHistory: normalizeMessageHistory(row.message_history || [], new Date(row.updated_at)),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -2333,12 +2380,39 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
       // Sanitize Unicode subscripts before saving
       const sanitizedHistory = sanitizeForDatabase(updates.messageHistory)
       // Convert Date objects to ISO strings for proper JSON serialization
-      const serializedHistory = sanitizedHistory.map((msg: any) => ({
-        ...msg,
-        timestamp: msg.timestamp instanceof Date 
-          ? msg.timestamp.toISOString() 
-          : msg.timestamp
-      }))
+      // Handle invalid timestamps (like empty objects {}) by converting them to null or a valid date
+      const serializedHistory = sanitizedHistory.map((msg: any) => {
+        let timestampValue: string | null = null
+        
+        if (msg.timestamp instanceof Date) {
+          // Valid Date object - convert to ISO string
+          if (!isNaN(msg.timestamp.getTime())) {
+            timestampValue = msg.timestamp.toISOString()
+          } else {
+            console.warn(`[DB] Invalid Date object in message, setting timestamp to null:`, msg.timestamp)
+            timestampValue = null
+          }
+        } else if (msg.timestamp && typeof msg.timestamp === 'string') {
+          // Already a string - validate it can be parsed
+          const testDate = new Date(msg.timestamp)
+          if (!isNaN(testDate.getTime())) {
+            timestampValue = msg.timestamp
+          } else {
+            timestampValue = null
+          }
+        } else if (msg.timestamp && typeof msg.timestamp === 'object') {
+          // Object (like {}) - this is invalid, set to null
+          timestampValue = null
+        } else if (!msg.timestamp) {
+          // Missing timestamp
+          timestampValue = null
+        }
+        
+        return {
+          ...msg,
+          timestamp: timestampValue
+        }
+      })
       values.push(JSON.stringify(serializedHistory, null, 0))
       paramCount++
     }
@@ -2404,7 +2478,7 @@ export const updateRAGConversation = async (id: string, updates: Partial<RAGConv
       status: row.status as 'active' | 'archived',
       currentTopic: row.current_topic,
       checkpointState: row.checkpoint_state,
-      messageHistory: normalizeMessageHistory(row.message_history || []),
+      messageHistory: normalizeMessageHistory(row.message_history || [], new Date(row.updated_at)),
       studentProblemData: row.student_problem_data || {
         numbers: [],
         problem_type: undefined,
@@ -2468,6 +2542,12 @@ const sanitizeUnicodeSubscripts = (text: string): string => {
  */
 const sanitizeForDatabase = (value: any): any => {
   if (value === null || value === undefined) return value
+  
+  // Handle Date objects BEFORE checking for regular objects
+  // Date objects are instances of Object, so we need to check them first
+  if (value instanceof Date) {
+    return value // Return Date object as-is, it will be converted to ISO string later
+  }
   
   if (typeof value === 'string') {
     return sanitizeUnicodeSubscripts(value)
@@ -2698,17 +2778,35 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
     
     // Sanitize the entire history array (including existing messages) to handle any corrupted Unicode
     // This ensures that even if previous messages had encoding issues, they'll be fixed now
-    const sanitizedExistingHistory = conversation.messageHistory.map((msg: any) => ({
-      ...msg,
-      content: sanitizeUnicodeSubscripts(msg.content || ''),
-      metadata: msg.metadata ? sanitizeForDatabase(msg.metadata) : msg.metadata,
-      // Preserve existing timestamps - normalize them to Date objects
-      timestamp: msg.timestamp instanceof Date 
-        ? msg.timestamp 
-        : msg.timestamp 
-          ? new Date(msg.timestamp) 
-          : new Date()
-    }))
+    const sanitizedExistingHistory = conversation.messageHistory.map((msg: any) => {
+      // Preserve existing timestamps - normalize them to Date objects without defaulting to current time
+      let normalizedTimestamp: Date
+      if (msg.timestamp instanceof Date) {
+        // Validate the Date object is not invalid
+        normalizedTimestamp = isNaN(msg.timestamp.getTime()) ? msg.timestamp : msg.timestamp
+      } else if (msg.timestamp) {
+        const parsed = new Date(msg.timestamp)
+        // Only use parsed date if it's valid
+        if (!isNaN(parsed.getTime())) {
+          normalizedTimestamp = parsed
+        } else {
+          // If parsing failed, preserve original (don't default to current time)
+          normalizedTimestamp = new Date(msg.timestamp) // Keep original even if invalid
+        }
+      } else {
+        // If timestamp is missing, this is a data integrity issue - log it
+        console.error(`[DB] Missing timestamp in existing message - this should not happen:`, msg)
+        // Don't default to current time - use epoch to make it obvious something is wrong
+        normalizedTimestamp = new Date(0)
+      }
+      
+      return {
+        ...msg,
+        content: sanitizeUnicodeSubscripts(msg.content || ''),
+        metadata: msg.metadata ? sanitizeForDatabase(msg.metadata) : msg.metadata,
+        timestamp: normalizedTimestamp
+      }
+    })
     
     // Check if the last message is an assistant message with the same role
     // If so, update it instead of creating a new one to preserve the original timestamp
@@ -2733,8 +2831,16 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
       
       // Validate timestamp is valid before using it
       if (isNaN(preservedTimestamp.getTime())) {
-        console.warn(`[DB] Invalid timestamp found, using current time instead:`, lastMessage.timestamp)
-        preservedTimestamp = new Date()
+        // Try to recover from conversation's updatedAt or createdAt as fallback
+        // Don't use current time - use conversation's updatedAt if available
+        if (conversation.updatedAt && conversation.updatedAt instanceof Date && !isNaN(conversation.updatedAt.getTime())) {
+          preservedTimestamp = conversation.updatedAt
+        } else if (conversation.createdAt && conversation.createdAt instanceof Date && !isNaN(conversation.createdAt.getTime())) {
+          preservedTimestamp = conversation.createdAt
+        } else {
+          // Last resort: use epoch (not current time) to make it obvious something is wrong
+          preservedTimestamp = new Date(0)
+        }
       }
       
       console.log(`[DB] Updating existing ${role} message - preserving timestamp: ${preservedTimestamp.toISOString()}`)
@@ -2759,25 +2865,30 @@ export const addRAGMessage = async (conversationId: string, role: 'user' | 'assi
       console.log(`[DB] Updated message timestamp preserved: ${timestampStr}`)
     } else {
       // Create a new message - use provided timestamp if available, otherwise use current time
-      let messageTimestamp = timestamp || new Date()
-      
-      // Validate timestamp is valid
-      if (messageTimestamp instanceof Date && isNaN(messageTimestamp.getTime())) {
-        console.warn(`[DB] Invalid timestamp provided, using current time instead:`, timestamp)
-        messageTimestamp = new Date()
-      } else if (timestamp && !(timestamp instanceof Date)) {
-        // If timestamp is provided but not a Date, try to convert it
-        messageTimestamp = new Date(timestamp)
-        if (isNaN(messageTimestamp.getTime())) {
-          console.warn(`[DB] Invalid timestamp format, using current time instead:`, timestamp)
+      let messageTimestamp: Date
+      if (timestamp instanceof Date && !isNaN(timestamp.getTime())) {
+        // Valid Date object provided
+        messageTimestamp = timestamp
+        console.log(`[DB] Using provided timestamp for new ${role} message:`, messageTimestamp.toISOString())
+      } else if (timestamp && typeof timestamp === 'string') {
+        // Try to parse string timestamp
+        const parsed = new Date(timestamp)
+        if (!isNaN(parsed.getTime())) {
+          messageTimestamp = parsed
+          console.log(`[DB] Parsed string timestamp for new ${role} message:`, messageTimestamp.toISOString())
+        } else {
           messageTimestamp = new Date()
         }
+      } else {
+        // No valid timestamp provided, use current time
+        messageTimestamp = new Date()
+        console.log(`[DB] No timestamp provided for new ${role} message, using current time:`, messageTimestamp.toISOString())
       }
       
       const newMessage: any = {
         role,
         content: sanitizedContent,
-        timestamp: messageTimestamp,
+        timestamp: messageTimestamp, // Ensure this is a valid Date object
         metadata: metadata ? sanitizeForDatabase(metadata) : metadata
       }
       

@@ -383,6 +383,47 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     return result
   }
 
+  // Helper function to normalize timestamps from API response (JSON serializes Date to string)
+  const normalizeConversation = (conversation: any): RAGConversation => {
+    if (!conversation) return conversation
+    
+    // Helper to safely parse a timestamp - only converts if valid, otherwise preserves original
+    const safeParseTimestamp = (ts: any): Date => {
+      if (ts instanceof Date) {
+        // Validate the Date object is not invalid
+        return isNaN(ts.getTime()) ? ts : ts
+      }
+      if (!ts) {
+        // If timestamp is missing, we can't recover it - but this shouldn't happen
+        console.warn('[Normalize] Missing timestamp, this should not happen')
+        return new Date(0) // Return epoch instead of current time to make it obvious
+      }
+      const parsed = new Date(ts)
+      // Only use parsed date if it's valid
+      if (!isNaN(parsed.getTime())) {
+        return parsed
+      }
+      // If parsing failed, log warning but return epoch (not current time)
+      console.warn('[Normalize] Failed to parse timestamp:', ts)
+      return new Date(0) // Return epoch instead of current time
+    }
+    
+    return {
+      ...conversation,
+      createdAt: safeParseTimestamp(conversation.createdAt),
+      updatedAt: safeParseTimestamp(conversation.updatedAt),
+      analyticsLastUpdated: conversation.analyticsLastUpdated 
+        ? safeParseTimestamp(conversation.analyticsLastUpdated)
+        : undefined,
+      messageHistory: Array.isArray(conversation.messageHistory) 
+        ? conversation.messageHistory.map((msg: any) => ({
+            ...msg,
+            timestamp: safeParseTimestamp(msg.timestamp)
+          }))
+        : []
+    }
+  }
+
   const loadConversations = async () => {
     const userId = localStorage.getItem("userId")
     if (!userId) return
@@ -401,11 +442,12 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         const data = await response.json()
         console.log("[v0] Conversations API response:", data)
         
-        // Ensure conversations is an array and sort by updatedAt (newest first)
+        // Ensure conversations is an array and normalize timestamps
         const conversations = Array.isArray(data.conversations) ? data.conversations : []
+        // Normalize all conversations to convert timestamp strings to Date objects
+        const normalizedConversations = conversations.map(conv => normalizeConversation(conv))
         // Sort in reverse chronological order (newest first) - ChatGPT style
-        // Ensure dates are Date objects, not strings
-        const sortedConversations = [...conversations].sort((a, b) => {
+        const sortedConversations = [...normalizedConversations].sort((a, b) => {
           const dateA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : 
                        (a.updatedAt ? new Date(a.updatedAt).getTime() : 
                        (a.createdAt instanceof Date ? a.createdAt.getTime() : 
@@ -436,10 +478,12 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         console.log("[v0] Loaded conversation data:", data)
         console.log("[v0] Conversation messageHistory:", data.conversation?.messageHistory)
         console.log("[v0] MessageHistory length:", data.conversation?.messageHistory?.length)
-        setCurrentConversation(data.conversation)
+        // Normalize timestamps from strings to Date objects
+        const normalizedConversation = normalizeConversation(data.conversation)
+        setCurrentConversation(normalizedConversation)
         // Reset auto-scroll when loading a conversation
         shouldAutoScrollRef.current = true
-        console.log("[v0] Current conversation set:", data.conversation?.id)
+        console.log("[v0] Current conversation set:", normalizedConversation?.id)
       } else {
         console.error("[v0] Failed to load conversation:", response.status, response.statusText)
       }
@@ -467,7 +511,9 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       if (response.ok) {
         const data = await response.json()
         console.log("[v0] Created conversation response:", data)
-        setCurrentConversation(data.conversation)
+        // Normalize timestamps from strings to Date objects
+        const normalizedConversation = normalizeConversation(data.conversation)
+        setCurrentConversation(normalizedConversation)
         // Reset auto-scroll when creating a new conversation
         shouldAutoScrollRef.current = true
         await loadConversations()

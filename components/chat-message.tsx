@@ -378,11 +378,15 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
               try {
                 const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
                 if (isNaN(date.getTime())) {
-                  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  // Don't default to current time - show a placeholder instead
+                  console.warn('[ChatMessage] Invalid timestamp:', timestamp)
+                  return '--:--'
                 }
                 return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               } catch (e) {
-                return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                // Don't default to current time - show a placeholder instead
+                console.warn('[ChatMessage] Error parsing timestamp:', timestamp, e)
+                return '--:--'
               }
             })()}
           </span>

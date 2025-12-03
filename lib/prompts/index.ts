@@ -16,6 +16,7 @@ export { getNormalPrompts } from './normal'
 export { getStrictPrompts } from './strict'
 export { getDeepThinkingInstructions, getDeepThinkingCheckpointInstructions } from './deep-thinking'
 export { getAttachmentHandlingInstructions, getNoAttachmentInstructions } from './attachments'
+export * from './guardrails'
 
 /**
  * Get prompts based on TA mode
