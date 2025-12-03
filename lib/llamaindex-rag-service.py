@@ -930,11 +930,93 @@ def load_vector_store_index(vector_store_path: str):
     return vector_stores[normalized_path]
 
 
+def strip_pii_with_blackwell(text, timeout=30):
+    """
+    Strip PII from text using LOCAL remote LLM (Blackwell vLLM)
+    This ensures PII never leaves our infrastructure
+    
+    Returns cleaned text, or None if LLM call fails (should fallback to regex)
+    """
+    if not text or not isinstance(text, str):
+        return None
+    
+    try:
+        pii_stripping_system_prompt = """You are a PII (Personally Identifiable Information) stripping system for an educational chatbot.
+
+Your task is to remove or replace all PII from user queries while preserving the core question or request.
+
+PII includes:
+- Names (first, last, full names)
+- Ages
+- Dates of birth
+- Email addresses
+- Phone numbers
+- Physical addresses
+- Student IDs (NUID, SSN, etc.)
+- Credit card numbers
+- Any other personally identifiable information
+
+Rules:
+1. Remove or replace PII with generic placeholders like [NAME], [AGE], [EMAIL], etc.
+2. Preserve the core question/request - don't change the meaning
+3. Keep all non-PII information intact
+4. Maintain natural language flow
+5. If the query is just personal information with no question, return a cleaned version that asks for help
+
+Return ONLY the cleaned query text, nothing else. No explanations, no JSON, just the cleaned text."""
+
+        # For vLLM, we combine system prompt and user query into a single user message
+        # (This is a workaround for vLLM's system message handling)
+        combined_content = f"{pii_stripping_system_prompt}\n\nUser query to clean: {text}"
+        
+        response = blackwell_session.post(
+            REMOTE_BLACKWELL_URL,
+            json={
+                "model": REMOTE_BLACKWELL_MODEL,
+                "messages": [
+                    {"role": "user", "content": combined_content}
+                ],
+                "temperature": 0.1,  # Low temperature for consistent PII stripping
+                "max_tokens": 512,
+                "stream": False
+            },
+            timeout=timeout
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            cleaned_text = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+            if cleaned_text:
+                return cleaned_text
+        
+        print(f"⚠️ Blackwell PII stripping failed (status {response.status_code}), falling back to regex", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"⚠️ Blackwell PII stripping error: {str(e)}, falling back to regex", file=sys.stderr)
+        return None
+
+
 def mask_pii(text):
-    """Mask or remove PII from text to prevent bias and protect student privacy"""
+    """
+    Mask or remove PII from text to prevent bias and protect student privacy
+    Uses LLM-based stripping (Blackwell) if enabled, falls back to regex patterns
+    """
     if not text or not isinstance(text, str):
         return text
     
+    # Try LLM-based PII stripping first (using LOCAL remote LLM - Blackwell)
+    # This ensures PII never leaves our infrastructure
+    enable_llm_pii_stripping = os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true'
+    
+    if enable_llm_pii_stripping:
+        cleaned = strip_pii_with_blackwell(text, timeout=15)
+        if cleaned:
+            print(f"🔒 PII stripped using Blackwell vLLM (LOCAL remote LLM)", file=sys.stderr)
+            return cleaned
+        # Fallback to regex if LLM fails
+        print(f"⚠️ Falling back to regex-based PII masking", file=sys.stderr)
+    
+    # Regex-based fallback (original implementation)
     import re
     masked = text
     
@@ -1004,13 +1086,31 @@ def mask_pii(text):
 
 
 def mask_pii_in_history(messages):
-    """Mask PII in message history to prevent bias in conversation context"""
+    """
+    Mask PII in message history to prevent bias in conversation context
+    Uses LLM-based stripping (Blackwell) if enabled, falls back to regex patterns
+    """
     if not messages:
         return messages
-    return [
-        {**msg, 'content': mask_pii(msg.get('content', '')) if msg.get('role') == 'user' else msg.get('content', '')}
-        for msg in messages
-    ]
+    
+    enable_llm_pii_stripping = os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true'
+    
+    masked_messages = []
+    for msg in messages:
+        if msg.get('role') == 'user':
+            content = msg.get('content', '')
+            if enable_llm_pii_stripping:
+                # Try LLM-based stripping first
+                cleaned = strip_pii_with_blackwell(content, timeout=15)
+                if cleaned:
+                    masked_messages.append({**msg, 'content': cleaned})
+                    continue
+            # Fallback to regex
+            masked_messages.append({**msg, 'content': mask_pii(content)})
+        else:
+            masked_messages.append(msg)
+    
+    return masked_messages
 
 
 def call_guard_llm(prompt, system_prompt, timeout=30):
@@ -1925,9 +2025,11 @@ def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         query = request_data['query']
-        # Mask PII from query before processing
+        # Strip PII from query before processing
+        # This uses LOCAL remote LLM (Blackwell) to ensure PII never leaves our infrastructure
+        # Falls back to regex if LLM is unavailable
         query = mask_pii(query)
-        print(f"🔒 PII masking applied to query", file=sys.stderr)
+        print(f"🔒 PII stripping applied to query", file=sys.stderr)
         
         conversation_id = request_data['conversation_id']
         user_id = request_data['user_id']
@@ -1936,9 +2038,10 @@ def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
         preferred_model = request_data.get('preferred_model', 'remote-a6000')
         request_id = request_data['request_id']
         message_history = request_data.get('message_history', [])
-        # Mask PII in message history as well
+        # Strip PII in message history as well
+        # This uses LOCAL remote LLM (Blackwell) to ensure PII never leaves our infrastructure
         message_history = mask_pii_in_history(message_history)
-        print(f"🔒 PII masking applied to message history ({len(message_history)} messages)", file=sys.stderr)
+        print(f"🔒 PII stripping applied to message history ({len(message_history)} messages)", file=sys.stderr)
         chat_type = request_data.get('chat_type', 'class_material')  # 'class_material' or 'syllabus'
         checkpoint_state = request_data.get('checkpoint_state', {
             'checkpoint_1_passed': False,

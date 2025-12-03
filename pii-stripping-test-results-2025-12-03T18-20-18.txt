@@ -1,0 +1,90 @@
+================================================================================
+PII STRIPPING TEST
+================================================================================
+
+Test Run Date: 12/3/2025, 1:20:14 PM
+
+This script demonstrates how the guardrails layer strips PII from user queries.
+Each test shows the original query with PII and the cleaned query sent to the LLM.
+
+🔒 PRIVACY NOTE: Using LOCAL remote LLM ensures PII never leaves our infrastructure!
+
+================================================================================
+
+✅ Model: google/gemma-3-12b-it
+
+================================================================================
+
+
+📋 TEST 1: Query with name and age
+--------------------------------------------------------------------------------
+
+🔴 ORIGINAL QUERY (with PII):
+   "Hi my name is Alex and I am 24 years old, I wanted information on corporate taxes."
+
+🟢 CLEANED QUERY (PII removed):
+   "Hi my name is [NAME] and I am [AGE] years old, I wanted information on corporate taxes."
+
+================================================================================
+
+📋 TEST 2: Query with email and student ID
+--------------------------------------------------------------------------------
+
+🔴 ORIGINAL QUERY (with PII):
+   "My email is john.smith@northeastern.edu and my NUID is 123456789. Can you help me understand present value calculations?"
+
+🟢 CLEANED QUERY (PII removed):
+   "My [EMAIL] is [EMAIL] and my [STUDENT ID] is [STUDENT ID]. Can you help me understand present value calculations?"
+
+================================================================================
+
+📋 TEST 3: Query with date of birth and phone number
+--------------------------------------------------------------------------------
+
+🔴 ORIGINAL QUERY (with PII):
+   "I was born on 05/15/2000 and my phone is 617-555-1234. I need help with annuity problems."
+
+🟢 CLEANED QUERY (PII removed):
+   "I was born on [DATE] and my phone is [PHONE NUMBER]. I need help with annuity problems."
+
+================================================================================
+
+📋 TEST 4: Query with full address
+--------------------------------------------------------------------------------
+
+🔴 ORIGINAL QUERY (with PII):
+   "I live at 123 Main Street, Boston, MA 02115. Can you explain how to calculate future value?"
+
+🟢 CLEANED QUERY (PII removed):
+   "I live at [ADDRESS]. Can you explain how to calculate future value?"
+
+================================================================================
+
+📋 TEST 5: Query with multiple PII types
+--------------------------------------------------------------------------------
+
+🔴 ORIGINAL QUERY (with PII):
+   "Hi, I'm Sarah Johnson, 22 years old. My email is sarah.j@northeastern.edu, NUID 987654321, and I was born on 03/20/2002. I need help understanding loan amortization schedules."
+
+🟢 CLEANED QUERY (PII removed):
+   "Hi, I’m [NAME], [AGE] years old. My email is [EMAIL], NUID [NUID], and I was born on [DATE]. I need help understanding loan amortization schedules."
+
+================================================================================
+
+✅ All tests completed!
+⏱️  Total test duration: 3.64s
+
+Summary:
+- The guardrails layer uses LOCAL LLM (Blackwell) to intelligently detect and remove PII
+- PII is processed on our own infrastructure - never sent to external APIs
+- The cleaned queries are then sent to the main LLM for processing
+- This protects student privacy and prevents PII from being stored in logs
+- Using a local LLM ensures complete data privacy and control
+
+================================================================================
+
+Test Results Summary:
+- Total tests: 5
+- Successful: 5
+- Failed: 0
+- Average processing time: 716ms
