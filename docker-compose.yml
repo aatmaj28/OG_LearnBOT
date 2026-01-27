@@ -1,0 +1,21 @@
+services:
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: learnbot-qdrant
+    ports:
+      - "0.0.0.0:6333:6333"  # REST API (accessible from any IP)
+      - "0.0.0.0:6334:6334"  # gRPC (optional, accessible from any IP)
+    volumes:
+      - ./vector-stores/qdrant:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HOST: 0.0.0.0
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
