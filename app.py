@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 # Configure CORS
 # Allow frontend origins (local dev and production)
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://129.10.157.227:3021,http://129.10.157.227:3022").split(",")
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://129.10.224.227:3021,http://129.10.224.227:3022").split(",")
 CORS(app, resources={
     r"/api/*": {
         "origins": allowed_origins,
