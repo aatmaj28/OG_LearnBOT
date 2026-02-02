@@ -46,18 +46,18 @@ jobs:
 
           case "$DEPLOY_ENV" in
             PROD)
-              REPO_DIR="/opt/LearnBot-Server"
+              REPO_DIR="/opt/Learnbot-Server"
               PM2_NAMESPACE="prod"
-              LOG_DIR="/opt/LearnBot-Server/logs"
+              LOG_DIR="/opt/Learnbot-Server/logs"
               FLASK_PORT=8030
               PM2_ENV_FLAG="--env production"
               APP_FLASK="learnbot-flask"
               DEFAULT_BRANCH="main"
               ;;
             UAT)
-              REPO_DIR="/opt/LearnBot-Server-UAT"
+              REPO_DIR="/opt/Learnbot-Server-UAT"
               PM2_NAMESPACE="uat"
-              LOG_DIR="/opt/LearnBot-Server-UAT/logs"
+              LOG_DIR="/opt/Learnbot-Server-UAT/logs"
               FLASK_PORT=8031
               PM2_ENV_FLAG=""
               APP_FLASK="learnbot-flask-uat"
@@ -109,6 +109,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_PAT }}
+          submodules: false
 
       # ======= PYTHON SETUP =======
       - name: Setup Python
@@ -116,15 +117,20 @@ jobs:
         with:
           python-version: '3.10'
 
-      # ======= NOTIFICATIONS =======
-      - name: Teams Notification - Starting
-        uses: jdcargile/ms-teams-notification@v1.4
-        if: ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
-        with:
-          github-token: ${{ github.token }}
-          ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          notification-summary: "🚀 Deploying LearnBot Server to ${{ env.DEPLOY_ENV }}"
-          notification-color: "0076D7"
+      # ======= ENSURE REPO EXISTS (first-run clone) =======
+      - name: Ensure repo exists on server
+        run: |
+          REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
+          DEFAULT_BRANCH="${{ steps.setup.outputs.default_branch }}"
+          if [ ! -d "$REPO_DIR/.git" ]; then
+            echo "📂 Repo not found at $REPO_DIR - cloning..."
+            sudo mkdir -p "$(dirname "$REPO_DIR")"
+            sudo chown deploy:deploy "$(dirname "$REPO_DIR")"
+            sudo -u deploy git clone --branch "$DEFAULT_BRANCH" https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} "$REPO_DIR"
+            echo "✅ Cloned repo to $REPO_DIR"
+          else
+            echo "✅ Repo already exists at $REPO_DIR"
+          fi
 
       # ======= BACKUP =======
       - name: Backup current deployment
@@ -172,6 +178,14 @@ jobs:
           fi
 
           cd "$REPO_DIR"
+
+          # Remove any leftover submodule state if present
+          sudo -u deploy git submodule deinit -f --all 2>/dev/null || true
+          sudo -u deploy rm -rf .git/modules 2>/dev/null || true
+
+          sudo -u deploy git reset --hard HEAD
+          sudo -u deploy git clean -fd -e venv -e backups -e logs -e vector-stores 2>/dev/null || true
+
           sudo -u deploy git fetch --all
           sudo -u deploy git checkout "$DEPLOY_BRANCH"
 
@@ -423,16 +437,6 @@ jobs:
           # Cleanup old log files (older than 30 days)
           LOG_DIR="${{ steps.setup.outputs.log_dir }}"
           sudo -u deploy find "$LOG_DIR" -name "*.log" -mtime +30 -delete 2>/dev/null || true
-
-      # ======= SUCCESS NOTIFICATION =======
-      - name: Teams Notification - Success
-        if: success() && ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
-        uses: jdcargile/ms-teams-notification@v1.4
-        with:
-          github-token: ${{ github.token }}
-          ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          notification-summary: "✅ LearnBot Server deployed to ${{ env.DEPLOY_ENV }}"
-          notification-color: "00FF00"
 
       # ======= FAILURE HANDLING =======
       - name: Rollback and notify on failure
