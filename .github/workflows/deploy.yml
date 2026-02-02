@@ -109,22 +109,13 @@ jobs:
       - uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_PAT }}
+          submodules: false
 
       # ======= NODE.JS SETUP =======
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: "18"
-
-      # ======= NOTIFICATIONS =======
-      - name: Teams Notification - Starting
-        uses: jdcargile/ms-teams-notification@v1.4
-        continue-on-error: true
-        with:
-          github-token: ${{ github.token }}
-          ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          notification-summary: "🚀 Deploying LearnBot UI to ${{ env.DEPLOY_ENV }}"
-          notification-color: "0076D7"
 
       # ======= BACKUP =======
       - name: Backup current deployment
@@ -346,17 +337,6 @@ jobs:
 
           LOG_DIR="${{ steps.setup.outputs.log_dir }}"
           sudo -u deploy find "$LOG_DIR" -name "*.log" -mtime +30 -delete 2>/dev/null || true
-
-      # ======= SUCCESS NOTIFICATION =======
-      - name: Teams Notification - Success
-        if: success()
-        uses: jdcargile/ms-teams-notification@v1.4
-        continue-on-error: true
-        with:
-          github-token: ${{ github.token }}
-          ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          notification-summary: "✅ LearnBot UI deployed to ${{ env.DEPLOY_ENV }}"
-          notification-color: "00FF00"
 
       # ======= FAILURE HANDLING =======
       - name: Rollback and notify on failure
