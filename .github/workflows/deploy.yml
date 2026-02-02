@@ -164,6 +164,9 @@ jobs:
 
           cd "$REPO_DIR"
 
+          # Avoid submodule errors: do not recurse into submodules
+          sudo -u deploy git config --local submodule.recurse false 2>/dev/null || true
+
           # Discard any local changes to ensure clean state
           echo "🧹 Discarding local changes..."
           sudo -u deploy git reset --hard HEAD
