@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,15 @@ import { GraduationCap, Users, Brain, Target, Zap, Eye, EyeOff } from "lucide-re
 import Link from "next/link"
 import Image from "next/image"
 
-export default function RegisterPage() {
+function RegisterPageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="animate-pulse text-muted-foreground">Loading...</div>
+    </div>
+  )
+}
+
+function RegisterContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
@@ -647,3 +655,10 @@ export default function RegisterPage() {
   )
 }
 
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<RegisterPageFallback />}>
+      <RegisterContent />
+    </Suspense>
+  )
+}

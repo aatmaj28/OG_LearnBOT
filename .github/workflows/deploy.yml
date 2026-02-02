@@ -137,6 +137,21 @@ jobs:
               . 2>/dev/null || true
           fi
 
+      # ======= ENSURE REPO EXISTS (first-run clone) =======
+      - name: Ensure repo exists on server
+        run: |
+          REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
+          DEFAULT_BRANCH="${{ steps.setup.outputs.default_branch }}"
+          if [ ! -d "$REPO_DIR/.git" ]; then
+            echo "📂 Repo not found at $REPO_DIR - cloning..."
+            sudo mkdir -p "$(dirname "$REPO_DIR")"
+            sudo chown deploy:deploy "$(dirname "$REPO_DIR")"
+            sudo -u deploy git clone --branch "$DEFAULT_BRANCH" https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} "$REPO_DIR"
+            echo "✅ Cloned repo to $REPO_DIR"
+          else
+            echo "✅ Repo already exists at $REPO_DIR"
+          fi
+
       # ======= UPDATE GIT REMOTE =======
       - name: Update Git remote with current PAT
         run: |
@@ -164,22 +179,24 @@ jobs:
 
           cd "$REPO_DIR"
 
+          # Remove any leftover submodule state (repo was converted from submodule to regular dir)
+          sudo -u deploy git submodule deinit -f --all 2>/dev/null || true
+          sudo -u deploy rm -rf .git/modules 2>/dev/null || true
+
           # Discard any local changes to ensure clean state
           echo "🧹 Discarding local changes..."
           sudo -u deploy git reset --hard HEAD
 
-          # Clean untracked files, excluding runtime directories
+          # Clean untracked files, excluding runtime directories (ignore errors)
           sudo -u deploy git clean -fd \
             -e qdrant_storage \
             -e backups \
             -e logs \
-            2>&1 | grep -v "Permission denied" || true
+            2>/dev/null || true
 
           # Fetch and checkout
           sudo -u deploy git fetch --all
           sudo -u deploy git checkout "$DEPLOY_BRANCH"
-
-          # Reset to remote branch to ensure we're in sync
           sudo -u deploy git reset --hard "origin/$DEPLOY_BRANCH"
 
           echo "✅ Pulled latest code from branch: $DEPLOY_BRANCH"

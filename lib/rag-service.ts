@@ -4144,12 +4144,20 @@ declare global {
   var ragServiceInstance: RAGService | undefined
 }
 
-if (!global.ragServiceInstance) {
-  global.ragServiceInstance = new RAGService()
+function getOrCreateRAGService(): RAGService {
+  if (!global.ragServiceInstance) {
+    global.ragServiceInstance = new RAGService()
+  }
+  return global.ragServiceInstance
 }
 
-export const ragService = global.ragServiceInstance
+// Lazy proxy: only create RAGService when first used (avoids spawning Python during next build)
+export const ragService = new Proxy({} as RAGService, {
+  get(_, prop) {
+    return (getOrCreateRAGService() as unknown as Record<string | symbol, unknown>)[prop]
+  },
+})
 
 export function getRAGService(): RAGService {
-  return global.ragServiceInstance || new RAGService()
+  return getOrCreateRAGService()
 }
