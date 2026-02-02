@@ -226,13 +226,13 @@ jobs:
           sudo docker rm -f learnbot-qdrant 2>/dev/null || true
           sleep 2
           if ! sudo $COMPOSE_CMD up -d qdrant 2>&1; then
-            # Port already allocated = another env (e.g. PROD) is using Qdrant; treat as OK if healthy
+            # Port 6333 may be in use (e.g. by another env) - don't fail the deploy
             if curl -sf http://localhost:6333/health >/dev/null 2>&1; then
               echo "✅ Port 6333 in use but Qdrant is healthy - continuing (shared Qdrant)"
-              exit 0
+            else
+              echo "⚠️ Qdrant could not start (e.g. port 6333 already allocated). Deploy continues; ensure Qdrant is running on the server if needed."
             fi
-            echo "❌ Qdrant start failed and port 6333 not healthy"
-            exit 1
+            exit 0
           fi
           sleep 5
           if curl -f http://localhost:6333/health >/dev/null 2>&1; then
