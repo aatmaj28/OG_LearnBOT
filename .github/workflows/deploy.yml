@@ -410,20 +410,14 @@ jobs:
           sleep 15
 
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
-          ENV_FILE="${{ steps.setup.outputs.env_file }}"
           PM2_NAMESPACE="${{ steps.setup.outputs.pm2_namespace }}"
           APP_FLASK="${{ steps.setup.outputs.app_flask }}"
-
-          # Source env file for port number
-          source "$ENV_FILE"
-
-          FLASK_PORT="${{ steps.setup.outputs.flask_port }}"
-          PORT=${PORT:-$FLASK_PORT}
+          PORT="${{ steps.setup.outputs.flask_port }}"
 
           echo "🔍 Checking service..."
-          echo "Flask port: $FLASK_PORT"
+          echo "Flask port: $PORT"
 
-          # Check Flask API
+          # Check Flask API (do not source .env - values may contain chars that run as commands)
           if ! curl -f http://localhost:${PORT}/health 2>/dev/null; then
             echo "⚠️ Flask health check failed, checking PM2 logs..."
             sudo -u deploy pm2 logs --lines 20 --nostream --namespace "$PM2_NAMESPACE" || true
