@@ -1,0 +1,56 @@
+# Dependencies and builds
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs & diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment files (keep sample)
+.env*
+!.env.example
+
+# Vercel/host metadata
+.vercel/
+
+# IDE/editor clutter
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Coverage & cache
+coverage/
+*.lcov
+.nyc_output/
+.eslintcache
+.cache/
+
+# Package artifacts
+*.tgz
+.yarn-integrity
+.npm/
+
+# Temporary folders
+tmp/
+temp/
+vector_stores/
+vector-stores/
+
+# Documentation files (keep README.md)
+*.md
+!README.md

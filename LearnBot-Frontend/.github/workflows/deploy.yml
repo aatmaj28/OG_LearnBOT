@@ -46,18 +46,18 @@ jobs:
 
           case "$DEPLOY_ENV" in
             PROD)
-              REPO_DIR="/var/www/Learnbot-UI"
+              REPO_DIR="/var/www/LearnBot-UI"
               PM2_NAMESPACE="prod"
-              LOG_DIR="/var/www/Learnbot-UI/logs"
+              LOG_DIR="/var/www/LearnBot-UI/logs"
               UI_PORT=3030
               PM2_ENV_FLAG="--env production"
               APP_NAME="learnbot-ui"
               DEFAULT_BRANCH="main"
               ;;
             UAT)
-              REPO_DIR="/var/www/Learnbot-UI-UAT"
+              REPO_DIR="/var/www/LearnBot-UI-UAT"
               PM2_NAMESPACE="uat"
-              LOG_DIR="/var/www/Learnbot-UI-UAT/logs"
+              LOG_DIR="/var/www/LearnBot-UI-UAT/logs"
               UI_PORT=3031
               PM2_ENV_FLAG=""
               APP_NAME="learnbot-ui-uat"
@@ -109,13 +109,22 @@ jobs:
       - uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_PAT }}
-          submodules: false
 
       # ======= NODE.JS SETUP =======
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: "18"
+
+      # ======= NOTIFICATIONS =======
+      - name: Teams Notification - Starting
+        uses: jdcargile/ms-teams-notification@v1.4
+        if: ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
+        with:
+          github-token: ${{ github.token }}
+          ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          notification-summary: "🚀 Deploying LearnBot UI to ${{ env.DEPLOY_ENV }}"
+          notification-color: "0076D7"
 
       # ======= BACKUP =======
       - name: Backup current deployment
@@ -337,6 +346,16 @@ jobs:
 
           LOG_DIR="${{ steps.setup.outputs.log_dir }}"
           sudo -u deploy find "$LOG_DIR" -name "*.log" -mtime +30 -delete 2>/dev/null || true
+
+      # ======= SUCCESS NOTIFICATION =======
+      - name: Teams Notification - Success
+        if: success() && ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
+        uses: jdcargile/ms-teams-notification@v1.4
+        with:
+          github-token: ${{ github.token }}
+          ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          notification-summary: "✅ LearnBot UI deployed to ${{ env.DEPLOY_ENV }}"
+          notification-color: "00FF00"
 
       # ======= FAILURE HANDLING =======
       - name: Rollback and notify on failure
