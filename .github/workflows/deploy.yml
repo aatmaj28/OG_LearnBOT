@@ -246,27 +246,27 @@ jobs:
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
           cd "$REPO_DIR"
 
-          # Create .env file with all backend environment variables
+          # Create .env file with all backend environment variables (values quoted so spaces in secrets work)
           # These should be set as GitHub Secrets (environment-specific)
           sudo -u deploy bash -c "cat > .env.${{ steps.setup.outputs.deploy_env_lower }} << 'ENVEOF'
           FLASK_ENV=production
           NAMESPACE=${{ steps.setup.outputs.pm2_namespace }}
           PORT=${{ steps.setup.outputs.flask_port }}
-          DB_HOST=${{ secrets[format('DB_HOST_{0}', env.DEPLOY_ENV)] }}
-          DB_PORT=${{ secrets[format('DB_PORT_{0}', env.DEPLOY_ENV)] }}
-          DB_NAME=${{ secrets[format('DB_NAME_{0}', env.DEPLOY_ENV)] }}
-          DB_USER=${{ secrets[format('DB_USER_{0}', env.DEPLOY_ENV)] }}
-          DB_PASSWORD=${{ secrets[format('DB_PASSWORD_{0}', env.DEPLOY_ENV)] }}
-          ANTHROPIC_API_KEY=${{ secrets[format('ANTHROPIC_API_KEY_{0}', env.DEPLOY_ENV)] }}
-          CLAUDE_MODEL_ID=${{ secrets[format('CLAUDE_MODEL_ID_{0}', env.DEPLOY_ENV)] }}
-          GMAIL_USER=${{ secrets[format('GMAIL_USER_{0}', env.DEPLOY_ENV)] }}
-          GMAIL_APP_PASSWORD=${{ secrets[format('GMAIL_APP_PASSWORD_{0}', env.DEPLOY_ENV)] }}
-          QDRANT_URL=${{ secrets[format('QDRANT_URL_{0}', env.DEPLOY_ENV)] }}
-          QDRANT_API_KEY=${{ secrets[format('QDRANT_API_KEY_{0}', env.DEPLOY_ENV)] }}
-          REMOTE_BLACKWELL_URL=${{ secrets[format('REMOTE_BLACKWELL_URL_{0}', env.DEPLOY_ENV)] }}
-          REMOTE_BLACKWELL_MODEL=${{ secrets[format('REMOTE_BLACKWELL_MODEL_{0}', env.DEPLOY_ENV)] }}
-          ALLOWED_ORIGINS=${{ secrets[format('ALLOWED_ORIGINS_{0}', env.DEPLOY_ENV)] }}
-          SECRET_KEY=${{ secrets[format('SECRET_KEY_{0}', env.DEPLOY_ENV)] }}
+          DB_HOST="${{ secrets[format('DB_HOST_{0}', env.DEPLOY_ENV)] }}"
+          DB_PORT="${{ secrets[format('DB_PORT_{0}', env.DEPLOY_ENV)] }}"
+          DB_NAME="${{ secrets[format('DB_NAME_{0}', env.DEPLOY_ENV)] }}"
+          DB_USER="${{ secrets[format('DB_USER_{0}', env.DEPLOY_ENV)] }}"
+          DB_PASSWORD="${{ secrets[format('DB_PASSWORD_{0}', env.DEPLOY_ENV)] }}"
+          ANTHROPIC_API_KEY="${{ secrets[format('ANTHROPIC_API_KEY_{0}', env.DEPLOY_ENV)] }}"
+          CLAUDE_MODEL_ID="${{ secrets[format('CLAUDE_MODEL_ID_{0}', env.DEPLOY_ENV)] }}"
+          GMAIL_USER="${{ secrets[format('GMAIL_USER_{0}', env.DEPLOY_ENV)] }}"
+          GMAIL_APP_PASSWORD="${{ secrets[format('GMAIL_APP_PASSWORD_{0}', env.DEPLOY_ENV)] }}"
+          QDRANT_URL="${{ secrets[format('QDRANT_URL_{0}', env.DEPLOY_ENV)] }}"
+          QDRANT_API_KEY="${{ secrets[format('QDRANT_API_KEY_{0}', env.DEPLOY_ENV)] }}"
+          REMOTE_BLACKWELL_URL="${{ secrets[format('REMOTE_BLACKWELL_URL_{0}', env.DEPLOY_ENV)] }}"
+          REMOTE_BLACKWELL_MODEL="${{ secrets[format('REMOTE_BLACKWELL_MODEL_{0}', env.DEPLOY_ENV)] }}"
+          ALLOWED_ORIGINS="${{ secrets[format('ALLOWED_ORIGINS_{0}', env.DEPLOY_ENV)] }}"
+          SECRET_KEY="${{ secrets[format('SECRET_KEY_{0}', env.DEPLOY_ENV)] }}"
           LOG_LEVEL=${{ steps.setup.outputs.pm2_namespace == 'prod' && 'info' || 'debug' }}
           ENVEOF"
 
