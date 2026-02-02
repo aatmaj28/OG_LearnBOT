@@ -210,9 +210,9 @@ jobs:
             exit 0
           fi
 
-          # If Qdrant is already healthy on 6333 (e.g. from PROD or other env), skip start
-          if curl -sf http://localhost:6333/health >/dev/null 2>&1; then
-            echo "✅ Qdrant already running on port 6333 - skipping start"
+          # LearnBot Qdrant uses host ports 6335 (REST) / 6336 (gRPC) to avoid conflict with EssayBot on 6333/6334
+          if curl -sf http://localhost:6335/health >/dev/null 2>&1; then
+            echo "✅ LearnBot Qdrant already running on port 6335 - skipping start"
             exit 0
           fi
 
@@ -220,23 +220,22 @@ jobs:
           COMPOSE_CMD="docker compose"
           command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 || COMPOSE_CMD="docker-compose"
 
-          echo "🐳 Ensuring Qdrant container is running..."
+          echo "🐳 Ensuring LearnBot Qdrant container is running (ports 6335/6336)..."
           sudo $COMPOSE_CMD down qdrant 2>/dev/null || true
           sudo docker stop learnbot-qdrant 2>/dev/null || true
           sudo docker rm -f learnbot-qdrant 2>/dev/null || true
           sleep 2
           if ! sudo $COMPOSE_CMD up -d qdrant 2>&1; then
-            # Port 6333 may be in use (e.g. by another env) - don't fail the deploy
-            if curl -sf http://localhost:6333/health >/dev/null 2>&1; then
-              echo "✅ Port 6333 in use but Qdrant is healthy - continuing (shared Qdrant)"
+            if curl -sf http://localhost:6335/health >/dev/null 2>&1; then
+              echo "✅ LearnBot Qdrant already healthy on 6335"
             else
-              echo "⚠️ Qdrant could not start (e.g. port 6333 already allocated). Deploy continues; ensure Qdrant is running on the server if needed."
+              echo "⚠️ LearnBot Qdrant could not start. Deploy continues; ensure Qdrant is running on ports 6335/6336 if needed."
             fi
             exit 0
           fi
           sleep 5
-          if curl -f http://localhost:6333/health >/dev/null 2>&1; then
-            echo "✅ Qdrant is healthy"
+          if curl -f http://localhost:6335/health >/dev/null 2>&1; then
+            echo "✅ LearnBot Qdrant is healthy on port 6335"
           else
             echo "⚠️ Qdrant health check failed (container may still be starting)"
           fi
