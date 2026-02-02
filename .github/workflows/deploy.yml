@@ -119,7 +119,7 @@ jobs:
       # ======= NOTIFICATIONS =======
       - name: Teams Notification - Starting
         uses: jdcargile/ms-teams-notification@v1.4
-        if: ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
+        continue-on-error: true
         with:
           github-token: ${{ github.token }}
           ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
@@ -349,8 +349,9 @@ jobs:
 
       # ======= SUCCESS NOTIFICATION =======
       - name: Teams Notification - Success
-        if: success() && ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
+        if: success()
         uses: jdcargile/ms-teams-notification@v1.4
+        continue-on-error: true
         with:
           github-token: ${{ github.token }}
           ms-teams-webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
