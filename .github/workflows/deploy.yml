@@ -49,7 +49,7 @@ jobs:
               REPO_DIR="/opt/LearnBot-Server"
               PM2_NAMESPACE="prod"
               LOG_DIR="/opt/LearnBot-Server/logs"
-              FLASK_PORT=8021
+              FLASK_PORT=8030
               PM2_ENV_FLAG="--env production"
               APP_FLASK="learnbot-flask"
               DEFAULT_BRANCH="main"
@@ -58,7 +58,7 @@ jobs:
               REPO_DIR="/opt/LearnBot-Server-UAT"
               PM2_NAMESPACE="uat"
               LOG_DIR="/opt/LearnBot-Server-UAT/logs"
-              FLASK_PORT=8022
+              FLASK_PORT=8031
               PM2_ENV_FLAG=""
               APP_FLASK="learnbot-flask-uat"
               DEFAULT_BRANCH="dynamic-update"
@@ -179,6 +179,39 @@ jobs:
           echo "🔄 Resetting to match remote branch exactly..."
           sudo -u deploy git reset --hard "origin/$DEPLOY_BRANCH"
           echo "✅ Reset to latest code from branch: $DEPLOY_BRANCH (commit: $(sudo -u deploy git rev-parse --short HEAD))"
+
+      # ======= START QDRANT (Docker Compose) =======
+      - name: Start Qdrant (Docker Compose)
+        run: |
+          REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
+          cd "$REPO_DIR"
+
+          # Ensure Qdrant storage directory exists
+          sudo mkdir -p "$REPO_DIR/vector-stores/qdrant"
+          sudo chown deploy:deploy "$REPO_DIR/vector-stores/qdrant" 2>/dev/null || true
+          sudo chmod 755 "$REPO_DIR/vector-stores/qdrant"
+
+          if [ ! -f docker-compose.yml ]; then
+            echo "⚠️ docker-compose.yml not found - skipping Qdrant startup"
+            exit 0
+          fi
+
+          # Prefer Docker Compose V2, fallback to V1
+          COMPOSE_CMD="docker compose"
+          command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 || COMPOSE_CMD="docker-compose"
+
+          echo "🐳 Ensuring Qdrant container is running..."
+          sudo $COMPOSE_CMD down qdrant 2>/dev/null || true
+          sudo docker stop learnbot-qdrant 2>/dev/null || true
+          sudo docker rm -f learnbot-qdrant 2>/dev/null || true
+          sleep 2
+          sudo $COMPOSE_CMD up -d qdrant
+          sleep 5
+          if curl -f http://localhost:6333/health >/dev/null 2>&1; then
+            echo "✅ Qdrant is healthy"
+          else
+            echo "⚠️ Qdrant health check failed (container may still be starting)"
+          fi
 
       # ======= CREATE ENV FILE =======
       - name: Create environment file

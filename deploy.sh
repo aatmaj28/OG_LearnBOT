@@ -8,14 +8,14 @@ case "$PWD" in
     NS="uat"
     DEFAULT_BRANCH="dynamic-update"
     PM2_ENV=""  # don't pass --env production
-    FLASK_PORT=5001
+    FLASK_PORT=8031
     ;;
   "/opt/Learnbot-Server")
     APP_FLASK="learnbot-flask"
     NS="prod"
     DEFAULT_BRANCH="main"
     PM2_ENV="--env production"  # applies env_production
-    FLASK_PORT=5000
+    FLASK_PORT=8030
     ;;
   *)
     echo "❌ Unknown folder: $PWD"

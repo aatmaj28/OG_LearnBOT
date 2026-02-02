@@ -22,13 +22,13 @@ module.exports = {
       // Dynamic port from environment (K8s-compliant)
       env: {
         FLASK_ENV: 'production',
-        PORT: process.env.PORT || 8022, // UAT port (default 8022, can be overridden)
+        PORT: process.env.PORT || 8031, // UAT port (default 8031, can be overridden)
         NAMESPACE: process.env.NAMESPACE || 'uat',
       },
 
       // Overrides when you start with: `--env production`
       env_production: {
-        PORT: process.env.PORT || 8021, // PROD port (default 8021, can be overridden)
+        PORT: process.env.PORT || 8030, // PROD port (default 8030, can be overridden)
         NAMESPACE: 'prod',
       },
 
