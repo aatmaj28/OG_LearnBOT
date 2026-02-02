@@ -26,28 +26,23 @@ export interface MaskingContext {
  * Determines if PII masking should be applied based on context
  * 
  * Rules:
- * - PRODUCTION: Faculty see all unmasked data (they need real PII for their work)
- * - PRODUCTION: Students see their own data unmasked (they only see their own data anyway)
- * - PRODUCTION: Students seeing other students' data would be masked (access controls prevent this)
- * - DEVELOPMENT: ALL users (including faculty) see masked data
- *   → This protects developers from accidentally seeing sensitive production data
- * - Exception: Users always see their own data unmasked (handled in maskUserData via isOwnData check)
+ * - Faculty see all unmasked data in ALL environments (they need real PII for their work)
+ * - Students see their own data unmasked (handled via isOwnData check in maskUserData)
+ * - Students seeing other students' data would be masked (access controls prevent this)
  * - Unauthenticated requests always mask
+ * - Exception: Users always see their own data unmasked (handled in maskUserData via isOwnData check)
  */
 export function shouldMaskPII(context: MaskingContext): boolean {
-  const { requestingUserRole, environment } = context
+  const { requestingUserRole } = context
   
-  const isProduction = environment === 'production' || environment === 'prod'
-  
-  // PRODUCTION: Only faculty see unmasked data for OTHER users (clean data for their portal)
-  // Note: Students see their own data unmasked via isOwnData check in maskUserData()
-  if (isProduction && requestingUserRole === 'faculty') {
-    return false // No masking for faculty in production
+  // Faculty see unmasked data for ALL users in ALL environments
+  // This is required so faculty can see student names/emails in the faculty portal
+  if (requestingUserRole === 'faculty') {
+    return false // No masking for faculty
   }
   
   // All other cases: mask PII
-  // - PROD: Students see masked data for OTHER users (but they only access their own)
-  // - DEV: Everyone sees masked (protect developers from PROD-sensitive data)
+  // - Students see masked data for OTHER users (but they only access their own)
   // - Unauthenticated requests always mask
   // Note: Users seeing their own data is handled separately via isOwnData check
   return true

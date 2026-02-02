@@ -961,7 +961,7 @@ export const getStudentActivity = async (userId: string, classId?: string, skipL
       ? new Date(Math.max(...conversations.map(c => new Date(c.updatedAt).getTime())))
       : new Date()
 
-    // Use only the latest conversation for analysis (most recent)
+    // Use only the latest conversation for analysis (most recent) - shows current student state
     const latestConversation = conversations.length > 0 ? conversations[0] : null
     let averageSentiment = 0
     let topTopics: { topic: string; count: number }[] = []
@@ -972,12 +972,67 @@ export const getStudentActivity = async (userId: string, classId?: string, skipL
       const userMessages = latestMessages.filter((m: any) => m.role === 'user')
       
       // PRIORITY 1: Use cached analytics if available (instant!)
-      if (latestConversation.cachedSentiment !== undefined && latestConversation.cachedTopics) {
+      // BUT: Check if cached topics look like they came from regex (low quality)
+      // If they do, regenerate using Claude when skipLLMAnalysis is false
+      const hasCachedAnalytics = latestConversation.cachedSentiment !== undefined && latestConversation.cachedTopics
+      const cachedTopicsLookLowQuality = hasCachedAnalytics && latestConversation.cachedTopics && 
+        Array.isArray(latestConversation.cachedTopics) &&
+        latestConversation.cachedTopics.some((topic: any) => {
+          const topicName = typeof topic === 'string' ? topic : (topic.topic || '')
+          // Check for patterns that indicate regex/low-quality extraction:
+          // - Contains "asked about:" (from conversation titles)
+          // - Contains "me more about" (truncated titles)
+          // - Very short or generic topics
+          return topicName.toLowerCase().includes('asked about:') ||
+                 topicName.toLowerCase().includes('me more about') ||
+                 topicName.length < 5
+        })
+      
+      if (hasCachedAnalytics && !cachedTopicsLookLowQuality) {
         console.log(`[v0] Using cached analytics for user ${userId}`)
         averageSentiment = latestConversation.cachedSentiment
         topTopics = latestConversation.cachedTopics
         // Extract sentiment words from messages (always use keyword-based for words)
         sentimentWords = extractSentimentWords(userMessages)
+        
+        // Fallback: If cached topics are empty, extract them now
+        if (!topTopics || topTopics.length === 0) {
+          console.log(`[v0] Cached topics empty, extracting topics for user ${userId}`)
+          topTopics = extractEnhancedTopics(latestMessages)
+        }
+      } else if (hasCachedAnalytics && cachedTopicsLookLowQuality && !skipLLMAnalysis) {
+        // Cached topics exist but look low-quality - regenerate with Claude
+        console.log(`[v0] Cached topics look low-quality for user ${userId}, regenerating with Claude:`, latestConversation.cachedTopics)
+        const analysisResult = await analyzeLatestConversation(userId, classId, latestMessages, latestConversation.title)
+        averageSentiment = analysisResult.sentiment
+        topTopics = analysisResult.topics || []
+        
+        // Fallback: If LLM analysis didn't return topics or returned empty, extract them
+        if (!topTopics || topTopics.length === 0) {
+          console.log(`[v0] LLM analysis returned no topics, extracting topics for user ${userId}`)
+          topTopics = extractEnhancedTopics(latestMessages)
+        }
+        
+        // Update cache with new high-quality topics (async, don't block response)
+        updateRAGConversation(latestConversation.id, {
+          cachedSentiment: averageSentiment,
+          cachedTopics: topTopics,
+          analyticsLastUpdated: new Date()
+        }).then(() => {
+          console.log(`[v0] Updated cache with regenerated analytics for conversation ${latestConversation.id}`)
+        }).catch((cacheError) => {
+          console.error(`[v0] Failed to update cache:`, cacheError)
+        })
+        
+        // Extract sentiment words from messages (always use keyword-based for words)
+        sentimentWords = extractSentimentWords(userMessages)
+        
+        console.log(`[v0] Regenerated analytics for user ${userId}:`, {
+          sentiment: averageSentiment,
+          topics: topTopics,
+          sentimentWords,
+          conversationTitle: latestConversation.title
+        })
       } 
       // PRIORITY 2: Use fast keyword-based fallback for batch operations
       else if (skipLLMAnalysis) {
@@ -991,7 +1046,14 @@ export const getStudentActivity = async (userId: string, classId?: string, skipL
         console.log(`[v0] Running LLM analysis for user ${userId} (no cache, not skipped)`)
         const analysisResult = await analyzeLatestConversation(userId, classId, latestMessages, latestConversation.title)
         averageSentiment = analysisResult.sentiment
-        topTopics = analysisResult.topics
+        topTopics = analysisResult.topics || []
+        
+        // Fallback: If LLM analysis didn't return topics or returned empty, extract them
+        if (!topTopics || topTopics.length === 0) {
+          console.log(`[v0] LLM analysis returned no topics, extracting topics for user ${userId}`)
+          topTopics = extractEnhancedTopics(latestMessages)
+        }
+        
         // Extract sentiment words from messages (always use keyword-based for words)
         sentimentWords = extractSentimentWords(userMessages)
         
@@ -1193,69 +1255,48 @@ Respond in JSON format:
   ]
 }`
 
-    // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
-    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'
-    const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
-    const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
-    const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
-    
-    let response: Response | null = null
+    // Use Claude API for topic extraction
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    const claudeModel = process.env.CLAUDE_MODEL_ID || 'claude-haiku-4-5-20251001'
     let responseText = ''
     
-    // Try Blackwell first
-    try {
-      response = await fetch(blackwellUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: blackwellModel,
-          messages: [
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.3,
-          max_tokens: 1000
-        }),
-        signal: AbortSignal.timeout(30000) // 30s timeout
-      })
-      
-      if (response.ok) {
-        const responseData = await response.json()
-        responseText = responseData.choices?.[0]?.message?.content || ''
-      }
-    } catch (blackwellError) {
-      // Blackwell failed, try A6000 as fallback
-    }
-    
-    // Fallback to A6000 Ollama if Blackwell failed or didn't return text
-    if (!responseText) {
+    // Try Claude API first
+    if (apiKey && !apiKey.includes('your-anthropic-api-key')) {
+      console.log(`[Analytics] Calling Claude API (${claudeModel}) for topic extraction...`)
       try {
-        response = await fetch(a6000Url, {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01'
           },
           body: JSON.stringify({
-            model: a6000Model,
-            prompt: prompt,
-            stream: false,
-            options: {
-              temperature: 0.3,
-              top_p: 0.9
-            }
+            model: claudeModel,
+            max_tokens: 1000,
+            system: 'You are an expert at analyzing student conversations and extracting key topics and sentiment.',
+            messages: [
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.3
           }),
           signal: AbortSignal.timeout(30000) // 30s timeout
         })
         
         if (response.ok) {
           const responseData = await response.json()
-          responseText = responseData.response || ''
+          responseText = responseData.content?.[0]?.text || ''
+          console.log(`[Analytics] Claude API response received (${responseText.length} chars)`)
+        } else {
+          const errorText = await response.text().catch(() => 'Unknown error')
+          console.error(`[Analytics] Claude API error: HTTP ${response.status} - ${errorText.substring(0, 200)}`)
         }
-      } catch (a6000Error) {
-        // Both failed, will use fallback analysis below
-        throw new Error('Both Blackwell and A6000 unavailable')
+      } catch (claudeError) {
+        // Claude failed, will use regex fallback below
+        console.error('[Analytics] Claude API call failed, using regex fallback:', claudeError instanceof Error ? claudeError.message : String(claudeError))
       }
+    } else {
+      console.log('[Analytics] Claude API key not configured, using regex fallback')
     }
 
     if (responseText) {
@@ -1643,7 +1684,7 @@ const calculateEnhancedSentiment = (messages: any[]): number => {
 /**
  * Enhanced topic extraction using TF-IDF-like scoring with n-grams
  */
-const extractEnhancedTopics = (messages: any[]): { topic: string; count: number }[] => {
+export const extractEnhancedTopics = (messages: any[]): { topic: string; count: number }[] => {
   const topicScores = new Map<string, number>()
   const allUserText: string[] = []
 
@@ -1757,6 +1798,7 @@ const capitalizeTopic = (topic: string): string => {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
 }
+
 
 // Helper function to extract simple topics as fallback
 const extractSimpleTopics = (messages: any[]): { topic: string; count: number }[] => {

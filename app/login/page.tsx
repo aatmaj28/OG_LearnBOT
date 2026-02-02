@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { GraduationCap, Users, Bot, Brain, Target, Zap, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
+import { authApi } from "@/lib/flask-api-client"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -37,23 +38,9 @@ export default function LoginPage() {
     console.log("[v0] FRONTEND: Starting login for:", email, "role:", role)
 
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role }),
-      })
-
-      console.log("[v0] FRONTEND: Login response status:", response.status)
-
-      const data = await response.json()
+      // Use Flask API client instead of Next.js route
+      const data = await authApi.login(email, password, role)
       console.log("[v0] FRONTEND: Login response data:", data)
-
-      if (!response.ok) {
-        console.log("[v0] FRONTEND: Login failed:", data.error)
-        setError(data.error || "Login failed")
-        setLoading(false)
-        return
-      }
 
       // Store session
       console.log("[v0] FRONTEND: Storing session in localStorage:", data.sessionId)

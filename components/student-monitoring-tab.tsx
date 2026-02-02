@@ -57,15 +57,15 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
     if (!selectedClassId) return
 
     try {
-      const response = await fetch(`/api/analytics/class-activity?classId=${selectedClassId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setStudentActivities(data.activities)
-      }
+      // Use Flask API client which properly sends session headers
+      const { analyticsApi } = await import("@/lib/flask-api-client")
+      const data = await analyticsApi.getClassActivity(selectedClassId) as { activities: StudentActivityData[] }
+      setStudentActivities(data.activities)
     } catch (error) {
       console.error("[v0] Failed to load student activities:", error)
     }
   }, [selectedClassId])
+
 
   useEffect(() => {
     loadClasses()
@@ -162,8 +162,8 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
       {classes.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
-          <p className="text-muted-foreground mb-2">No classes found</p>
-          <p className="text-sm text-muted-foreground">Create a class to monitor students</p>
+            <p className="text-muted-foreground mb-2">No classes found</p>
+            <p className="text-sm text-muted-foreground">Create a class to monitor students</p>
           </div>
         </div>
       ) : (
@@ -194,9 +194,8 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
                     studentActivities.map((activity) => (
                       <Card
                         key={activity.student.id}
-                        className={`cursor-pointer hover:bg-accent transition-colors ${
-                          selectedStudent?.id === activity.student.id ? "bg-accent" : ""
-                        }`}
+                        className={`cursor-pointer hover:bg-accent transition-colors ${selectedStudent?.id === activity.student.id ? "bg-accent" : ""
+                          }`}
                         onClick={() => viewStudentChats(activity.student)}
                       >
                         <CardHeader className="pb-3">
@@ -228,16 +227,15 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
                           {activity.sentimentWords && activity.sentimentWords.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {activity.sentimentWords.map((word, index) => (
-                                <Badge 
-                                  key={index} 
-                                  variant="outline" 
-                                  className={`text-xs ${
-                                    activity.averageSentiment > 0.3 
-                                      ? 'border-green-500 text-green-700 dark:text-green-400' 
-                                      : activity.averageSentiment < -0.3
+                                <Badge
+                                  key={index}
+                                  variant="outline"
+                                  className={`text-xs ${activity.averageSentiment > 0.3
+                                    ? 'border-green-500 text-green-700 dark:text-green-400'
+                                    : activity.averageSentiment < -0.3
                                       ? 'border-red-500 text-red-700 dark:text-red-400'
                                       : 'border-yellow-500 text-yellow-700 dark:text-yellow-400'
-                                  }`}
+                                    }`}
                                 >
                                   {word}
                                 </Badge>
@@ -319,7 +317,7 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
 
       {/* Chat Messages Dialog */}
       <Dialog open={showChatDialog} onOpenChange={setShowChatDialog}>
-        <DialogContent 
+        <DialogContent
           className="!max-w-6xl max-h-[90vh] w-[90vw] sm:!max-w-6xl"
           style={{ maxWidth: '90vw', width: '90vw', maxHeight: '90vh' }}
         >
@@ -334,9 +332,8 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
               {sessionMessages.map((message) => (
                 <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div
-                    className={`max-w-[80%] rounded-lg p-4 ${
-                      message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
-                    }`}
+                    className={`max-w-[80%] rounded-lg p-4 ${message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+                      }`}
                   >
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                     <p className="text-xs opacity-70 mt-2">{new Date(message.timestamp).toLocaleTimeString()}</p>

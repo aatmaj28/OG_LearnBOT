@@ -5,6 +5,7 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import type { UserRole } from "@/lib/types"
+import { authApi } from "@/lib/flask-api-client"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -37,24 +38,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
       // Verify session with server
       try {
         console.log("[v0] AUTHGUARD: Sending session verification request")
-        const response = await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId }),
-        })
-
-        console.log("[v0] AUTHGUARD: Session verification response status:", response.status)
-
-        if (!response.ok) {
-          console.error("[v0] AUTHGUARD: Session verification failed:", response.status, response.statusText)
-          const errorData = await response.json()
-          console.error("[v0] AUTHGUARD: Error details:", errorData)
-          localStorage.clear()
-          router.push("/login")
-          return
-        }
-
-        const data = await response.json()
+        const data = await authApi.getSession(sessionId)
         console.log("[v0] AUTHGUARD: Session verification successful:", data)
 
         // Check role if required

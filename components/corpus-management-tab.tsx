@@ -26,7 +26,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
   const [isIndexing, setIsIndexing] = useState(false)
   const [indexedPdfCount, setIndexedPdfCount] = useState(0)
   const [indexedChunkCount, setIndexedChunkCount] = useState(0)
-  const [entireCorpusStats, setEntireCorpusStats] = useState<{exists: boolean, totalChunks?: number, totalPdfs?: number} | null>(null)
+  const [entireCorpusStats, setEntireCorpusStats] = useState<{ exists: boolean, totalChunks?: number, totalPdfs?: number } | null>(null)
   const [isBuildingEntireCorpus, setIsBuildingEntireCorpus] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -49,13 +49,11 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
     const userId = localStorage.getItem("userId")
     if (!userId) return
     try {
-      const res = await fetch(`/api/classes?facultyId=${userId}`)
-      if (res.ok) {
-        const data = await res.json()
-        setClasses(data.classes || [])
-        if (data.classes && data.classes.length > 0) {
-          setSelectedClassId(data.classes[0].id)
-        }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = await classesApi.getClasses(userId)
+      setClasses(data.classes || [])
+      if (data.classes && data.classes.length > 0) {
+        setSelectedClassId(data.classes[0].id)
       }
     } catch (e) {
       console.error("Failed to load classes", e)
@@ -65,11 +63,9 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
   const loadServerFiles = async () => {
     if (!selectedClassId) return
     try {
-      const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&materialType=${materialType}`)
-      if (res.ok) {
-        const data = await res.json()
-        setFilesOnServer(data.files || [])
-      }
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      const data = await corpusApi.getFiles(selectedClassId, materialType)
+      setFilesOnServer(data.files || [])
     } catch (e) {
       console.error("Failed to load server files", e)
     }
@@ -78,12 +74,16 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
   const loadIndexStats = async () => {
     if (!selectedClassId) return
     try {
-      const res = await fetch(`/api/corpus/stats?classId=${selectedClassId}&materialType=${materialType}`)
-      if (res.ok) {
-        const data = await res.json()
-        setIndexedPdfCount(data.pdfCount || 0)
-        setIndexedChunkCount(data.chunkCount || 0)
+      // Get files and chunk stats from API
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      const data = await corpusApi.getFiles(selectedClassId, materialType) as {
+        files?: string[]
+        filesData?: Array<{ chunkCount?: number }>
+        totalChunks?: number
       }
+      setIndexedPdfCount(data.files?.length || 0)
+      // Use totalChunks from API response
+      setIndexedChunkCount(data.totalChunks || 0)
     } catch (e) {
       console.error("Failed to load index stats", e)
     }
@@ -93,25 +93,11 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
     if (!selectedClassId) return
     if (!confirm(`Delete ${filename}?\n\nThis will remove the PDF and its embeddings from the index.`)) return
     try {
-      const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&filename=${encodeURIComponent(filename)}&materialType=${materialType}`, {
-        method: "DELETE"
-      })
-      if (res.ok) {
-        const data = await res.json()
-        toast.success(data.message || "PDF and embeddings removed")
-        // Update stats immediately from response
-        if (data.pdfCount !== undefined) {
-          setIndexedPdfCount(data.pdfCount)
-        }
-        if (data.chunkCount !== undefined) {
-          setIndexedChunkCount(data.chunkCount)
-        }
-        await loadServerFiles()
-        // Also reload stats as fallback (in case response didn't include stats)
-        await loadIndexStats()
-      } else {
-        toast.error("Failed to delete file")
-      }
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      await corpusApi.deleteFile(selectedClassId, filename, materialType)
+      toast.success("PDF and embeddings removed")
+      await loadServerFiles()
+      await loadIndexStats()
     } catch (e) {
       console.error("Delete error", e)
       toast.error("Delete error")
@@ -131,48 +117,33 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
   const onStartIndex = async () => {
     if (!selectedClassId || selectedFiles.length === 0) return
-    
+
     setIsIndexing(true)
     setIsUploading(true)
-    
+
     try {
       // Step 1: Upload PDFs
       const materialLabel = materialType === "syllabus" ? "Syllabus/Schedule" : "Class Material"
       toast.info(`Uploading ${selectedFiles.length} ${materialLabel} PDF(s)...`)
-      const form = new FormData()
-      selectedFiles.forEach(f => form.append("files", f))
-      const uploadRes = await fetch(`/api/corpus/upload?classId=${selectedClassId}&materialType=${materialType}`, {
-        method: "POST",
-        body: form,
-      })
-      
-      if (!uploadRes.ok) {
-        toast.error("Upload failed")
-        return
-      }
-      
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      await corpusApi.upload(selectedClassId, selectedFiles, materialType)
+
       toast.success("PDFs uploaded. Starting indexing...")
-      
+
       // Step 2: Index all PDFs (including newly uploaded ones)
-      const indexRes = await fetch(`/api/corpus/index`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classId: selectedClassId, materialType }),
-      })
-      
-      if (indexRes.ok) {
-        const data = await indexRes.json()
+      const indexData = await corpusApi.index(selectedClassId, materialType)
+
+      if (indexData.success) {
         toast.success("PDF indexed successfully")
-        // Update stats immediately from response
-        if (data.pdfCount !== undefined) {
-          setIndexedPdfCount(data.pdfCount)
+        // Update stats from response
+        if (indexData.pdfs !== undefined) {
+          setIndexedPdfCount(indexData.pdfs)
         }
-        if (data.chunkCount !== undefined) {
-          setIndexedChunkCount(data.chunkCount)
+        if (indexData.chunks !== undefined) {
+          setIndexedChunkCount(indexData.chunks)
         }
         setSelectedFiles([]) // Clear selected files after successful indexing
         await loadServerFiles() // Reload to show all indexed PDFs
-        // Also reload stats as fallback (in case response didn't include stats)
         await loadIndexStats()
       } else {
         toast.error("Indexing failed")
@@ -234,148 +205,6 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
         <TabsContent value="class_material" className="mt-4">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="p-4 col-span-1">
-          <div className="space-y-3">
-            <label className="text-sm font-medium">Select Class</label>
-            <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a class..." />
-              </SelectTrigger>
-              <SelectContent>
-                {classes.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div className="pt-2 space-y-3">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                multiple
-                className="hidden"
-                onChange={onFilesChosen}
-              />
-              <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
-                <Upload className="h-4 w-4 mr-2" />
-                Upload PDFs
-              </Button>
-              
-              {selectedFiles.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium">Selected Files ({selectedFiles.length}):</div>
-                  <div className="max-h-[150px] overflow-y-auto space-y-1">
-                    {selectedFiles.map((file, idx) => (
-                      <div key={idx} className="flex items-center justify-between gap-2 text-xs bg-muted px-2 py-1 rounded">
-                        <span className="truncate flex-1">{file.name}</span>
-                        <Button 
-                          size="sm" 
-                          variant="ghost" 
-                          className="h-5 w-5 p-0 hover:bg-red-100 hover:text-red-600"
-                          onClick={() => removeSelectedFile(idx)}
-                          disabled={isIndexing}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  <Button 
-                    onClick={onStartIndex} 
-                    disabled={!selectedClassId || isIndexing || selectedFiles.length === 0}
-                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
-                  >
-                    <PlayCircle className="h-4 w-4 mr-2" />
-                    {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} PDF${selectedFiles.length > 1 ? 's' : ''})`}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4 col-span-1 lg:col-span-2">
-          <h3 className="font-medium mb-3">Indexed PDFs in Corpus ({filesOnServer.length})</h3>
-          {!selectedClassId ? (
-            <div className="text-sm text-muted-foreground">Select a class</div>
-          ) : filesOnServer.length === 0 ? (
-            <div className="space-y-2">
-            <div className="text-sm text-muted-foreground">No files indexed yet. Upload and index PDFs to get started.</div>
-              {indexedChunkCount > 0 && (
-                <div className="pt-2 border-t">
-                  <div className="text-xs text-muted-foreground mb-2">
-                    Found {indexedChunkCount} orphaned chunk{indexedChunkCount !== 1 ? 's' : ''} from previous indexing.
-                  </div>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    className="w-full border-orange-300 text-orange-700 hover:bg-orange-50"
-                    onClick={async () => {
-                      if (!confirm(`Clear all ${indexedChunkCount} chunks? This will remove all indexed data but keep uploaded PDFs.`)) return
-                      try {
-                        // Trigger clear-all by trying to delete a dummy file
-                        const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&filename=__clear_all_chunks__.pdf&materialType=${materialType}`, {
-                          method: "DELETE"
-                        })
-                        const data = await res.json()
-                        if (res.ok && data.success) {
-                          toast.success(data.message || "All chunks cleared")
-                          // Update stats immediately from response
-                          if (data.pdfCount !== undefined) {
-                            setIndexedPdfCount(data.pdfCount)
-                          }
-                          if (data.chunkCount !== undefined) {
-                            setIndexedChunkCount(data.chunkCount)
-                          }
-                          await loadIndexStats()
-                        } else {
-                          const errorMsg = data.error || data.message || "Failed to clear chunks"
-                          toast.error(errorMsg)
-                          console.error("Clear chunks failed:", data)
-                        }
-                      } catch (e) {
-                        console.error("Clear chunks error", e)
-                        toast.error("Clear chunks error")
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3 mr-2" />
-                    Clear All Chunks ({indexedChunkCount})
-                  </Button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <ScrollArea className="h-[360px]">
-              <div className="space-y-2">
-                {filesOnServer.map((f, idx) => (
-                  <div key={idx} className="flex items-center justify-between gap-2 text-sm bg-muted px-3 py-2 rounded hover:bg-muted/80">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <FileText className="h-4 w-4 flex-shrink-0" />
-                      <span className="truncate">{f}</span>
-                    </div>
-                    <Button 
-                      size="sm" 
-                      variant="ghost"
-                      className="h-7 w-7 p-0 hover:bg-red-100 hover:text-red-600"
-                      onClick={() => deleteIndexedFile(f)}
-                      disabled={isIndexing}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-        </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="syllabus" className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="p-4 col-span-1">
               <div className="space-y-3">
                 <label className="text-sm font-medium">Select Class</label>
@@ -403,7 +232,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                     <Upload className="h-4 w-4 mr-2" />
                     Upload PDFs
                   </Button>
-                  
+
                   {selectedFiles.length > 0 && (
                     <div className="space-y-2">
                       <div className="text-xs font-medium">Selected Files ({selectedFiles.length}):</div>
@@ -411,9 +240,9 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                         {selectedFiles.map((file, idx) => (
                           <div key={idx} className="flex items-center justify-between gap-2 text-xs bg-muted px-2 py-1 rounded">
                             <span className="truncate flex-1">{file.name}</span>
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
+                            <Button
+                              size="sm"
+                              variant="ghost"
                               className="h-5 w-5 p-0 hover:bg-red-100 hover:text-red-600"
                               onClick={() => removeSelectedFile(idx)}
                               disabled={isIndexing}
@@ -423,11 +252,11 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                           </div>
                         ))}
                       </div>
-                      
-                      <Button 
-                        onClick={onStartIndex} 
+
+                      <Button
+                        onClick={onStartIndex}
                         disabled={!selectedClassId || isIndexing || selectedFiles.length === 0}
-                        className="w-full"
+                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
                       >
                         <PlayCircle className="h-4 w-4 mr-2" />
                         {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} PDF${selectedFiles.length > 1 ? 's' : ''})`}
@@ -439,19 +268,19 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
             </Card>
 
             <Card className="p-4 col-span-1 lg:col-span-2">
-              <h3 className="font-medium mb-3">Indexed Syllabus/Schedule PDFs ({filesOnServer.length})</h3>
+              <h3 className="font-medium mb-3">Indexed PDFs in Corpus ({filesOnServer.length})</h3>
               {!selectedClassId ? (
                 <div className="text-sm text-muted-foreground">Select a class</div>
               ) : filesOnServer.length === 0 ? (
                 <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">No syllabus/schedule files indexed yet. Upload and index PDFs to get started.</div>
+                  <div className="text-sm text-muted-foreground">No files indexed yet. Upload and index PDFs to get started.</div>
                   {indexedChunkCount > 0 && (
                     <div className="pt-2 border-t">
                       <div className="text-xs text-muted-foreground mb-2">
                         Found {indexedChunkCount} orphaned chunk{indexedChunkCount !== 1 ? 's' : ''} from previous indexing.
                       </div>
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant="outline"
                         className="w-full border-orange-300 text-orange-700 hover:bg-orange-50"
                         onClick={async () => {
@@ -498,8 +327,141 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                           <FileText className="h-4 w-4 flex-shrink-0" />
                           <span className="truncate">{f}</span>
                         </div>
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 hover:bg-red-100 hover:text-red-600"
+                          onClick={() => deleteIndexedFile(f)}
+                          disabled={isIndexing}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="syllabus" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card className="p-4 col-span-1">
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Select Class</label>
+                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a class..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <div className="pt-2 space-y-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    multiple
+                    className="hidden"
+                    onChange={onFilesChosen}
+                  />
+                  <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload PDFs
+                  </Button>
+
+                  {selectedFiles.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium">Selected Files ({selectedFiles.length}):</div>
+                      <div className="max-h-[150px] overflow-y-auto space-y-1">
+                        {selectedFiles.map((file, idx) => (
+                          <div key={idx} className="flex items-center justify-between gap-2 text-xs bg-muted px-2 py-1 rounded">
+                            <span className="truncate flex-1">{file.name}</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-5 w-5 p-0 hover:bg-red-100 hover:text-red-600"
+                              onClick={() => removeSelectedFile(idx)}
+                              disabled={isIndexing}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <Button
+                        onClick={onStartIndex}
+                        disabled={!selectedClassId || isIndexing || selectedFiles.length === 0}
+                        className="w-full"
+                      >
+                        <PlayCircle className="h-4 w-4 mr-2" />
+                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} PDF${selectedFiles.length > 1 ? 's' : ''})`}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4 col-span-1 lg:col-span-2">
+              <h3 className="font-medium mb-3">Indexed Syllabus/Schedule PDFs ({filesOnServer.length})</h3>
+              {!selectedClassId ? (
+                <div className="text-sm text-muted-foreground">Select a class</div>
+              ) : filesOnServer.length === 0 ? (
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">No syllabus/schedule files indexed yet. Upload and index PDFs to get started.</div>
+                  {indexedChunkCount > 0 && (
+                    <div className="pt-2 border-t">
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Found {indexedChunkCount} orphaned chunk{indexedChunkCount !== 1 ? 's' : ''} from previous indexing.
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full border-orange-300 text-orange-700 hover:bg-orange-50"
+                        onClick={async () => {
+                          if (!confirm(`Clear all ${indexedChunkCount} chunks? This will remove all indexed data but keep uploaded PDFs.`)) return
+                          try {
+                            // Clear all chunks - this would need a special endpoint
+                            // For now, delete all files which should clear chunks
+                            const { corpusApi } = await import("@/lib/flask-api-client")
+                            const files = await corpusApi.getFiles(selectedClassId, materialType)
+                            // Delete all files to clear chunks
+                            for (const filename of files.files || []) {
+                              await corpusApi.deleteFile(selectedClassId, filename, materialType)
+                            }
+                            toast.success("All chunks cleared")
+                            setIndexedChunkCount(0)
+                            await loadIndexStats()
+                          } catch (e) {
+                            console.error("Clear chunks error", e)
+                            toast.error("Clear chunks error")
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3 mr-2" />
+                        Clear All Chunks ({indexedChunkCount})
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <ScrollArea className="h-[360px]">
+                  <div className="space-y-2">
+                    {filesOnServer.map((f, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-2 text-sm bg-muted px-3 py-2 rounded hover:bg-muted/80">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <FileText className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{f}</span>
+                        </div>
+                        <Button
+                          size="sm"
                           variant="ghost"
                           className="h-7 w-7 p-0 hover:bg-red-100 hover:text-red-600"
                           onClick={() => deleteIndexedFile(f)}

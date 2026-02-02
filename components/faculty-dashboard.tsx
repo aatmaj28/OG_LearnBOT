@@ -36,16 +36,9 @@ export function FacultyDashboard() {
     if (!sessionId) return
 
     try {
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setUserName(data.user.name)
-      }
+      const { authApi } = await import("@/lib/flask-api-client")
+      const data = await authApi.getSession(sessionId)
+      setUserName(data.user.name)
     } catch (error) {
       console.error("[v0] Failed to load user data:", error)
     }

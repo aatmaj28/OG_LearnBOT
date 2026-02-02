@@ -141,23 +141,10 @@ export default function RegisterPage() {
 
     try {
       // Send OTP instead of creating account directly
-      const response = await fetch("/api/auth/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          name,
-          role,
-          nuid: role === "student" ? nuid : undefined,
-          degree: role === "student" ? degree : undefined,
-          major: role === "student" ? major : undefined,
-        }),
-      })
+      const { authApi } = await import("@/lib/flask-api-client")
+      const data = await authApi.sendOtp(email, password, name, role, nuid, degree, major)
 
-      const data = await response.json()
-
-      if (!response.ok) {
+      if (!data.success) {
         setError(data.error || "Failed to send verification code")
         setLoading(false)
         return
@@ -186,18 +173,10 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
-      const response = await fetch("/api/auth/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          otp,
-        }),
-      })
+      const { authApi } = await import("@/lib/flask-api-client")
+      const data = await authApi.verifyOtp(email, otp)
 
-      const data = await response.json()
-
-      if (!response.ok) {
+      if (!data.success) {
         setOtpError(data.error || "Invalid verification code")
         setLoading(false)
         return
@@ -225,23 +204,10 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
-      const response = await fetch("/api/auth/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          name,
-          role,
-          nuid: role === "student" ? nuid : undefined,
-          degree: role === "student" ? degree : undefined,
-          major: role === "student" ? major : undefined,
-        }),
-      })
+      const { authApi } = await import("@/lib/flask-api-client")
+      const data = await authApi.sendOtp(email, password, name, role, nuid, degree, major)
 
-      const data = await response.json()
-
-      if (!response.ok) {
+      if (!data.success) {
         setOtpError(data.error || "Failed to resend code")
         setLoading(false)
         return

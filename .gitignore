@@ -58,3 +58,10 @@ env/
 ENV/
 __pycache__/
 *.pyc
+
+# Reference clone (do not push)
+EssayBot-UI/
+
+# Documentation files (keep README.md)
+*.md
+!README.md

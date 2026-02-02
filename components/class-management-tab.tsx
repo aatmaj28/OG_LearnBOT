@@ -101,11 +101,9 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!facultyId) return
 
     try {
-      const response = await fetch(`/api/classes?facultyId=${facultyId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setClasses(data.classes)
-      }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = await classesApi.getClasses(facultyId)
+      setClasses(data.classes)
     } catch (error) {
       console.error("[v0] Failed to load classes:", error)
     }
@@ -115,14 +113,15 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!selectedClass) return
 
     try {
+      const { usersApi } = await import("@/lib/flask-api-client")
       const students = await Promise.all(
         selectedClass.studentIds.map(async (studentId) => {
-          const response = await fetch(`/api/users?id=${studentId}`)
-          if (response.ok) {
-            const data = await response.json()
+          try {
+            const data = await usersApi.getUsers(undefined, studentId)
             return data.user
+          } catch {
+            return null
           }
-          return null
         })
       )
       setClassStudents(students.filter((student): student is User => student !== null))
@@ -139,30 +138,20 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!facultyId) return
 
     try {
-      const response = await fetch("/api/classes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newClassName,
-          description: newClassDescription,
-          facultyId,
-        }),
+      const { classesApi } = await import("@/lib/flask-api-client")
+      await classesApi.createClass({
+        name: newClassName,
+        description: newClassDescription,
+        facultyId,
       })
-
-      if (response.ok) {
-        setNewClassName("")
-        setNewClassDescription("")
-        setShowCreateDialog(false)
-        await loadClasses()
-        toast.success('Class created successfully!')
-      } else {
-        // Handle error response
-        const errorData = await response.json()
-        const errorMessage = errorData.error || 'Failed to create class'
-        toast.error(errorMessage)
-      }
-    } catch (error) {
+      setNewClassName("")
+      setNewClassDescription("")
+      setShowCreateDialog(false)
+      await loadClasses()
+      toast.success('Class created successfully!')
+    } catch (error: any) {
       console.error("[v0] Failed to create class:", error)
+      toast.error(error?.message || 'Failed to create class')
     }
   }
 
@@ -170,26 +159,17 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!selectedClass) return
 
     try {
-      const response = await fetch("/api/classes/add-student", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          classId: selectedClass.id,
-          studentId,
-        }),
-      })
-
-      if (response.ok) {
-        await loadClasses()
-        // Find the updated class from the refreshed classes list
-        const updatedClasses = await fetch(`/api/classes?facultyId=${localStorage.getItem("userId")}`)
-        if (updatedClasses.ok) {
-          const data = await updatedClasses.json()
-          const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
-          if (updatedClass) {
-            setSelectedClass(updatedClass)
-            await loadClassStudents()
-          }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      await classesApi.addStudent(selectedClass.id, studentId)
+      await loadClasses()
+      // Find the updated class from the refreshed classes list
+      const facultyId = localStorage.getItem("userId")
+      if (facultyId) {
+        const data = await classesApi.getClasses(facultyId)
+        const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
+        if (updatedClass) {
+          setSelectedClass(updatedClass)
+          await loadClassStudents()
         }
       }
     } catch (error) {
@@ -210,36 +190,31 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     }
 
     try {
-      // Check if student already exists by email
-      const checkResponse = await fetch(`/api/users?email=${encodeURIComponent(newStudent.email)}`)
-      const checkData = await checkResponse.json()
+      const { usersApi, classesApi } = await import("@/lib/flask-api-client")
       
-      // If response is not OK, handle different cases
-      if (!checkResponse.ok) {
-        // 404 means user not found - this is expected
-        if (checkResponse.status === 404 || checkData.error === "User not found") {
+      // Check if student already exists by email
+      let user
+      try {
+        const checkData = await usersApi.getUsers(undefined, undefined, newStudent.email)
+        if (!checkData.user) {
           toast.error('This user does not exist', {
             description: 'Please ask the student to register first.'
           })
           return
-        } else {
-          // Actual error occurred
-          toast.error('Failed to check if student exists', {
-            description: 'Please try again.'
+        }
+        user = checkData.user
+      } catch (error: any) {
+        if (error?.message?.includes('not found') || error?.message?.includes('404')) {
+          toast.error('This user does not exist', {
+            description: 'Please ask the student to register first.'
           })
           return
         }
-      }
-
-      // If student doesn't exist (no user in response), show error
-      if (!checkData.user) {
-        toast.error('This user does not exist', {
-          description: 'Please ask the student to register first.'
+        toast.error('Failed to check if student exists', {
+          description: 'Please try again.'
         })
         return
       }
-
-      const user = checkData.user
       
       // Check if student is already in this class
       if (selectedClass.studentIds.includes(user.id)) {
@@ -250,42 +225,31 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       }
 
       // Add the existing student to the class
-      const addResponse = await fetch("/api/classes/add-student", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          classId: selectedClass.id,
-          studentId: user.id,
-        }),
+      await classesApi.addStudent(selectedClass.id, user.id)
+      
+      // Reset form and close dialog
+      setNewStudent({
+        name: "",
+        email: "",
+        nuid: "",
+        degree: "",
+        major: "",
       })
-
-      if (addResponse.ok) {
-        // Reset form and close dialog
-        setNewStudent({
-          name: "",
-          email: "",
-          nuid: "",
-          degree: "",
-          major: "",
-        })
-        setShowAddStudentDialog(false)
-        await loadClasses()
-        // Find the updated class from the refreshed classes list
-        const updatedClasses = await fetch(`/api/classes?facultyId=${localStorage.getItem("userId")}`)
-        if (updatedClasses.ok) {
-          const data = await updatedClasses.json()
-          const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
-          if (updatedClass) {
-            setSelectedClass(updatedClass)
-            await loadClassStudents()
-          }
+      setShowAddStudentDialog(false)
+      await loadClasses()
+      // Find the updated class from the refreshed classes list
+      const facultyId = localStorage.getItem("userId")
+      if (facultyId) {
+        const data = await classesApi.getClasses(facultyId)
+        const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
+        if (updatedClass) {
+          setSelectedClass(updatedClass)
+          await loadClassStudents()
         }
-        
-        // Show success message
-        toast.success('Student added successfully!')
-      } else {
-        toast.error('Failed to add student to class')
       }
+      
+      // Show success message
+      toast.success('Student added successfully!')
     } catch (error) {
       console.error("[v0] Failed to add student:", error)
       toast.error('Failed to add student', {
@@ -343,24 +307,24 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         notRegistered: []
       }
 
+      const { usersApi, classesApi } = await import("@/lib/flask-api-client")
+      
       // Process each email
       for (const email of uniqueEmails) {
         try {
           // Check if user exists
-          const checkResponse = await fetch(`/api/users?email=${encodeURIComponent(email)}`)
-          
-          if (!checkResponse.ok || checkResponse.status === 404) {
+          let user
+          try {
+            const checkData = await usersApi.getUsers(undefined, undefined, email)
+            if (!checkData.user) {
+              result.notRegistered.push(email)
+              continue
+            }
+            user = checkData.user
+          } catch {
             result.notRegistered.push(email)
             continue
           }
-
-          const checkData = await checkResponse.json()
-          if (!checkData.user) {
-            result.notRegistered.push(email)
-            continue
-          }
-
-          const user = checkData.user
 
           // Check if already enrolled
           if (selectedClass.studentIds.includes(user.id)) {
@@ -369,20 +333,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
           }
 
           // Add student to class
-          const addResponse = await fetch("/api/classes/add-student", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              classId: selectedClass.id,
-              studentId: user.id,
-            }),
-          })
-
-          if (addResponse.ok) {
-            result.success.push(email)
-          } else {
-            result.notRegistered.push(email) // Failed to add
-          }
+          await classesApi.addStudent(selectedClass.id, user.id)
+          result.success.push(email)
         } catch (error) {
           console.error(`Failed to process ${email}:`, error)
           result.notRegistered.push(email)
@@ -394,9 +346,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       // Refresh the class data
       await loadClasses()
-      const updatedClasses = await fetch(`/api/classes?facultyId=${localStorage.getItem("userId")}`)
-      if (updatedClasses.ok) {
-        const data = await updatedClasses.json()
+      const facultyId = localStorage.getItem("userId")
+      if (facultyId) {
+        const { classesApi } = await import("@/lib/flask-api-client")
+        const data = await classesApi.getClasses(facultyId)
         const updatedClass = data.classes.find((c: Class) => c.id === selectedClass.id)
         if (updatedClass) {
           setSelectedClass(updatedClass)
@@ -434,49 +387,37 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!selectedClass || !studentToRemove) return
 
     try {
-      const response = await fetch("/api/classes/remove-student", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          classId: selectedClass.id,
-          studentId: studentToRemove.id,
-        }),
+      const { classesApi } = await import("@/lib/flask-api-client")
+      await classesApi.removeStudent(selectedClass.id, studentToRemove.id)
+      
+      // Immediately update the local state to remove the student from UI
+      setClassStudents(prevStudents => 
+        prevStudents.filter(student => student.id !== studentToRemove.id)
+      )
+      
+      // Update the selected class to reflect the new student count
+      setSelectedClass(prevClass => {
+        if (!prevClass) return prevClass
+        return {
+          ...prevClass,
+          studentIds: prevClass.studentIds.filter(id => id !== studentToRemove.id)
+        }
       })
-
-      if (response.ok) {
-        // Immediately update the local state to remove the student from UI
-        setClassStudents(prevStudents => 
-          prevStudents.filter(student => student.id !== studentToRemove.id)
-        )
-        
-        // Update the selected class to reflect the new student count
-        setSelectedClass(prevClass => {
-          if (!prevClass) return prevClass
-          return {
-            ...prevClass,
-            studentIds: prevClass.studentIds.filter(id => id !== studentToRemove.id)
-          }
-        })
-        
-        // Refresh the classes list in the background
-        await loadClasses()
-        
-        // Store student name and class name before resetting
-        const studentName = studentToRemove.name
-        const className = selectedClass.name
-        
-        // Close dialog and reset
-        setShowRemoveStudentDialog(false)
-        setStudentToRemove(null)
-        
-        toast.success('Student removed successfully', {
-          description: `${studentName} has been removed from ${className}.`
-        })
-      } else {
-        toast.error('Failed to remove student', {
-          description: 'An error occurred while removing the student.'
-        })
-      }
+      
+      // Refresh the classes list in the background
+      await loadClasses()
+      
+      // Store student name and class name before resetting
+      const studentName = studentToRemove.name
+      const className = selectedClass.name
+      
+      // Close dialog and reset
+      setShowRemoveStudentDialog(false)
+      setStudentToRemove(null)
+      
+      toast.success('Student removed successfully', {
+        description: `${studentName} has been removed from ${className}.`
+      })
     } catch (error) {
       console.error("[v0] Failed to remove student:", error)
       toast.error('Failed to remove student', {
@@ -489,30 +430,17 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!selectedClass) return
 
     try {
-      const response = await fetch("/api/classes/delete", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          classId: selectedClass.id,
-        }),
-      })
-
-      if (response.ok) {
-        setShowDeleteDialog(false)
-        setDeleteConfirmationText("")
-        setSelectedClass(null)
-        await loadClasses()
-        toast.success('Class deleted successfully')
-      } else {
-        const errorData = await response.json()
-        toast.error('Failed to delete class', {
-          description: errorData.error || 'An error occurred while deleting the class.'
-        })
-      }
-    } catch (error) {
+      const { classesApi } = await import("@/lib/flask-api-client")
+      await classesApi.deleteClass(selectedClass.id)
+      setShowDeleteDialog(false)
+      setDeleteConfirmationText("")
+      setSelectedClass(null)
+      await loadClasses()
+      toast.success('Class deleted successfully')
+    } catch (error: any) {
       console.error("[v0] Failed to delete class:", error)
       toast.error('Failed to delete class', {
-        description: 'An unexpected error occurred. Please try again.'
+        description: error?.message || 'An unexpected error occurred. Please try again.'
       })
     }
   }
@@ -577,12 +505,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       formData.append("classId", selectedClass.id)
       formData.append("userId", userId)
 
-      const response = await fetch(`/api/classes/resources`, {
-        method: "POST",
-        body: formData,
-      })
-
-      if (response.ok) {
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const result = await classesApi.uploadResources(selectedClass.id, [fileToUpload], userId)
+      
+      if (result.success) {
         // Mark this file as uploaded
         setUploadedFileIndices(prev => new Set([...prev, currentPreviewIndex]))
         toast.success(`Successfully uploaded ${fileToUpload.name}`)
@@ -646,16 +572,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     }
 
     try {
-      const response = await fetch(`/api/classes/resources?classId=${selectedClass.id}&fileName=${encodeURIComponent(fileName)}&userId=${userId}`, {
-        method: "DELETE",
-      })
-
-      if (response.ok) {
-        toast.success("File deleted successfully")
-        await loadResources()
-      } else {
-        toast.error("Failed to delete file")
-      }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      await classesApi.deleteResource(selectedClass.id, fileName, userId)
+      toast.success("File deleted successfully")
+      await loadResources()
     } catch (error) {
       console.error("[v0] Failed to delete resource:", error)
       toast.error("Failed to delete file")
@@ -682,12 +602,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     
     // Fetch the file as a blob and create an object URL for preview
     try {
-      const response = await fetch(`/api/classes/resources/download?classId=${selectedClass.id}&fileName=${encodeURIComponent(resources[index].name)}&userId=${userId}`)
-      if (response.ok) {
-        const blob = await response.blob()
-        const blobUrl = URL.createObjectURL(blob)
-        setPreviewResourceBlobUrl(blobUrl)
-      }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const blob = await classesApi.downloadResource(selectedClass.id, resources[index].name)
+      const blobUrl = URL.createObjectURL(blob)
+      setPreviewResourceBlobUrl(blobUrl)
     } catch (error) {
       console.error("[v0] Failed to load resource for preview:", error)
     }
@@ -701,20 +619,18 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     
     setIsDownloadingResource(true)
     try {
-      const response = await fetch(`/api/classes/resources/download?classId=${selectedClass.id}&fileName=${encodeURIComponent(fileName)}&userId=${userId}`)
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = fileName
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.URL.revokeObjectURL(url)
-        // Keep loading state for a brief moment to show feedback
-        await new Promise(resolve => setTimeout(resolve, 300))
-      }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const blob = await classesApi.downloadResource(selectedClass.id, fileName)
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      // Keep loading state for a brief moment to show feedback
+      await new Promise(resolve => setTimeout(resolve, 300))
     } catch (error) {
       console.error("[v0] Failed to download resource:", error)
     } finally {
@@ -728,11 +644,9 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!userId) return
     
     try {
-      const response = await fetch(`/api/classes/assignments?classId=${selectedClass.id}&userId=${userId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setAssignments(data.assignments || [])
-      }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = await classesApi.getAssignments(selectedClass.id, userId)
+      setAssignments(data.assignments || [])
     } catch (error) {
       console.error("[v0] Failed to load assignments:", error)
     }
@@ -766,12 +680,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       formData.append("classId", selectedClass.id)
       formData.append("userId", userId)
 
-      const response = await fetch("/api/classes/assignments", {
-        method: "POST",
-        body: formData,
-      })
-
-      if (response.ok) {
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const result = await classesApi.createAssignment(formData)
+      
+      if (result.success) {
         toast.success("Assignment added successfully")
         setShowAddAssignmentDialog(false)
         setNewAssignment({ name: "", dueDate: "", canvasLink: "" })
@@ -781,8 +693,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         }
         await loadAssignments()
       } else {
-        const errorData = await response.json()
-        toast.error(errorData.error || "Failed to add assignment")
+        toast.error(result.error || "Failed to add assignment")
       }
     } catch (error) {
       console.error("[v0] Failed to add assignment:", error)
@@ -806,20 +717,13 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     }
 
     try {
-      const response = await fetch(`/api/classes/assignments?classId=${selectedClass.id}&assignmentId=${assignmentId}&userId=${userId}`, {
-        method: "DELETE",
-      })
-
-      if (response.ok) {
-        toast.success("Assignment deleted successfully")
-        await loadAssignments()
-      } else {
-        const errorData = await response.json()
-        toast.error(errorData.error || "Failed to delete assignment")
-      }
-    } catch (error) {
+      const { classesApi } = await import("@/lib/flask-api-client")
+      await classesApi.deleteAssignment(selectedClass.id, assignmentId, userId)
+      toast.success("Assignment deleted successfully")
+      await loadAssignments()
+    } catch (error: any) {
       console.error("[v0] Failed to delete assignment:", error)
-      toast.error("Failed to delete assignment")
+      toast.error(error?.message || "Failed to delete assignment")
     }
   }
 
@@ -841,40 +745,31 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         let facultyName = ""
         
         if (facultyId) {
-          const facultyResponse = await fetch(`/api/users?id=${facultyId}`)
-          if (facultyResponse.ok) {
-            const facultyData = await facultyResponse.json()
+          const { usersApi } = await import("@/lib/flask-api-client")
+          try {
+            const facultyData = await usersApi.getUsers(undefined, facultyId)
             facultyName = facultyData.user?.name || ""
+          } catch {
+            // Ignore errors
           }
         }
 
         // Fire and forget - don't await, let it process in background
-        fetch("/api/classes/send-reminder", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            emails: bulkUploadResult.notRegistered,
-            className: selectedClass.name,
-            facultyName,
-          }),
-        }).then(async (response) => {
-          if (response.ok) {
-            const data = await response.json()
-            
-            if (data.results.success.length > 0) {
-              toast.success(`Reminder emails sent successfully!`, {
-                description: `Sent to ${data.results.success.length} student(s).`
-              })
-            }
-            
-            if (data.results.failed.length > 0) {
-              toast.warning(`Some emails failed to send`, {
-                description: `Failed to send to ${data.results.failed.length} student(s).`
-              })
-            }
-          } else {
-            toast.error('Failed to send reminder emails', {
-              description: 'Please try again later.'
+        const { classesApi } = await import("@/lib/flask-api-client")
+        classesApi.sendReminder(
+          bulkUploadResult.notRegistered,
+          selectedClass.name,
+          facultyName
+        ).then((data) => {
+          if (data?.results?.success?.length > 0) {
+            toast.success(`Reminder emails sent successfully!`, {
+              description: `Sent to ${data.results.success.length} student(s).`
+            })
+          }
+          
+          if (data?.results?.failed?.length > 0) {
+            toast.warning(`Some emails failed to send`, {
+              description: `Failed to send to ${data.results.failed.length} student(s).`
             })
           }
         }).catch((error) => {

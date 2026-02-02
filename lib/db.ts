@@ -415,35 +415,48 @@ export const initializeDatabase = async () => {
     // Insert sample data if tables are empty
     const userCount = await client.query('SELECT COUNT(*) FROM users')
     if (userCount.rows[0].count === '0') {
-      // Insert users first, then update with masked_id
+      // Insert users with masked_id included (using temporary IDs that will be replaced)
+      // We'll insert with placeholder masked_id, then update with actual values
       await client.query(`
-        INSERT INTO users (email, password, name, role, nuid, degree, major) VALUES
-        ('student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science'),
-        ('faculty@northeastern.edu', 'faculty123', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL)
+        INSERT INTO users (email, password, name, role, nuid, degree, major, masked_id) VALUES
+        ('student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science', 'TEMP_1'),
+        ('faculty@northeastern.edu', 'faculty123', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL, 'TEMP_2')
         ON CONFLICT (email) DO NOTHING
       `)
       
-      // Populate masked_id for newly inserted users
-      const newUsers = await client.query('SELECT id FROM users WHERE masked_id IS NULL')
+      // Update masked_id for newly inserted users with actual values
+      const newUsers = await client.query('SELECT id FROM users WHERE masked_id LIKE \'TEMP_%\'')
       for (const user of newUsers.rows) {
         const maskedId = getMaskedId(user.id)
         await client.query('UPDATE users SET masked_id = $1 WHERE id = $2', [maskedId, user.id])
       }
       
       // Create a sample class
-      await client.query(`
-        INSERT INTO classes (name, description, faculty_id) VALUES
-        ('Introduction to Computer Science', 'Learn the fundamentals of programming and computer science', 2)
-        ON CONFLICT DO NOTHING
-      `)
+      const facultyResult = await client.query('SELECT id FROM users WHERE email = $1', ['faculty@northeastern.edu'])
+      const facultyId = facultyResult.rows[0]?.id
       
-      // Add student to class (with masked_id)
-      const studentMaskedId = getMaskedId('1')
-      await client.query(`
-        INSERT INTO class_students (class_id, student_id, student_masked_id) VALUES
-        (1, 1, $1)
-        ON CONFLICT (class_id, student_id) DO NOTHING
-      `, [studentMaskedId])
+      if (facultyId) {
+        await client.query(`
+          INSERT INTO classes (name, description, faculty_id) VALUES
+          ('Introduction to Computer Science', 'Learn the fundamentals of programming and computer science', $1)
+          ON CONFLICT DO NOTHING
+        `, [facultyId])
+        
+        // Add student to class (with masked_id)
+        const studentResult = await client.query('SELECT id, masked_id FROM users WHERE email = $1', ['student@northeastern.edu'])
+        if (studentResult.rows[0]) {
+          const studentId = studentResult.rows[0].id
+          const studentMaskedId = studentResult.rows[0].masked_id
+          const classResult = await client.query('SELECT id FROM classes WHERE name = $1', ['Introduction to Computer Science'])
+          if (classResult.rows[0]) {
+            await client.query(`
+              INSERT INTO class_students (class_id, student_id, student_masked_id) VALUES
+              ($1, $2, $3)
+              ON CONFLICT (class_id, student_id) DO NOTHING
+            `, [classResult.rows[0].id, studentId, studentMaskedId])
+          }
+        }
+      }
       
       console.log('Sample data inserted successfully')
     }

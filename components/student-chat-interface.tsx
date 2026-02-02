@@ -31,35 +31,73 @@ const getShortTitle = (conversation: RAGConversation): string => {
       if (title && title.length > 0) return title
     }
   }
-  
-  // Never show backend-generated summary titles (they start with "The student", etc.)
+
+  // If conversation has a title from backend that's not a summary, use it
   if (conversation.title) {
     const lowerTitle = conversation.title.toLowerCase()
     // Skip titles that are clearly summaries, not user-generated content
-    if (lowerTitle.startsWith('the student') || 
-        lowerTitle.startsWith('student') ||
-        lowerTitle.startsWith('here\'s') ||
-        lowerTitle.startsWith('here is') ||
-        lowerTitle.startsWith('this is') ||
-        lowerTitle.startsWith('conversation')) {
-      return 'New Chat'
-    }
-    // Only use title if it doesn't look like a summary
-    if (!conversation.title.startsWith('Chat ')) {
+    if (!(lowerTitle.startsWith('the student') ||
+      lowerTitle.startsWith('student') ||
+      lowerTitle.startsWith('here\'s') ||
+      lowerTitle.startsWith('here is') ||
+      lowerTitle.startsWith('this is') ||
+      lowerTitle.startsWith('conversation') ||
+      lowerTitle.startsWith('chat '))) {
       return conversation.title
     }
   }
-  
+
+  // For empty chats, show a date-based title instead of "New Chat"
+  const date = conversation.createdAt || conversation.updatedAt
+  if (date) {
+    // Parse the date - handle both Date objects and string timestamps
+    // Important: If the Date object was created from a UTC string without 'Z', 
+    // it might have been interpreted as local time. We need to ensure proper UTC handling.
+    let dateObj: Date
+    if (date instanceof Date) {
+      // Date object - use it directly (it should already be in the correct timezone)
+      // But if it was incorrectly parsed as local time, we need to check
+      dateObj = date
+    } else {
+      // Parse string timestamp - handle UTC and timezone-aware formats
+      const dateStr = String(date)
+      // If it's already a valid ISO string with timezone, use it directly
+      // Otherwise, if it looks like UTC (no timezone), treat it as UTC
+      if (dateStr.includes('T') && !dateStr.includes('Z') && !dateStr.includes('+') && !dateStr.includes('-', 10)) {
+        // ISO format without timezone - assume UTC and add 'Z'
+        dateObj = new Date(dateStr + 'Z')
+      } else {
+        // Has timezone info or other format - let Date constructor handle it
+        dateObj = new Date(dateStr)
+      }
+    }
+
+    if (!isNaN(dateObj.getTime())) {
+      // Use toLocaleString - it automatically uses the browser's local timezone (EST for you)
+      // This will correctly convert UTC timestamps to EST
+      const options: Intl.DateTimeFormatOptions = {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+        // Note: Not specifying timeZone means it uses the browser's local timezone (EST)
+      }
+      const formatted = dateObj.toLocaleString('en-US', options)
+      return `Chat ${formatted}`
+    }
+  }
+
   return 'New Chat'
 }
 
 // Extract 2-4 meaningful words from the first user message (ChatGPT-style)
 const extractTitleFromMessage = (message: string): string => {
   if (!message || message.trim().length === 0) return ''
-  
+
   // Remove leading question words and common phrases
   let cleaned = message.trim()
-  
+
   // Remove question starters and greetings
   const questionStarters = [
     /^how\s+to\s+/i,
@@ -81,17 +119,17 @@ const extractTitleFromMessage = (message: string): string => {
     /^hello\s*,?\s*/i,
     /^hey\s*,?\s*/i,
   ]
-  
+
   for (const starter of questionStarters) {
     cleaned = cleaned.replace(starter, '')
   }
-  
+
   // Remove common phrases that don't add meaning
   cleaned = cleaned.replace(/\b(but|and|or|so|because|since|although|though)\b/gi, ' ')
-  
+
   // Remove punctuation and clean up
   cleaned = cleaned.replace(/[.,;:!?()\[\]{}'"]/g, ' ').trim()
-  
+
   // Split into words and filter out very short words and common stop words
   const stopWords = new Set([
     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -104,16 +142,16 @@ const extractTitleFromMessage = (message: string): string => {
     'if', 'when', 'where', 'why', 'how', 'what', 'which', 'who', 'whom', 'whose',
     'should', 'show', 'seen', 'get', 'got', 'know', 'see', 'one', 'no'
   ])
-  
+
   // First, try to find key action/object pairs (like "backdate git commits", "calculate future value")
   const actionWords = [
     'backdate', 'backdating', 'commit', 'commits', 'committing',
-    'calculate', 'calculation', 'find', 'solve', 'get', 'check', 'list', 
+    'calculate', 'calculation', 'find', 'solve', 'get', 'check', 'list',
     'create', 'update', 'delete', 'show', 'display', 'explain', 'help',
     'invest', 'investment', 'grow', 'grows', 'compounding', 'compounded'
   ]
   const lowerCleaned = cleaned.toLowerCase()
-  
+
   for (const action of actionWords) {
     if (lowerCleaned.includes(action)) {
       // Find the action word and surrounding context (30 chars before, 50 after)
@@ -121,12 +159,12 @@ const extractTitleFromMessage = (message: string): string => {
       const contextStart = Math.max(0, actionIndex - 30)
       const contextEnd = Math.min(cleaned.length, actionIndex + action.length + 50)
       const context = cleaned.substring(contextStart, contextEnd)
-      
+
       // Extract meaningful words from context
       const contextWords = context.split(/\s+/)
         .map(word => word.toLowerCase().trim().replace(/[.,;:!?()\[\]{}'"]/g, ''))
         .filter(word => word.length >= 2 && !stopWords.has(word))
-      
+
       if (contextWords.length >= 2) {
         // Find the action word in the context
         const actionWordIndex = contextWords.findIndex(w => w.includes(action.replace('ing', '').replace('ed', '').replace('s', '')))
@@ -142,7 +180,7 @@ const extractTitleFromMessage = (message: string): string => {
       }
     }
   }
-  
+
   // Fallback: extract meaningful words
   const words = cleaned.split(/\s+/)
     .map(word => word.toLowerCase().trim().replace(/[.,;:!?()\[\]{}'"]/g, ''))
@@ -150,7 +188,7 @@ const extractTitleFromMessage = (message: string): string => {
       // Keep words that are at least 2 characters and not stop words
       return word.length >= 2 && !stopWords.has(word)
     })
-  
+
   // Take 2-4 meaningful words
   if (words.length === 0) {
     // If all words were filtered, take first 2-3 words anyway (excluding single letters)
@@ -162,7 +200,7 @@ const extractTitleFromMessage = (message: string): string => {
     }
     return ''
   }
-  
+
   const titleWords = words.slice(0, 4) // Take up to 4 words
   return capitalizeTitle(titleWords.join(' '))
 }
@@ -170,7 +208,7 @@ const extractTitleFromMessage = (message: string): string => {
 // Capitalize first letter of each word in title
 const capitalizeTitle = (title: string): string => {
   if (!title) return ''
-  
+
   return title.split(' ')
     .map(word => {
       if (word.length === 0) return word
@@ -208,41 +246,41 @@ export function StudentChatInterface() {
   const isScrollingProgrammaticallyRef = useRef(false) // Track if we're programmatically scrolling
   const prevConversationIdsRef = useRef<string>('') // Track previous conversation IDs for auto-resort
   const sidebarRef = useRef<HTMLDivElement>(null)
-  
+
   // Resources and Assignments state
   const [resources, setResources] = useState<Resource[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [resourcesClassId, setResourcesClassId] = useState<string>("")
   const [assignmentsClassId, setAssignmentsClassId] = useState<string>("")
-  
+
   // Assignment submission state
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
   const [submissionFile, setSubmissionFile] = useState<File | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const submissionFileInputRef = useRef<HTMLInputElement>(null)
-  
+
   // Resource preview state
   const [previewResourceIndex, setPreviewResourceIndex] = useState<number | null>(null)
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null)
-  
+
   // Download state
   const [isDownloading, setIsDownloading] = useState(false)
-  
+
   // Corpus/PDF check state
   const [hasCorpusPdfs, setHasCorpusPdfs] = useState<boolean | null>(null) // null = checking, true = has PDFs, false = no PDFs
   const [isCheckingCorpus, setIsCheckingCorpus] = useState(false)
-  
+
   // File/Photo Upload state
   const [attachments, setAttachments] = useState<File[]>([])
   const [attachmentPreviews, setAttachmentPreviews] = useState<Array<{ file: File; preview: string }>>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  
+
   // Deep Thinking Mode state
   const [deepThinking, setDeepThinking] = useState(false)
   const [isDeepThinking, setIsDeepThinking] = useState(false) // For showing animation
-  
+
   // Voice Input state
   const [isRecording, setIsRecording] = useState(false)
   const [isVoiceSupported, setIsVoiceSupported] = useState(false)
@@ -254,16 +292,16 @@ export function StudentChatInterface() {
     loadClasses()
     loadConversations()
     checkRAGStatus()
-    
+
     // Check voice input support
     setIsVoiceSupported(speechToText.isBrowserSupported())
-    
+
     // Load sidebar state from localStorage
     const savedSidebarState = localStorage.getItem("studentSidebarCollapsed")
     if (savedSidebarState !== null) {
       setIsSidebarCollapsed(savedSidebarState === "true")
     }
-    
+
     // Load sidebar width from localStorage
     const savedWidth = localStorage.getItem("studentSidebarWidth")
     if (savedWidth !== null) {
@@ -272,13 +310,13 @@ export function StudentChatInterface() {
         setSidebarWidth(width)
       }
     }
-    
+
     // Load dark mode state from localStorage
     const savedDarkMode = localStorage.getItem("studentDarkMode")
     if (savedDarkMode !== null) {
       setIsDarkMode(savedDarkMode === "true")
     }
-    
+
     // Cleanup: stop recording if component unmounts
     return () => {
       if (isRecording) {
@@ -291,45 +329,47 @@ export function StudentChatInterface() {
         }
       })
     }
-    
+
     // Preload user's classes on mount (after RAG is ready)
     const preloadUserClasses = async () => {
       const userId = localStorage.getItem("userId")
       const userRole = localStorage.getItem("userRole") as 'student' | 'faculty' | null
-      
+
       if (userId && userRole) {
         // Wait a bit for RAG service to initialize
         await new Promise(resolve => setTimeout(resolve, 2000))
-        
+
         try {
-          const response = await fetch('/api/rag/preload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, userRole })
-          })
-          
-          if (response.ok) {
-            const result = await response.json()
-            console.log(`[Student Chat] Preload result: ${result.loaded}/${result.total} stores loaded`)
-          } else if (response.status === 503) {
+          const { chatApi } = await import("@/lib/flask-api-client")
+          const result = await chatApi.preloadRAG(userId, userRole)
+          console.log(`[Student Chat] Preload result: ${result.loaded}/${result.total} stores loaded`)
+          if (!result.success && result.error?.includes('not ready')) {
             // RAG not ready yet, retry after a delay
             setTimeout(preloadUserClasses, 3000)
-          } else {
-            console.warn('[Student Chat] Preload failed:', await response.text())
           }
         } catch (error) {
           console.error('[Student Chat] Failed to preload classes:', error)
         }
       }
     }
-    
+
     preloadUserClasses()
-    
+
     // Poll status every 5 seconds to detect when RAG becomes ready
     const statusInterval = setInterval(checkRAGStatus, 5000)
-    
+
     return () => clearInterval(statusInterval)
   }, [])
+
+  // Auto-select first class if selectedClassId is empty but classes exist
+  useEffect(() => {
+    if (!selectedClassId && classes.length > 0) {
+      const firstClassId = classes[0].id
+      setSelectedClassId(firstClassId)
+      console.log("[v0] Auto-selected first class on classes load:", firstClassId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classes]) // Only depend on classes, not selectedClassId to avoid loops
 
   useEffect(() => {
     if (selectedClassId) {
@@ -350,17 +390,47 @@ export function StudentChatInterface() {
 
     setIsCheckingCorpus(true)
     try {
-      const response = await fetch(`/api/corpus/stats?classId=${selectedClassId}&materialType=${chatType}`)
+      const userId = localStorage.getItem("userId")
+      const url = `/api/corpus/stats?classId=${selectedClassId}&materialType=${chatType}${userId ? `&studentId=${userId}` : ''}`
+      const response = await fetch(url)
+
       if (response.ok) {
         const data = await response.json()
-        const hasPdfs = (data.pdfCount || 0) > 0
-        setHasCorpusPdfs(hasPdfs)
+
+        // Use canChat from API if available (most accurate), otherwise check hasIndexedFiles or fallback to chunk count
+        const canChat = data.canChat !== undefined
+          ? data.canChat
+          : (data.hasIndexedFiles !== undefined
+            ? data.hasIndexedFiles
+            : ((data.pdfCount || 0) > 0 || (data.chunkCount || 0) > 0))
+
+        console.log(`[Student Chat] Corpus check for class ${selectedClassId} (${chatType}):`, {
+          pdfCount: data.pdfCount,
+          chunkCount: data.chunkCount,
+          isEnrolled: data.isEnrolled,
+          hasIndexedFiles: data.hasIndexedFiles,
+          canChat: data.canChat,
+          calculatedCanChat: canChat,
+          className: classes.find(c => c.id === selectedClassId)?.name || 'Unknown'
+        })
+
+        // If student is not enrolled, disable chat
+        if (userId && data.isEnrolled === false) {
+          console.warn(`[Student Chat] Student ${userId} is not enrolled in class ${selectedClassId}`)
+          setHasCorpusPdfs(false)
+          return
+        }
+
+        setHasCorpusPdfs(canChat)
       } else {
-        // If API fails, assume no PDFs (safer to disable)
+        // If API fails, disable chat to be safe (require explicit confirmation of enrollment and indexed files)
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.warn(`[Student Chat] Corpus check API failed (${response.status}):`, errorText, '- disabling chat for safety')
         setHasCorpusPdfs(false)
       }
     } catch (error) {
       console.error('[Student Chat] Failed to check corpus PDFs:', error)
+      // On error, disable chat to be safe (require explicit confirmation of enrollment and indexed files)
       setHasCorpusPdfs(false)
     } finally {
       setIsCheckingCorpus(false)
@@ -380,24 +450,24 @@ export function StudentChatInterface() {
         const time = parsed.getTime()
         return isNaN(time) ? 0 : time
       }
-      
+
       const sorted = [...conversations].sort((a, b) => {
         const dateA = getDateValue(a.updatedAt) || getDateValue(a.createdAt) || 0
         const dateB = getDateValue(b.updatedAt) || getDateValue(b.createdAt) || 0
-        
+
         // If dates are equal, sort by ID as tiebreaker (newer IDs first)
         if (dateB === dateA) {
           return parseInt(b.id) - parseInt(a.id)
         }
-        
+
         return dateB - dateA
       })
-      
+
       // Only update if order actually changed (avoid infinite loops)
       const currentOrder = conversations.map(c => c.id).join(',')
       const sortedOrder = sorted.map(c => c.id).join(',')
       const currentIds = conversations.map(c => c.id).sort().join(',')
-      
+
       // Only resort if IDs changed or order is different
       if (currentIds !== prevConversationIdsRef.current || currentOrder !== sortedOrder) {
         prevConversationIdsRef.current = currentIds
@@ -419,10 +489,8 @@ export function StudentChatInterface() {
 
   const checkRAGStatus = async () => {
     try {
-      // Check RAG service status
-      const ragResponse = await fetch('/api/rag/status')
-      const ragData = ragResponse.ok ? await ragResponse.json() : { isAvailable: false }
-      
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const ragData = await chatApi.getRAGStatus()
       setRagStatus({
         isAvailable: ragData.isAvailable || false
       })
@@ -434,7 +502,7 @@ export function StudentChatInterface() {
   // Helper function to sanitize content chunks during streaming (optimized character whitelist)
   const sanitizeContentChunk = (content: string): string => {
     if (!content) return content
-    
+
     // Fast path: check if all ASCII (most common case)
     let hasNonASCII = false
     for (let i = 0; i < content.length; i++) {
@@ -444,38 +512,38 @@ export function StudentChatInterface() {
       }
     }
     if (!hasNonASCII) return content // Early exit for ASCII-only
-    
+
     // Character whitelist filter (same as Python side)
     let result = ''
     for (let i = 0; i < content.length; i++) {
       const code = content.charCodeAt(i)
       // Allow: ASCII (0-127), safe Unicode ranges, and emojis
-      if (code <= 127 || 
-          (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
-          (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
-          (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
-          (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
-          (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
-          (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
-          (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
-          (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
-          (code >= 0x2600 && code <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
-          (code >= 0x2700 && code <= 0x27BF) ||  // Dingbats
-          (code >= 0x1F300 && code <= 0x1F9FF) || // Emoticons and Symbols
-          (code >= 0x1F600 && code <= 0x1F64F) || // Emoticons
-          (code >= 0x1F900 && code <= 0x1F9FF) || // Supplemental Symbols and Pictographs
-          (code >= 0x1FA00 && code <= 0x1FAFF) || // Symbols and Pictographs Extended-A
-          (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
-          (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
+      if (code <= 127 ||
+        (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
+        (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
+        (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
+        (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
+        (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
+        (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
+        (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
+        (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
+        (code >= 0x2600 && code <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
+        (code >= 0x2700 && code <= 0x27BF) ||  // Dingbats
+        (code >= 0x1F300 && code <= 0x1F9FF) || // Emoticons and Symbols
+        (code >= 0x1F600 && code <= 0x1F64F) || // Emoticons
+        (code >= 0x1F900 && code <= 0x1F9FF) || // Supplemental Symbols and Pictographs
+        (code >= 0x1FA00 && code <= 0x1FAFF) || // Symbols and Pictographs Extended-A
+        (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
+        (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
         result += content[i]
       }
       // Skip corrupted sequences but allow emojis
     }
-    
+
     // Clean up multiple spaces (but preserve newlines)
     result = result.replace(/[ \t]+/g, ' ')  // Collapse spaces/tabs only
     result = result.replace(/\n{3,}/g, '\n\n')  // Limit consecutive newlines to 2
-    
+
     return result
   }
 
@@ -498,19 +566,19 @@ export function StudentChatInterface() {
       if (isScrollingProgrammaticallyRef.current) {
         return
       }
-      
+
       const currentScrollTop = scrollElement.scrollTop
       // Only update if scroll position actually changed (user scrolled)
       if (currentScrollTop === lastScrollTop) {
         return
       }
       lastScrollTop = currentScrollTop
-      
+
       // Debounce to avoid too many updates
       if (scrollTimeout) {
         clearTimeout(scrollTimeout)
       }
-      
+
       scrollTimeout = setTimeout(() => {
         // This is user-initiated scrolling
         const isNear = isNearBottom(scrollElement)
@@ -572,16 +640,9 @@ export function StudentChatInterface() {
     if (!sessionId) return
 
     try {
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setUserName(data.user.name)
-      }
+      const { authApi } = await import("@/lib/flask-api-client")
+      const data = await authApi.getSession(sessionId)
+      setUserName(data.user.name)
     } catch (error) {
       console.error("[v0] Failed to load user data:", error)
     }
@@ -613,7 +674,7 @@ export function StudentChatInterface() {
   // Helper function to normalize timestamps from API response (JSON serializes Date to string)
   const normalizeConversation = (conversation: any): RAGConversation => {
     if (!conversation) return conversation
-    
+
     // Helper to safely parse a timestamp - only converts if valid, otherwise preserves original
     const safeParseTimestamp = (ts: any): Date => {
       if (ts instanceof Date) {
@@ -625,6 +686,21 @@ export function StudentChatInterface() {
         console.warn('[Normalize] Missing timestamp, this should not happen')
         return new Date(0) // Return epoch instead of current time to make it obvious
       }
+
+      // Handle string timestamps - ensure UTC strings are properly parsed
+      if (typeof ts === 'string') {
+        const dateStr = ts
+        // If it's an ISO string without timezone info, assume UTC and add 'Z'
+        if (dateStr.includes('T') && !dateStr.includes('Z') && !dateStr.includes('+') && !dateStr.includes('-', 10)) {
+          // ISO format without timezone - assume UTC
+          const parsed = new Date(dateStr + 'Z')
+          if (!isNaN(parsed.getTime())) {
+            return parsed
+          }
+        }
+      }
+
+      // Try parsing as-is (handles strings with timezone info, or other formats)
       const parsed = new Date(ts)
       // Only use parsed date if it's valid
       if (!isNaN(parsed.getTime())) {
@@ -634,19 +710,19 @@ export function StudentChatInterface() {
       console.warn('[Normalize] Failed to parse timestamp:', ts)
       return new Date(0) // Return epoch instead of current time
     }
-    
+
     return {
       ...conversation,
       createdAt: safeParseTimestamp(conversation.createdAt),
       updatedAt: safeParseTimestamp(conversation.updatedAt),
-      analyticsLastUpdated: conversation.analyticsLastUpdated 
+      analyticsLastUpdated: conversation.analyticsLastUpdated
         ? safeParseTimestamp(conversation.analyticsLastUpdated)
         : undefined,
-      messageHistory: Array.isArray(conversation.messageHistory) 
+      messageHistory: Array.isArray(conversation.messageHistory)
         ? conversation.messageHistory.map((msg: any) => ({
-            ...msg,
-            timestamp: safeParseTimestamp(msg.timestamp)
-          }))
+          ...msg,
+          timestamp: safeParseTimestamp(msg.timestamp)
+        }))
         : []
     }
   }
@@ -662,49 +738,62 @@ export function StudentChatInterface() {
         return
       }
 
-      const url = `/api/chat/conversations?userId=${userId}&classId=${selectedClassId}&chatType=${chatType}`
-      
-      const response = await fetch(url)
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[v0] Conversations API response:", data)
-        
-        // Ensure conversations is an array and normalize timestamps
-        const conversations = Array.isArray(data.conversations) ? data.conversations : []
-        // Normalize all conversations to convert timestamp strings to Date objects
-        const normalizedConversations = conversations.map(conv => normalizeConversation(conv))
-        
-        // Helper function to get date value (handles both Date objects and strings)
-        const getDateValue = (date: Date | string | undefined): number => {
-          if (!date) return 0
-          if (date instanceof Date) {
-            const time = date.getTime()
-            return isNaN(time) ? 0 : time
-          }
-          const parsed = new Date(date)
-          const time = parsed.getTime()
-          return isNaN(time) ? 0 : time
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.getConversations(userId, selectedClassId, chatType)
+      console.log("[v0] Conversations API response:", data)
+
+      // Ensure conversations is an array and normalize timestamps
+      const conversations = Array.isArray(data.conversations) ? data.conversations : []
+      // Normalize all conversations to convert timestamp strings to Date objects
+      const normalizedConversations = conversations.map(conv => normalizeConversation(conv))
+
+      // Helper function to get safe timestamp for sorting
+      const getSortTime = (date: Date | string | undefined): number => {
+        if (!date) return 0
+
+        let dateObj: Date
+        if (date instanceof Date) {
+          dateObj = date
+        } else {
+          // Handle string parsing similar to getShortTitle
+          const dateStr = String(date)
+          // Assume UTC if it looks like an ISO string without timezone info
+          const utcDateStr = dateStr.includes('T') && !dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.includes('-05:') && !dateStr.includes('-04:')
+            ? dateStr + 'Z'
+            : dateStr
+          dateObj = new Date(utcDateStr)
         }
-        
-        // Sort in reverse chronological order (newest first) - ChatGPT style
-        // Prioritize updatedAt, fallback to createdAt
-        const sortedConversations = [...normalizedConversations].sort((a, b) => {
-          const dateA = getDateValue(a.updatedAt) || getDateValue(a.createdAt) || 0
-          const dateB = getDateValue(b.updatedAt) || getDateValue(b.createdAt) || 0
-          
-          // If dates are equal, sort by ID as tiebreaker (newer IDs first)
-          if (dateB === dateA) {
-            return parseInt(b.id) - parseInt(a.id)
-          }
-          
-          return dateB - dateA // Descending order (newest first)
-        })
-        
-        setConversations(sortedConversations)
-      } else {
-        console.error("[v0] Failed to load conversations:", response.status, response.statusText)
-        setConversations([])
+
+        const time = dateObj.getTime()
+        return isNaN(time) ? 0 : time
       }
+
+      // Sort in reverse chronological order (newest first)
+      // Prioritize updatedAt, fallback to createdAt
+      const sortedConversations = [...normalizedConversations].sort((a, b) => {
+        const timeA = getSortTime(a.updatedAt) || getSortTime(a.createdAt) || 0
+        const timeB = getSortTime(b.updatedAt) || getSortTime(b.createdAt) || 0
+
+        // If dates are equal, sort by ID as tiebreaker (newer IDs first/larger)
+        if (timeA === timeB) {
+          // Try to sort by ID if it looks like a number or sortable string
+          if (a.id && b.id) {
+            // If IDs are numeric strings
+            const idA = parseInt(a.id)
+            const idB = parseInt(b.id)
+            if (!isNaN(idA) && !isNaN(idB)) {
+              return idB - idA
+            }
+            // Lexicographical sort for non-numeric IDs (usually newer IDs > older IDs)
+            return b.id.localeCompare(a.id)
+          }
+          return 0
+        }
+
+        return timeB - timeA // Descending order (larger/recent timestamp first)
+      })
+
+      setConversations(sortedConversations)
     } catch (error) {
       console.error("[v0] Failed to load conversations:", error)
       setConversations([])
@@ -713,16 +802,14 @@ export function StudentChatInterface() {
 
   const loadConversation = async (conversationId: string) => {
     try {
-      const response = await fetch(`/api/chat/conversations/${conversationId}`)
-      if (response.ok) {
-        const data = await response.json()
-        // Normalize timestamps from strings to Date objects
-        const normalizedConversation = normalizeConversation(data.conversation)
-        setCurrentConversation(normalizedConversation)
-        // Reset auto-scroll when loading a conversation
-        shouldAutoScrollRef.current = true
-        // Don't close the history pane when loading a conversation
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.getConversation(conversationId)
+      // Normalize timestamps from strings to Date objects
+      const normalizedConversation = normalizeConversation(data.conversation)
+      setCurrentConversation(normalizedConversation)
+      // Reset auto-scroll when loading a conversation
+      shouldAutoScrollRef.current = true
+      // Don't close the history pane when loading a conversation
     } catch (error) {
       console.error("[v0] Failed to load conversation:", error)
     }
@@ -732,27 +819,29 @@ export function StudentChatInterface() {
     const userId = localStorage.getItem("userId")
     if (!userId) return
 
-    if (!selectedClassId) {
-      console.error("[v0] No class selected")
+    // If no class is selected but classes exist, auto-select the first one
+    let classIdToUse = selectedClassId
+    if (!classIdToUse && classes.length > 0) {
+      classIdToUse = classes[0].id
+      setSelectedClassId(classIdToUse)
+      console.log("[v0] Auto-selected first class:", classIdToUse)
+    }
+
+    if (!classIdToUse) {
+      console.error("[v0] No class selected and no classes available")
+      alert("Please select a class first, or wait for classes to load.")
       return
     }
 
     try {
-      const response = await fetch("/api/chat/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, classId: selectedClassId, chatType }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        // Normalize timestamps from strings to Date objects
-        const normalizedConversation = normalizeConversation(data.conversation)
-        setCurrentConversation(normalizedConversation)
-        // Reset auto-scroll when creating a new conversation
-        shouldAutoScrollRef.current = true
-        await loadConversations()
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.createConversation({ userId, classId: classIdToUse, chatType, title: undefined })
+      // Normalize timestamps from strings to Date objects
+      const normalizedConversation = normalizeConversation(data.conversation)
+      setCurrentConversation(normalizedConversation)
+      // Reset auto-scroll when creating a new conversation
+      shouldAutoScrollRef.current = true
+      await loadConversations()
     } catch (error) {
       console.error("[v0] Failed to create conversation:", error)
     }
@@ -770,18 +859,10 @@ export function StudentChatInterface() {
     }
 
     try {
-      const response = await fetch(`/api/chat/conversations?conversationId=${conversationId}`, {
-        method: "DELETE",
-      })
-
-      if (response.ok) {
-        console.log("[v0] Conversation deleted successfully")
-        // Don't reload - optimistic update is sufficient and maintains order
-      } else {
-        // Revert optimistic update on error
-        console.error("[v0] Failed to delete conversation:", response.status, response.statusText)
-        loadConversations() // Reload to restore correct state
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      await chatApi.deleteConversation(conversationId)
+      console.log("[v0] Conversation deleted successfully")
+      // Don't reload - optimistic update is sufficient and maintains order
     } catch (error) {
       // Revert optimistic update on error
       console.error("[v0] Failed to delete conversation:", error)
@@ -795,7 +876,7 @@ export function StudentChatInterface() {
     if (file.type.startsWith('image/')) return 'Image'
     if (file.type === 'application/pdf') return 'PDF'
     if (file.type.includes('document') || file.type.includes('word')) return 'Document'
-    
+
     // Check by file extension for better accuracy
     const ext = file.name.toLowerCase().split('.').pop() || ''
     if (ext === 'csv' || file.type === 'text/csv' || file.type === 'application/csv') return 'CSV'
@@ -809,7 +890,7 @@ export function StudentChatInterface() {
     if (ext === 'css' || file.type === 'text/css') return 'CSS'
     if (['yaml', 'yml'].includes(ext) || file.type === 'text/yaml' || file.type === 'application/x-yaml') return 'YAML'
     if (file.type === 'text/plain' || ext === 'txt') return 'Text'
-    
+
     return 'File'
   }
 
@@ -861,7 +942,7 @@ export function StudentChatInterface() {
   const removeAttachment = (index: number) => {
     const fileToRemove = attachments[index]
     setAttachments(prev => prev.filter((_, i) => i !== index))
-    
+
     // Clean up preview URL if it's an image
     const previewIndex = attachmentPreviews.findIndex(p => p.file === fileToRemove)
     if (previewIndex !== -1) {
@@ -876,7 +957,7 @@ export function StudentChatInterface() {
   // Voice Input Handlers
   const startVoiceInput = async () => {
     voiceLogger.info('[Voice UI] 🎤 startVoiceInput called', { isVoiceSupported, isRecording })
-    
+
     if (!isVoiceSupported) {
       voiceLogger.warn('[Voice UI] ❌ Voice not supported')
       toast.error('Voice input is not supported in your browser')
@@ -891,7 +972,7 @@ export function StudentChatInterface() {
 
     // Store the current input as base before starting
     baseInputRef.current = input
-    voiceLogger.info('[Voice UI] 📝 Base input stored', { 
+    voiceLogger.info('[Voice UI] 📝 Base input stored', {
       base: baseInputRef.current.substring(0, 50),
       baseLength: baseInputRef.current.length
     })
@@ -906,16 +987,16 @@ export function StudentChatInterface() {
             transcript: result.transcript.substring(0, 50),
             length: result.transcript.length
           })
-          
+
           if (result.isFinal) {
             // Final result - append to CURRENT base input (not accumulated)
             // The baseInputRef should already have all previous final results
             const currentBase = baseInputRef.current || ''
-            
+
             // Check if this transcript is already in the base to prevent duplicates
             const transcriptLower = result.transcript.trim().toLowerCase()
             const baseLower = currentBase.toLowerCase()
-            
+
             // Only append if this transcript is not already in the base
             let newText: string
             if (currentBase && baseLower.includes(transcriptLower)) {
@@ -927,7 +1008,7 @@ export function StudentChatInterface() {
               newText = currentBase // Keep existing base
             } else {
               // New transcript, append it
-              newText = currentBase 
+              newText = currentBase
                 ? `${currentBase} ${result.transcript}`.trim()
                 : result.transcript.trim()
               voiceLogger.info('[Voice UI] ✅ Final result - appending to base', {
@@ -936,7 +1017,7 @@ export function StudentChatInterface() {
                 combined: newText.substring(0, 50)
               })
             }
-            
+
             setInput(newText)
             baseInputRef.current = newText // Update base for next final result
             // DON'T stop here - keep listening in continuous mode
@@ -944,7 +1025,7 @@ export function StudentChatInterface() {
           } else {
             // Interim result - show base input + latest interim (will be replaced by next interim or final)
             const currentBase = baseInputRef.current || ''
-            const displayText = currentBase 
+            const displayText = currentBase
               ? `${currentBase} ${result.transcript}`.trim()
               : result.transcript.trim()
             voiceLogger.info('[Voice UI] ⏳ Interim result - showing', {
@@ -1041,10 +1122,11 @@ export function StudentChatInterface() {
     let firstTokenTimestamp: number | null = null
 
     // Add user message to conversation immediately for instant display
+    const userMessageTimestamp = new Date()
     const userMessageObj = {
       role: "user" as const,
       content: userMessage,
-      timestamp: new Date(),
+      timestamp: userMessageTimestamp,
       metadata: {},
       attachments: messageAttachments.length > 0 ? messageAttachments.map(file => ({
         type: (file.type.startsWith('image/') ? 'image' : 'file') as 'image' | 'file',
@@ -1054,7 +1136,7 @@ export function StudentChatInterface() {
         size: file.size
       })) : undefined
     }
-    
+
     // Update current conversation state immediately
     setCurrentConversation(prev => {
       if (!prev) return prev
@@ -1114,17 +1196,20 @@ export function StudentChatInterface() {
       }, 100)
     }
 
+    // Define streaming mode - always use streaming for better UX
+    const stream = true
+
     try {
       console.log("[v0] Starting fetch request to /api/chat/ai-response (STREAMING)")
       console.log("[v0] Request body:", { message: userMessage, userId, sessionId: currentConversation.id })
-      
+
       // Capture timestamp BEFORE sending request - this will be used for the assistant message
       const assistantMessageTimestamp = new Date()
-      
+
       // Send message with streaming enabled
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
-      
+
       // Prepare FormData if we have attachments, otherwise use JSON
       let requestBody: FormData | string
       let headers: HeadersInit
@@ -1141,11 +1226,11 @@ export function StudentChatInterface() {
         formData.append('stream', 'true')
         formData.append('deepThinking', deepThinking.toString())
         formData.append('assistantMessageTimestamp', assistantMessageTimestamp.toISOString())
-        
+
         messageAttachments.forEach((file, index) => {
           formData.append(`attachments`, file)
         })
-        
+
         requestBody = formData
         headers = {} // Let browser set Content-Type for FormData
       } else {
@@ -1164,12 +1249,89 @@ export function StudentChatInterface() {
         headers = { "Content-Type": "application/json" }
       }
 
-      const response = await fetch("/api/chat/ai-response", {
-        method: "POST",
-        headers,
-        body: requestBody,
-        signal: controller.signal
-      })
+      // Use Flask API client for non-streaming, direct fetch for streaming
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const FLASK_API_URL = process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5000'
+
+      let response: Response
+      if (stream) {
+        // For streaming, use direct fetch
+        const sessionId = localStorage.getItem('sessionId')
+        const fetchHeaders: HeadersInit = {
+          "Content-Type": "application/json",
+        }
+        if (sessionId) {
+          fetchHeaders['X-Session-Id'] = sessionId
+        }
+
+        response = await fetch(`${FLASK_API_URL}/api/chat/ai-response`, {
+          method: "POST",
+          headers: fetchHeaders,
+          body: requestBody,
+          signal: controller.signal
+        })
+      } else {
+        // For non-streaming, use API client
+        const result = await chatApi.sendMessage({
+          userId,
+          sessionId: currentConversation.id,
+          message: userMessage,
+          classId: selectedClassId,
+          chatType,
+          preferredModel,
+          stream: false,
+          deepThinking,
+        })
+
+        // Handle non-streaming response
+        if (result.response) {
+          // Add user message
+          const userMessageObj = {
+            role: "user" as const,
+            content: userMessage,
+            timestamp: userMessageTimestamp,
+          }
+
+          // Add assistant message
+          const assistantMessageObj = {
+            role: "assistant" as const,
+            content: result.response,
+            timestamp: assistantMessageTimestamp,
+            metadata: {
+              modelUsed: result.modelUsed || preferredModel,
+              timeTaken: result.timeTaken || 0,
+              success: true
+            }
+          }
+
+          setCurrentConversation(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              messageHistory: [...(prev.messageHistory || []), userMessageObj, assistantMessageObj]
+            }
+          })
+
+          setLoading(false)
+          return
+        }
+
+        // Fallback to fetch if API client doesn't handle it
+        const sessionId = localStorage.getItem('sessionId')
+        const fetchHeaders: HeadersInit = {
+          "Content-Type": "application/json",
+        }
+        if (sessionId) {
+          fetchHeaders['X-Session-Id'] = sessionId
+        }
+
+        response = await fetch(`${FLASK_API_URL}/api/chat/ai-response`, {
+          method: "POST",
+          headers: fetchHeaders,
+          body: requestBody,
+          signal: controller.signal
+        })
+      }
 
       clearTimeout(timeoutId)
       console.log("[v0] Fetch request started, status:", response.status)
@@ -1179,7 +1341,7 @@ export function StudentChatInterface() {
         const contentType = response.headers.get('content-type')
         if (contentType?.includes('text/event-stream')) {
           console.log("[v0] Streaming response detected")
-          
+
           // Create placeholder for assistant message - use the same timestamp we sent to backend
           const assistantMessageObj = {
             role: "assistant" as const,
@@ -1187,7 +1349,7 @@ export function StudentChatInterface() {
             timestamp: assistantMessageTimestamp,
             metadata: { timeToFirstToken: null }
           }
-          
+
           // Add empty assistant message that we'll update
           setCurrentConversation(prev => {
             if (!prev) return prev
@@ -1196,42 +1358,42 @@ export function StudentChatInterface() {
               messageHistory: [...(prev.messageHistory || []), assistantMessageObj]
             }
           })
-          
+
           // Hide loading indicator now that we're streaming the response
           setLoading(false)
-          
+
           // Read the stream
           const reader = response.body?.getReader()
           const decoder = new TextDecoder()
-          
+
           if (reader) {
             let accumulatedResponse = ''
-            
+
             while (true) {
               const { done, value } = await reader.read()
               if (done) break
-              
+
               const chunk = decoder.decode(value)
               const lines = chunk.split('\n').filter(line => line.trim() !== '')
-              
+
               for (const line of lines) {
                 if (line.startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.slice(6))
-                    
+
                     if (data.content) {
                       // Sanitize content immediately to remove corrupted emojis
                       const sanitizedChunk = sanitizeContentChunk(data.content)
-                      
+
                       // Track time to first token (only once)
                       if (firstTokenTimestamp === null && sanitizedChunk.trim()) {
                         firstTokenTimestamp = Date.now()
                         const ttft = firstTokenTimestamp - sendTimestamp
                         console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
                       }
-                      
+
                       accumulatedResponse += sanitizedChunk
-                      
+
                       // Update the last message (assistant) with new content
                       setCurrentConversation(prev => {
                         if (!prev) return prev
@@ -1249,7 +1411,7 @@ export function StudentChatInterface() {
                         }
                         return { ...prev, messageHistory: messages }
                       })
-                      
+
                       // Auto-scroll only if user is at bottom - always check position during streaming
                       if (scrollRef.current) {
                         const element = scrollRef.current
@@ -1276,41 +1438,41 @@ export function StudentChatInterface() {
                         }
                       }
                     }
-                    
+
                     if (data.done) {
                       console.log("[v0] Streaming completed, modelUsed from done event:", data.modelUsed, "preferredModel:", preferredModel)
-                      
+
                       // Use the formatted response from the done event (includes emojis)
                       // If data.content is provided, it's the final formatted response from Python
                       const finalFormattedContent = data.content || accumulatedResponse
-                      
+
                       console.log("[v0] Final formatted content length:", finalFormattedContent.length)
                       console.log("[v0] Final formatted content preview:", finalFormattedContent.substring(0, 200))
-                      
+
                       // Capture modelUsed from the done event and update metadata
                       // Use modelUsed from done event if available, otherwise fallback to preferredModel
                       const actualModelUsed = data.modelUsed || preferredModel
                       console.log("[v0] Using modelUsed:", actualModelUsed)
-                      
-                        setCurrentConversation(prev => {
-                          if (!prev) return prev
-                          const messages = [...(prev.messageHistory || [])]
-                          if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
-                            messages[messages.length - 1] = {
-                              ...messages[messages.length - 1],
+
+                      setCurrentConversation(prev => {
+                        if (!prev) return prev
+                        const messages = [...(prev.messageHistory || [])]
+                        if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+                          messages[messages.length - 1] = {
+                            ...messages[messages.length - 1],
                             content: finalFormattedContent, // Use formatted response with emojis
-                              metadata: {
-                                ...messages[messages.length - 1].metadata,
-                                modelUsed: actualModelUsed
-                              }
+                            metadata: {
+                              ...messages[messages.length - 1].metadata,
+                              modelUsed: actualModelUsed
                             }
                           }
-                          return { ...prev, messageHistory: messages }
-                        })
-                      
+                        }
+                        return { ...prev, messageHistory: messages }
+                      })
+
                       // Update accumulatedResponse for consistency
                       accumulatedResponse = finalFormattedContent
-                      
+
                       break
                     }
                   } catch (e) {
@@ -1320,13 +1482,13 @@ export function StudentChatInterface() {
               }
             }
           }
-          
+
           // Calculate total response time (send to last token)
           const lastTokenTimestamp = Date.now()
           const totalResponseTime = lastTokenTimestamp - sendTimestamp
           const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
           console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
-          
+
           // Capture modelUsed from the last message (set during done event)
           let capturedModelUsed: string | undefined = undefined
           setCurrentConversation(prev => {
@@ -1352,14 +1514,14 @@ export function StudentChatInterface() {
             }
             return { ...prev, messageHistory: messages }
           })
-          
+
           // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
           loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
         } else {
           // Non-streaming response (fallback)
           const responseData = await response.json()
           console.log("[v0] Non-streaming AI response received:", responseData)
-          
+
           // Reload the conversation to get the complete updated messages from database
           console.log("[v0] Reloading conversation:", currentConversation.id)
           await loadConversation(currentConversation.id)
@@ -1404,7 +1566,7 @@ export function StudentChatInterface() {
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return
-      
+
       const newWidth = e.clientX
       // Constrain width between 200px and 500px
       if (newWidth >= 200 && newWidth <= 500) {
@@ -1476,12 +1638,12 @@ export function StudentChatInterface() {
     try {
       // Simulate submission - for now just show confirmation
       await new Promise(resolve => setTimeout(resolve, 1000))
-      
+
       toast.success("Assignment submitted successfully!", {
         icon: <CheckCircle2 className="h-5 w-5 text-green-500" />,
         duration: 3000,
       })
-      
+
       setShowSubmitDialog(false)
       setSelectedAssignment(null)
       setSubmissionFile(null)
@@ -1498,13 +1660,13 @@ export function StudentChatInterface() {
 
   const openPreview = async (index: number) => {
     if (!resourcesClassId || !resources[index]) return
-    
+
     const userId = localStorage.getItem("userId")
     if (!userId) return
-    
+
     setPreviewResourceIndex(index)
     setShowPreviewDialog(true)
-    
+
     // Fetch the file as a blob and create an object URL for preview
     try {
       const response = await fetch(`/api/classes/resources/download?classId=${resourcesClassId}&fileName=${encodeURIComponent(resources[index].fileName)}&userId=${userId}`)
@@ -1521,13 +1683,13 @@ export function StudentChatInterface() {
   const navigateToResource = async (index: number) => {
     if (index >= 0 && index < resources.length && resourcesClassId) {
       setPreviewResourceIndex(index)
-      
+
       // Clean up previous blob URL
       if (previewBlobUrl) {
         URL.revokeObjectURL(previewBlobUrl)
         setPreviewBlobUrl(null)
       }
-      
+
       // Fetch the new file as a blob and create an object URL for preview
       try {
         const response = await fetch(`/api/classes/resources/download?classId=${resourcesClassId}&fileName=${encodeURIComponent(resources[index].fileName)}`)
@@ -1544,10 +1706,10 @@ export function StudentChatInterface() {
 
   const downloadResource = async (fileName: string) => {
     if (!resourcesClassId || isDownloading) return
-    
+
     const userId = localStorage.getItem("userId")
     if (!userId) return
-    
+
     setIsDownloading(true)
     try {
       const response = await fetch(`/api/classes/resources/download?classId=${resourcesClassId}&fileName=${encodeURIComponent(fileName)}&userId=${userId}`)
@@ -1586,26 +1748,26 @@ export function StudentChatInterface() {
     }
 
     // Get class name
-    const className = selectedClassId === 'entire-corpus' 
-      ? 'Entire Corpus' 
+    const className = selectedClassId === 'entire-corpus'
+      ? 'Entire Corpus'
       : classes.find(c => c.id === selectedClassId)?.name || 'Unknown Class'
-    
+
     // Format chat type
     const chatTypeFormatted = chatType === 'class_material' ? 'Class Material' : 'Syllabus/Schedule'
-    
+
     // Format date and time
     const startDate = new Date(currentConversation.createdAt)
-    const formattedDate = startDate.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    const formattedDate = startDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     })
-    const formattedTime = startDate.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    const formattedTime = startDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
       hour12: true
     })
-    
+
     // Build the export content
     let exportContent = `LearnBOT Chat Export\n`
     exportContent += `${'='.repeat(80)}\n\n`
@@ -1616,20 +1778,20 @@ export function StudentChatInterface() {
     exportContent += `Time Started: ${formattedTime}\n`
     exportContent += `Conversation Title: ${currentConversation.title}\n`
     exportContent += `\n${'='.repeat(80)}\n\n`
-    
+
     // Add messages
     if (currentConversation.messageHistory && currentConversation.messageHistory.length > 0) {
       currentConversation.messageHistory.forEach((message, index) => {
         const role = message.role === 'user' ? '[USER]' : '[AI TA]'
-        const timestamp = new Date(message.timestamp).toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
+        const timestamp = new Date(message.timestamp).toLocaleTimeString('en-US', {
+          hour: '2-digit',
           minute: '2-digit',
           hour12: true
         })
-        
+
         exportContent += `${role} (${timestamp})\n`
         exportContent += `${message.content}\n\n`
-        
+
         // Add separator between messages (except last one)
         if (index < currentConversation.messageHistory.length - 1) {
           exportContent += `${'-'.repeat(80)}\n\n`
@@ -1638,23 +1800,23 @@ export function StudentChatInterface() {
     } else {
       exportContent += `No messages in this conversation.\n`
     }
-    
+
     exportContent += `\n${'='.repeat(80)}\n`
     exportContent += `End of Chat Export\n`
     exportContent += `Total Messages: ${currentConversation.messageHistory?.length || 0}\n`
-    
+
     // Create blob and download
     const blob = new Blob([exportContent], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    
+
     // Create filename: LearnBOT_ClassName_Date_Time.txt
     const sanitizedClassName = className.replace(/[^a-z0-9]/gi, '_')
     const dateStr = startDate.toISOString().split('T')[0]
     const timeStr = startDate.toTimeString().split(' ')[0].replace(/:/g, '-')
     link.download = `LearnBOT_${sanitizedClassName}_${dateStr}_${timeStr}.txt`
-    
+
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -1662,14 +1824,14 @@ export function StudentChatInterface() {
   }
 
   return (
-    <div className={`h-screen flex flex-col overflow-hidden ${isDarkMode ? 'dark bg-black' : 'bg-gradient-to-br from-gray-50 to-blue-50/20'}`}>
+    <div className={`h-screen flex flex-col overflow-hidden ${isDarkMode ? 'dark bg-gradient-to-br from-gray-900 to-blue-950' : 'bg-gradient-to-br from-gray-50 to-blue-50/20'}`}>
       {/* Header */}
-      <header className={`border-b shadow-sm ${isDarkMode ? 'bg-black border-white/10' : 'bg-white/80'} backdrop-blur-sm`}>
+      <header className={`border-b shadow-sm ${isDarkMode ? 'bg-gray-800/90 border-gray-700' : 'bg-white/80'} backdrop-blur-sm`}>
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
-            <img 
-              src="/learnbot-logo.png" 
-              alt="LearnBOT Logo" 
+            <img
+              src="/learnbot-logo.png"
+              alt="LearnBOT Logo"
               className="h-12 w-12 object-contain"
             />
             <div>
@@ -1700,7 +1862,7 @@ export function StudentChatInterface() {
       <div className="flex-1 flex overflow-hidden">
         {/* Collapsed Sidebar - Very narrow strip with expand button */}
         {isSidebarCollapsed && (
-          <div className={`w-12 border-r shadow-sm transition-all duration-300 ease-in-out ${isDarkMode ? 'bg-black border-white/10' : 'bg-white'} flex flex-col items-center py-4`}>
+          <div className={`w-12 border-r shadow-sm transition-all duration-300 ease-in-out ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white'} flex flex-col items-center py-4`}>
             <Button
               size="icon"
               variant="ghost"
@@ -1715,102 +1877,108 @@ export function StudentChatInterface() {
 
         {/* Sidebar - ChatGPT Style */}
         {!isSidebarCollapsed && (
-        <div 
-          ref={sidebarRef}
-          className={`border-r transition-all duration-200 ease-in-out ${isDarkMode ? 'bg-black border-white/10' : 'bg-white border-gray-200'} flex flex-col relative`}
-          style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '500px' }}
-        >
-          {/* Resize Handle */}
           <div
-            onMouseDown={(e) => {
-              e.preventDefault()
-              setIsResizing(true)
-            }}
-            className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-30 ${isResizing ? 'bg-blue-500' : ''}`}
-            style={{ cursor: 'col-resize' }}
-            title="Drag to resize"
-          />
-          
-          {/* Sidebar Toggle Button - Positioned on the right edge */}
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={toggleSidebar}
-            className={`absolute top-3 right-3 z-20 h-8 w-8 ${isDarkMode ? 'hover:bg-white/5 text-white/60' : 'hover:bg-gray-100 text-gray-700'}`}
-            title="Hide sidebar"
+            ref={sidebarRef}
+            className={`border-r transition-all duration-200 ease-in-out ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} flex flex-col relative`}
+            style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '500px' }}
           >
-            <PanelLeftClose className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`} />
-          </Button>
-          
-          {/* New Chat Button - ChatGPT Style */}
-          <div className={`p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
-            <Button 
-              onClick={createNewConversation} 
-              className={`w-full justify-start gap-3 h-9 ${isDarkMode ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' : 'bg-white hover:bg-gray-50 text-gray-900 border border-gray-200'}`}
-            >
-              <Plus className="h-4 w-4" />
-              <span className="text-sm font-medium">New chat</span>
-            </Button>
-          </div>
+            {/* Resize Handle */}
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault()
+                setIsResizing(true)
+              }}
+              className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-30 ${isResizing ? 'bg-blue-500' : ''}`}
+              style={{ cursor: 'col-resize' }}
+              title="Drag to resize"
+            />
 
-          {/* Conversations List - ChatGPT Style */}
-          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-            <ScrollArea className="flex-1 h-full">
-              <div className="p-2 space-y-1">
-                {!selectedClassId ? (
-                  <div className="text-center py-8 px-4">
-                    <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                    <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Select a class to start</p>
-                  </div>
-                ) : !conversations || conversations.length === 0 ? (
-                  <div className="text-center py-8 px-4">
-                    <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                    <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>No conversations yet</p>
-                  </div>
-                ) : (
-                  conversations.map((conversation) => (
-                    <div
-                      key={conversation.id}
-                      className={`w-full rounded-lg transition-colors group relative ${
-                        currentConversation?.id === conversation.id 
+            {/* Sidebar Toggle Button - Positioned on the right edge */}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={toggleSidebar}
+              className={`absolute top-3 right-3 z-20 h-8 w-8 ${isDarkMode ? 'hover:bg-white/5 text-white/60' : 'hover:bg-gray-100 text-gray-700'}`}
+              title="Hide sidebar"
+            >
+              <PanelLeftClose className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`} />
+            </Button>
+
+            {/* New Chat Button - ChatGPT Style */}
+            <div className={`p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
+              <Button
+                onClick={createNewConversation}
+                className={`w-full justify-start gap-3 h-9 ${isDarkMode ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' : 'bg-white hover:bg-gray-50 text-gray-900 border border-gray-200'}`}
+              >
+                <Plus className="h-4 w-4" />
+                <span className="text-sm font-medium">New chat</span>
+              </Button>
+            </div>
+
+            {/* Conversations List - ChatGPT Style */}
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+              <ScrollArea className="flex-1 h-full">
+                <div className="p-2 space-y-1">
+                  {!selectedClassId ? (
+                    <div className="text-center py-8 px-4">
+                      <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
+                      <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Select a class to start</p>
+                    </div>
+                  ) : !conversations || conversations.length === 0 ? (
+                    <div className="text-center py-8 px-4">
+                      <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
+                      <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>No conversations yet</p>
+                    </div>
+                  ) : (
+                    conversations.map((conversation) => (
+                      <div
+                        key={conversation.id}
+                        className={`w-full rounded-lg transition-colors group relative ${currentConversation?.id === conversation.id
                           ? isDarkMode ? "bg-white/10" : "bg-gray-100"
                           : isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50"
-                      }`}
-                    >
-                      <button
-                        onClick={() => loadConversation(conversation.id)}
-                        className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors ${
-                          currentConversation?.id === conversation.id 
+                          }`}
+                      >
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => loadConversation(conversation.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              loadConversation(conversation.id)
+                            }
+                          }}
+                          className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors cursor-pointer ${currentConversation?.id === conversation.id
                             ? isDarkMode ? "text-white" : "text-gray-900"
                             : isDarkMode ? "text-white/70 hover:text-white" : "text-gray-700"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 min-h-[2.5rem]">
-                          <p className={`text-sm flex-1 break-words leading-relaxed pr-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {getShortTitle(conversation)}
-                          </p>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className={`h-6 w-6 p-0 flex-shrink-0 opacity-100 ${isDarkMode ? 'hover:bg-red-500/20 text-red-400 hover:text-red-300' : 'hover:bg-red-50 text-red-500 hover:text-red-600'}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              deleteConversation(conversation.id)
-                            }}
-                            title="Delete conversation"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                            }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 min-h-[2.5rem]">
+                            <p className={`text-sm flex-1 break-words leading-relaxed pr-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                              {getShortTitle(conversation)}
+                            </p>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className={`h-6 w-6 p-0 flex-shrink-0 opacity-100 ${isDarkMode ? 'hover:bg-red-500/20 text-red-400 hover:text-red-300' : 'hover:bg-red-50 text-red-500 hover:text-red-600'}`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                deleteConversation(conversation.id)
+                              }}
+                              title="Delete conversation"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </div>
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </ScrollArea>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
           </div>
-        </div>
         )}
 
         {/* Main Chat Area */}
@@ -1837,7 +2005,18 @@ export function StudentChatInterface() {
               </Select>
 
               {/* Class Selector */}
-              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+              <Select
+                value={selectedClassId}
+                onValueChange={(value) => {
+                  // Prevent clearing the selection if classes exist
+                  if (value || classes.length === 0) {
+                    setSelectedClassId(value)
+                  } else if (classes.length > 0 && !value) {
+                    // If trying to clear but classes exist, keep the current selection or use first class
+                    setSelectedClassId(selectedClassId || classes[0].id)
+                  }
+                }}
+              >
                 <SelectTrigger className={`h-8 w-[200px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
                   <SelectValue placeholder="Select class..." />
                 </SelectTrigger>
@@ -1937,23 +2116,23 @@ export function StudentChatInterface() {
                     </>
                   ) : (
                     <>
-                  <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
-                    {selectedClassId === 'entire-corpus'
-                      ? "Ask me anything across ALL DMSB courses! I'm your universal teaching assistant for the entire business school curriculum."
-                      : selectedClassId 
-                      ? `Ask me anything about ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}. I'm here to help you learn!`
-                      : "Select a class or the Entire Corpus to start chatting with the AI assistant"
-                    }
-                  </p>
-                  <Button 
-                    size="lg" 
-                    onClick={createNewConversation} 
+                      <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
+                        {selectedClassId === 'entire-corpus'
+                          ? "Ask me anything across ALL DMSB courses! I'm your universal teaching assistant for the entire business school curriculum."
+                          : selectedClassId
+                            ? `Ask me anything about ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}. I'm here to help you learn!`
+                            : "Select a class or the Entire Corpus to start chatting with the AI assistant"
+                        }
+                      </p>
+                      <Button
+                        size="lg"
+                        onClick={createNewConversation}
                         disabled={!selectedClassId || hasCorpusPdfs === false}
-                    className={isDarkMode ? 'bg-white text-black hover:bg-white/90' : ''}
-                  >
-                    <Plus className="h-5 w-5 mr-2" />
-                    New Chat
-                  </Button>
+                        className={isDarkMode ? 'bg-white text-black hover:bg-white/90' : ''}
+                      >
+                        <Plus className="h-5 w-5 mr-2" />
+                        New Chat
+                      </Button>
                     </>
                   )}
                 </div>
@@ -1994,19 +2173,17 @@ export function StudentChatInterface() {
                     {loading && (
                       <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         <div className="flex-shrink-0">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            isDarkMode 
-                              ? 'bg-white/10 border border-white/20'
-                              : 'bg-gradient-to-br from-emerald-400 to-teal-500'
-                          } shadow-lg`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isDarkMode
+                            ? 'bg-white/10 border border-white/20'
+                            : 'bg-gradient-to-br from-emerald-400 to-teal-500'
+                            } shadow-lg`}>
                             <Bot className="w-4 h-4 text-white" />
                           </div>
                         </div>
-                        <div className={`flex-1 max-w-[85%] rounded-2xl px-5 py-4 ${
-                          isDarkMode
-                            ? 'bg-transparent'
-                            : 'bg-white border border-gray-200'
-                        } shadow-lg`}>
+                        <div className={`flex-1 max-w-[85%] rounded-2xl px-5 py-4 ${isDarkMode
+                          ? 'bg-transparent'
+                          : 'bg-white border border-gray-200'
+                          } shadow-lg`}>
                           <div className="flex gap-2">
                             <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-white/40' : 'bg-gray-400'}`}></div>
                             <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-white/40' : 'bg-gray-400'}`} style={{ animationDelay: '0.2s' }}></div>
@@ -2028,33 +2205,31 @@ export function StudentChatInterface() {
                           const isImage = file.type.startsWith('image/')
                           const category = getFileCategory(file)
                           const fileSize = formatFileSize(file.size)
-                          
+
                           return (
-                            <div 
-                              key={index} 
-                              className={`relative group rounded-lg border overflow-hidden transition-all hover:shadow-md ${
-                                isDarkMode 
-                                  ? 'bg-gray-900 border-gray-700' 
-                                  : 'bg-white border-gray-300'
-                              }`}
+                            <div
+                              key={index}
+                              className={`relative group rounded-lg border overflow-hidden transition-all hover:shadow-md ${isDarkMode
+                                ? 'bg-gray-900 border-gray-700'
+                                : 'bg-white border-gray-300'
+                                }`}
                               style={{ width: isImage ? '140px' : '200px' }}
                             >
                               {isImage ? (
                                 <>
                                   {/* Image Thumbnail */}
                                   <div className="relative w-full h-32 bg-gray-100">
-                                    <img 
-                                      src={preview} 
-                                      alt={file.name} 
-                                      className="w-full h-full object-cover" 
+                                    <img
+                                      src={preview}
+                                      alt={file.name}
+                                      className="w-full h-full object-cover"
                                     />
                                     {/* Category Badge */}
                                     <div className="absolute top-2 left-2">
-                                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                                        isDarkMode 
-                                          ? 'bg-blue-600/90 text-white' 
-                                          : 'bg-blue-500 text-white'
-                                      }`}>
+                                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${isDarkMode
+                                        ? 'bg-blue-600/90 text-white'
+                                        : 'bg-blue-500 text-white'
+                                        }`}>
                                         {category}
                                       </span>
                                     </div>
@@ -2069,14 +2244,12 @@ export function StudentChatInterface() {
                                   </div>
                                   {/* Image Info */}
                                   <div className={`p-2 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
-                                    <p className={`text-xs font-medium truncate mb-0.5 ${
-                                      isDarkMode ? 'text-white' : 'text-gray-900'
-                                    }`}>
+                                    <p className={`text-xs font-medium truncate mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'
+                                      }`}>
                                       {file.name}
                                     </p>
-                                    <p className={`text-xs ${
-                                      isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                                    }`}>
+                                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                      }`}>
                                       {fileSize}
                                     </p>
                                   </div>
@@ -2087,34 +2260,29 @@ export function StudentChatInterface() {
                                   <div className={`p-2 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
                                     <div className="flex items-center gap-2">
                                       {/* File Icon */}
-                                      <div className={`flex-shrink-0 w-8 h-8 rounded flex items-center justify-center ${
-                                        isDarkMode 
-                                          ? 'bg-gray-800 border border-gray-700' 
-                                          : 'bg-gray-100 border border-gray-200'
-                                      }`}>
-                                        <File className={`h-4 w-4 ${
-                                          isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                                        }`} />
+                                      <div className={`flex-shrink-0 w-8 h-8 rounded flex items-center justify-center ${isDarkMode
+                                        ? 'bg-gray-800 border border-gray-700'
+                                        : 'bg-gray-100 border border-gray-200'
+                                        }`}>
+                                        <File className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                          }`} />
                                       </div>
                                       {/* File Info */}
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-1.5 mb-0.5">
-                                          <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                                            isDarkMode 
-                                              ? 'bg-purple-600/90 text-white' 
-                                              : 'bg-purple-500 text-white'
-                                          }`}>
+                                          <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${isDarkMode
+                                            ? 'bg-purple-600/90 text-white'
+                                            : 'bg-purple-500 text-white'
+                                            }`}>
                                             {category}
                                           </span>
                                         </div>
-                                        <p className={`text-xs font-medium truncate ${
-                                          isDarkMode ? 'text-white' : 'text-gray-900'
-                                        }`}>
+                                        <p className={`text-xs font-medium truncate ${isDarkMode ? 'text-white' : 'text-gray-900'
+                                          }`}>
                                           {file.name}
                                         </p>
-                                        <p className={`text-xs ${
-                                          isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                                        }`}>
+                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                          }`}>
                                           {fileSize}
                                         </p>
                                       </div>
@@ -2135,12 +2303,11 @@ export function StudentChatInterface() {
                         })}
                       </div>
                     )}
-                    
-                    <div className={`flex items-center gap-4 px-5 py-3.5 rounded-3xl ${
-                      isDarkMode 
-                        ? 'bg-white/5 border border-white/10 hover:border-white/20' 
-                        : 'bg-gray-50 border border-gray-200'
-                    } shadow-lg transition-all duration-300 ease-out focus-within:shadow-2xl ${isDarkMode ? 'focus-within:border-white/30 focus-within:bg-white/[0.07]' : 'focus-within:border-blue-500'}`}>
+
+                    <div className={`flex items-center gap-4 px-5 py-3.5 rounded-3xl ${isDarkMode
+                      ? 'bg-white/5 border border-white/10 hover:border-white/20'
+                      : 'bg-gray-50 border border-gray-200'
+                      } shadow-lg transition-all duration-300 ease-out focus-within:shadow-2xl ${isDarkMode ? 'focus-within:border-white/30 focus-within:bg-white/[0.07]' : 'focus-within:border-blue-500'}`}>
                       {/* File Upload Button - Pin Icon */}
                       <input
                         ref={fileInputRef}
@@ -2161,31 +2328,30 @@ export function StudentChatInterface() {
                       >
                         <Paperclip className="h-4 w-4" />
                       </Button>
-                      
+
                       {/* Deep Thinking Mode - Brain Icon */}
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         onClick={toggleDeepThinking}
-                        disabled={loading || hasCorpusPdfs === false}
+                        disabled={loading || (hasCorpusPdfs === false && selectedClassId !== 'entire-corpus')}
                         className={`h-8 w-8 ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                        title="Deep thinking mode"
+                        title={hasCorpusPdfs === false && selectedClassId !== 'entire-corpus' ? "Deep thinking mode requires course materials" : "Deep thinking mode"}
                       >
                         <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
                       </Button>
-                      
+
                       <Input
                         placeholder={hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? "No PDFs uploaded for this class..." : "Message LearnBOT..."}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyPress={handleKeyPress}
                         disabled={loading || hasCorpusPdfs === false}
-                        className={`flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base ${
-                          isDarkMode ? 'text-white placeholder:text-white/50' : 'text-gray-900 placeholder:text-gray-500'
-                        }`}
+                        className={`flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base ${isDarkMode ? 'text-white placeholder:text-white/50' : 'text-gray-900 placeholder:text-gray-500'
+                          }`}
                       />
-                      
+
                       {/* Voice Input Button */}
                       {isVoiceSupported && (
                         <div className="flex items-center gap-2">
@@ -2203,20 +2369,19 @@ export function StudentChatInterface() {
                           </Button>
                         </div>
                       )}
-                      
-                      <Button 
-                        onClick={sendMessage} 
-                        disabled={loading || (!input.trim() && attachments.length === 0) || hasCorpusPdfs === false} 
+
+                      <Button
+                        onClick={sendMessage}
+                        disabled={loading || (!input.trim() && attachments.length === 0) || hasCorpusPdfs === false}
                         size="icon"
-                        className={`rounded-full w-10 h-10 flex items-center justify-center transition-all duration-300 ease-out ${
-                          loading || (!input.trim() && attachments.length === 0)
-                            ? isDarkMode
-                              ? 'bg-white/5 text-white/30 cursor-not-allowed'
-                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : isDarkMode
-                              ? 'bg-white text-black hover:bg-white/95 hover:scale-105 shadow-lg hover:shadow-xl'
-                              : 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:scale-105 shadow-lg hover:shadow-xl'
-                        }`}
+                        className={`rounded-full w-10 h-10 flex items-center justify-center transition-all duration-300 ease-out ${loading || (!input.trim() && attachments.length === 0)
+                          ? isDarkMode
+                            ? 'bg-white/5 text-white/30 cursor-not-allowed'
+                            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          : isDarkMode
+                            ? 'bg-white text-black hover:bg-white/95 hover:scale-105 shadow-lg hover:shadow-xl'
+                            : 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:scale-105 shadow-lg hover:shadow-xl'
+                          }`}
                       >
                         <Send className="h-4 w-4" />
                       </Button>

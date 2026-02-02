@@ -16,8 +16,11 @@ from pathlib import Path
 # Force UTF-8 encoding for stdout/stderr on Windows to handle emojis
 import codecs
 if sys.platform == 'win32':
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    # Only wrap if not already wrapped (prevents AttributeError on re-import)
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    if hasattr(sys.stderr, 'buffer'):
+        sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 # Force CPU-only mode to avoid CUDA issues
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -815,7 +818,16 @@ def load_vector_store_index(vector_store_path: str):
     Returns:
         Dictionary with "index" (VectorStoreIndex), "metadata" (list), and "collection_name" (str)
     """
-    global vector_stores
+    global vector_stores, embedder
+    
+    # Lazy initialization of embedding model if not already set
+    # This handles the case when the module is imported from Flask instead of run as __main__
+    if embedder is None or Settings.embed_model is None:
+        print("🔄 Initializing embedding model (lazy load)...", file=sys.stderr)
+        embed_model = SentenceTransformerEmbedding(EMBEDDING_MODEL)
+        Settings.embed_model = embed_model
+        embedder = embed_model
+        print("✓ Embedding model loaded", file=sys.stderr)
     
     normalized_path = normalize_vector_store_path(vector_store_path)
     actual_path = os.path.abspath(vector_store_path)
@@ -930,54 +942,44 @@ def load_vector_store_index(vector_store_path: str):
     return vector_stores[normalized_path]
 
 
-def strip_pii_with_blackwell(text, timeout=30):
+def strip_pii_with_claude(text, timeout=2):
     """
-    Strip PII from text using LOCAL remote LLM (Blackwell vLLM)
-    This ensures PII never leaves our infrastructure
+    Strip PII from text using Claude API
+    Fast 2-second timeout - falls back to regex if Claude is slow/unavailable
     
     Returns cleaned text, or None if LLM call fails (should fallback to regex)
     """
     if not text or not isinstance(text, str):
         return None
     
+    # Check if API key is configured
+    if not ANTHROPIC_API_KEY or 'your-anthropic-api-key' in ANTHROPIC_API_KEY:
+        return None
+    
     try:
-        pii_stripping_system_prompt = """You are a PII (Personally Identifiable Information) stripping system for an educational chatbot.
+        pii_stripping_system_prompt = """You are a PII stripping system. Remove or replace all PII from user queries while preserving the core question.
 
-Your task is to remove or replace all PII from user queries while preserving the core question or request.
-
-PII includes:
-- Names (first, last, full names)
-- Ages
-- Dates of birth
-- Email addresses
-- Phone numbers
-- Physical addresses
-- Student IDs (NUID, SSN, etc.)
-- Credit card numbers
-- Any other personally identifiable information
+PII includes: names, ages, DOB, emails, phones, addresses, student IDs (NUID, SSN), credit cards.
 
 Rules:
-1. Remove or replace PII with generic placeholders like [NAME], [AGE], [EMAIL], etc.
-2. Preserve the core question/request - don't change the meaning
+1. Replace PII with placeholders like [NAME], [AGE], [EMAIL], etc.
+2. Preserve the core question - don't change the meaning
 3. Keep all non-PII information intact
-4. Maintain natural language flow
-5. If the query is just personal information with no question, return a cleaned version that asks for help
+4. Return ONLY the cleaned text, nothing else."""
 
-Return ONLY the cleaned query text, nothing else. No explanations, no JSON, just the cleaned text."""
-
-        # For vLLM, we combine system prompt and user query into a single user message
-        # (This is a workaround for vLLM's system message handling)
-        combined_content = f"{pii_stripping_system_prompt}\n\nUser query to clean: {text}"
-        
-        response = blackwell_session.post(
-            REMOTE_BLACKWELL_URL,
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01"
+            },
             json={
-                "model": REMOTE_BLACKWELL_MODEL,
-                "messages": [
-                    {"role": "user", "content": combined_content}
-                ],
-                "temperature": 0.1,  # Low temperature for consistent PII stripping
-                "max_tokens": 512,
+                "model": CLAUDE_MODEL_ID,
+                "max_tokens": 256,
+                "system": pii_stripping_system_prompt,
+                "messages": [{"role": "user", "content": f"Clean this: {text}"}],
+                "temperature": 0.1,
                 "stream": False
             },
             timeout=timeout
@@ -985,36 +987,43 @@ Return ONLY the cleaned query text, nothing else. No explanations, no JSON, just
         
         if response.status_code == 200:
             result = response.json()
-            cleaned_text = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+            cleaned_text = result.get('content', [{}])[0].get('text', '').strip()
             if cleaned_text:
                 return cleaned_text
         
-        print(f"⚠️ Blackwell PII stripping failed (status {response.status_code}), falling back to regex", file=sys.stderr)
+        return None
+    except requests.exceptions.Timeout:
+        # Fast timeout - expected behavior, silently fall back to regex
         return None
     except Exception as e:
-        print(f"⚠️ Blackwell PII stripping error: {str(e)}, falling back to regex", file=sys.stderr)
+        print(f"⚠️ Claude PII stripping error: {str(e)}, falling back to regex", file=sys.stderr)
         return None
+
+
+# Legacy function - redirects to Claude
+def strip_pii_with_blackwell(text, timeout=2):
+    """Legacy wrapper - now uses Claude instead of Blackwell for PII stripping"""
+    return strip_pii_with_claude(text, timeout=timeout)
 
 
 def mask_pii(text):
     """
     Mask or remove PII from text to prevent bias and protect student privacy
-    Uses LLM-based stripping (Blackwell) if enabled, falls back to regex patterns
+    Uses Claude API with 2s timeout, falls back to regex if slow/unavailable
     """
     if not text or not isinstance(text, str):
         return text
     
-    # Try LLM-based PII stripping first (using LOCAL remote LLM - Blackwell)
-    # This ensures PII never leaves our infrastructure
+    # Try Claude-based PII stripping first (fast 2s timeout)
     enable_llm_pii_stripping = os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true'
     
     if enable_llm_pii_stripping:
-        cleaned = strip_pii_with_blackwell(text, timeout=15)
+        cleaned = strip_pii_with_claude(text, timeout=2)
         if cleaned:
-            print(f"🔒 PII stripped using Blackwell vLLM (LOCAL remote LLM)", file=sys.stderr)
+            print(f"🔒 PII stripped using Claude (2s timeout)", file=sys.stderr)
             return cleaned
-        # Fallback to regex if LLM fails
-        print(f"⚠️ Falling back to regex-based PII masking", file=sys.stderr)
+        # Fallback to regex if Claude times out or fails (silent - already logged in function)
+        pass
     
     # Regex-based fallback (original implementation)
     import re
@@ -1088,7 +1097,7 @@ def mask_pii(text):
 def mask_pii_in_history(messages):
     """
     Mask PII in message history to prevent bias in conversation context
-    Uses LLM-based stripping (Blackwell) if enabled, falls back to regex patterns
+    Uses Claude API with 2s timeout, falls back to regex if slow/unavailable
     """
     if not messages:
         return messages
@@ -1100,12 +1109,12 @@ def mask_pii_in_history(messages):
         if msg.get('role') == 'user':
             content = msg.get('content', '')
             if enable_llm_pii_stripping:
-                # Try LLM-based stripping first
-                cleaned = strip_pii_with_blackwell(content, timeout=15)
+                # Try Claude-based stripping first (2s timeout for speed)
+                cleaned = strip_pii_with_claude(content, timeout=2)
                 if cleaned:
                     masked_messages.append({**msg, 'content': cleaned})
                     continue
-            # Fallback to regex
+            # Fallback to regex (also used if Claude times out)
             masked_messages.append({**msg, 'content': mask_pii(content)})
         else:
             masked_messages.append(msg)
@@ -1345,7 +1354,7 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
         return None, None, time_taken
 
 
-def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, checkpoint_state=None, chat_type='class_material', attachments=None):
+def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, checkpoint_state=None, chat_type='class_material', attachments=None, stream_callback=None):
     """Call LLM with streaming support"""
     import time
     import json
@@ -1482,7 +1491,9 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "request_id": request_id,
                                             "chunk": chunk
                                         }
-                                        print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
+                                        if stream_callback:
+                                            stream_callback(chunk_message)
+                                        # print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
                                         if STREAM_CHUNK_DELAY > 0:
                                             time.sleep(STREAM_CHUNK_DELAY)
                                 elif chunk_data.get('type') == 'message_stop':
@@ -2012,7 +2023,25 @@ def enforce_response_formatting(text: str) -> str:
     return text
 
 
-def process_query(request_data: Dict[str, Any]) -> Dict[str, Any]:
+def preload_models():
+    """
+    explicitly initialize embedding model to avoid cold start latency
+    """
+    global embedder
+    
+    # Lazy initialization of embedding model if not already set
+    if embedder is None or Settings.embed_model is None:
+        print("🔄 Preloading embedding model...", file=sys.stderr)
+        try:
+            embed_model = SentenceTransformerEmbedding(EMBEDDING_MODEL)
+            Settings.embed_model = embed_model
+            embedder = embed_model
+            print("✓ Embedding model preloaded", file=sys.stderr)
+        except Exception as e:
+            print(f"❌ Failed to preload embedding model: {e}", file=sys.stderr)
+
+
+def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[str, Any]:
     """
     Process RAG query using LlamaIndex - preserves all existing logic
     
@@ -2497,12 +2526,23 @@ Rules:
             
             # Post-filter by class_id if provided (since LlamaIndex doesn't expose Qdrant filters directly)
             if class_id:
+                # Debug: print first few metadata entries to understand structure
+                if retrieved_nodes and len(retrieved_nodes) > 0:
+                    sample_meta = retrieved_nodes[0].metadata if hasattr(retrieved_nodes[0], 'metadata') else {}
+                    print(f"[RAG DEBUG] Sample metadata keys: {list(sample_meta.keys())}", file=sys.stderr)
+                    print(f"[RAG DEBUG] Looking for class_id={class_id} (type: {type(class_id).__name__})", file=sys.stderr)
+                    sample_class_id = sample_meta.get('class_id', 'NOT FOUND')
+                    print(f"[RAG DEBUG] Actual class_id in chunk: {sample_class_id} (type: {type(sample_class_id).__name__})", file=sys.stderr)
+                
                 filtered_nodes = []
                 for node in retrieved_nodes:
                     node_metadata = node.metadata if hasattr(node, 'metadata') else {}
                     node_class_id = node_metadata.get('class_id', '')
+                    # Convert both to string for comparison
+                    node_class_id_str = str(node_class_id) if node_class_id else ''
+                    class_id_str = str(class_id) if class_id else ''
                     # Match class_id or allow if class_id is not set (backward compatibility)
-                    if node_class_id == class_id or not node_class_id:
+                    if node_class_id_str == class_id_str or not node_class_id:
                         filtered_nodes.append(node)
                 retrieved_nodes = filtered_nodes
                 if len(filtered_nodes) < original_count:
@@ -2577,7 +2617,32 @@ Rules:
         print(f"⏱️ Reranking time: {rerank_time:.3f}s - {rerank_method} ({len(filtered_results)} → {len(final_results)} chunks)", file=sys.stderr)
         
         if not final_results:
-            teaching_response = f"I couldn't find information about '{query}' in our course textbook."
+            # Check if this is a greeting or casual conversation
+            query_lower = query.lower().strip()
+            greeting_words = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy', 'greetings', 'yo', 'sup', "what's up", 'hiya']
+            is_greeting = any(query_lower.startswith(g) or query_lower == g for g in greeting_words)
+            
+            if is_greeting:
+                # Friendly greeting response with introduction
+                teaching_response = """Hello! 👋 I'm LearnBOT, your AI learning assistant! I'm here to help you understand the course material step-by-step.
+
+I can help you with:
+📚 Explaining concepts from your textbook
+🧮 Working through problems together (without just giving you answers!)
+❓ Answering questions about the course content
+📝 Understanding formulas and how to apply them
+
+What would you like to learn about today?"""
+            else:
+                # Helpful fallback for non-greeting queries without content
+                teaching_response = f"""I couldn't find specific information about '{query}' in the course materials. 📚
+
+Here's what I can help you with:
+• Questions about concepts covered in your textbook
+• Understanding formulas and calculations
+• Working through practice problems step-by-step
+
+Could you try rephrasing your question, or ask about a specific topic from the course?"""
             model_used = "none"
             time_taken = 0
             llm_time = 0  # Initialize llm_time for logging
@@ -2738,7 +2803,8 @@ before and after. This is MANDATORY, not optional.
                 request_id,
                 checkpoint_state,
                 chat_type,
-                attachments  # Pass attachments for image handling in Claude API
+                attachments,  # Pass attachments for image handling in Claude API
+                stream_callback=stream_callback
             )
             llm_time = time.time() - llm_start
             
@@ -2772,7 +2838,21 @@ before and after. This is MANDATORY, not optional.
         leak_start = time.time()
         leak_detected = False
         
-        if final_results and not is_syllabus:
+        # Determine if we should skip leak detection based on guard results
+        # We allow conceptual learning questions to contain examples and formulas
+        should_run_leak_detection = True
+        
+        if 'guard_result' in locals() and guard_result:
+            intent = guard_result.get("intent", "")
+            is_homework = guard_result.get("is_homework_question", False)
+            bypass = guard_result.get("bypass_attempt", False)
+            
+            # Skip leak detection ONLY if it's purely conceptual and NO red flags
+            if intent == "conceptual_learning" and not is_homework and not bypass:
+                should_run_leak_detection = False
+                print(f"🧠 Conceptual query detected ({intent}) - SKIPPING strict leak detection to allow examples/formulas", file=sys.stderr)
+        
+        if final_results and not is_syllabus and should_run_leak_detection:
             # Only check for leaks in class material responses (not syllabus)
             if ENABLE_LLM_GUARDS:
                 # Use LLM for leak detection if enabled

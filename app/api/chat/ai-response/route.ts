@@ -3,6 +3,13 @@ import { generateChatResponse, generateChatResponseWithHistory } from "@/lib/ai-
 import { createChatMessage, getChatMessagesBySession } from "@/lib/mock-db"
 import { ragService } from "@/lib/rag-service"
 import type { ModelBackend } from "@/lib/types"
+import {
+  detectInjectionAttempt,
+  sanitizeInput,
+  getRedirectResponse,
+  validateOutput,
+  sanitizeOutput,
+} from "@/lib/prompts/guardrails"
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,6 +69,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 })
     }
 
+    // Guardrail Layer: pre-LLM input scan and sanitization
+    const detection = detectInjectionAttempt(message)
+    const sanitizedMessage = sanitizeInput(detection.sanitizedInput || message)
+
+    if (detection.shouldBlock) {
+      const redirect = getRedirectResponse(detection)
+      // For streaming requests, respond with a single SSE event and close
+      if (stream) {
+        const encoder = new TextEncoder()
+        const readable = new ReadableStream({
+          start(controller) {
+            const data = JSON.stringify({ content: redirect, done: true, blocked: true })
+            controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+            controller.close()
+          }
+        })
+        return new Response(readable, {
+          headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          },
+        })
+      }
+
+      return NextResponse.json({
+        response: redirect,
+        blocked: true,
+      }, {
+        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+      })
+    }
+
     // ✅ Always use RAG service (it has built-in fallback to LLM with checkpoint tracking)
     // Even if Python RAG is not initialized, it will use callPureLLM internally
     const ragInitialized = await ragService.waitForInitialization(3000)
@@ -79,9 +119,10 @@ export async function POST(request: NextRequest) {
               try {
                 let fullResponse = ''
                 let streamClosed = false
+                let sawDone = false
                 
                 for await (const chunk of ragService.generateRAGStreamingResponse(
-                  message,
+                  sanitizedMessage,
                   sessionId,
                   userId,
                   classId,
@@ -106,10 +147,9 @@ export async function POST(request: NextRequest) {
                       fullResponse += chunk.content
                     }
                     
-                    // If done, close the stream
+                    // If done, mark and break to run validation before closing
                     if (chunk.done) {
-                      streamClosed = true
-                      controller.close()
+                      sawDone = true
                       break
                     }
                   } catch (enqueueError: any) {
@@ -123,8 +163,19 @@ export async function POST(request: NextRequest) {
                   }
                 }
                 
-                // Ensure stream is closed if we exit the loop without closing
+                // Post-LLM output validation/sanitization for streaming
                 if (!streamClosed) {
+                  const validation = validateOutput(fullResponse, sanitizedMessage)
+                  const safeResponse = sanitizeOutput(fullResponse, validation)
+                  if (!validation.isValid) {
+                    const safeChunk = { content: `${safeResponse} If you need something else, let me know!`, done: false }
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(safeChunk)}\n\n`))
+                  }
+                  // send final done
+                  if (sawDone) {
+                    const doneChunk = { content: '', done: true }
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneChunk)}\n\n`))
+                  }
                   try {
                     controller.close()
                   } catch (e) {
@@ -165,7 +216,7 @@ export async function POST(request: NextRequest) {
       // NON-STREAMING MODE (original)
       try {
         const ragResponse = await ragService.generateRAGResponse(
-          message, 
+          sanitizedMessage, 
           sessionId, 
           userId, 
           classId,
@@ -178,12 +229,18 @@ export async function POST(request: NextRequest) {
         // The RAG system already saves the message to the conversation
         // No need to save it again here
         
+        // Guardrail Layer: post-LLM output validation/sanitization
+        const validation = validateOutput(ragResponse.response, sanitizedMessage)
+        const safeResponse = sanitizeOutput(ragResponse.response, validation)
+        const finalResponse = validation.isValid ? safeResponse : `${safeResponse} If you need something else, let me know!`
+
         return NextResponse.json({ 
-          response: ragResponse.response,
+          response: finalResponse,
           mode: ragResponse.mode || 'rag',
           contentFound: ragResponse.retrieval_result?.content_found || false,
           modelUsed: ragResponse.modelUsed,
-          timeTaken: ragResponse.timeTaken
+          timeTaken: ragResponse.timeTaken,
+          validationIssues: validation.isValid ? undefined : validation.issues
         }, {
           headers: {
             'Content-Type': 'application/json; charset=utf-8'

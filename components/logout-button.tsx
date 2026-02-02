@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { LogOut } from "lucide-react"
+import { authApi } from "@/lib/flask-api-client"
 
 export function LogoutButton() {
   const router = useRouter()
@@ -12,11 +13,12 @@ export function LogoutButton() {
     const sessionId = localStorage.getItem("sessionId")
 
     if (sessionId) {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      })
+      try {
+        await authApi.logout(sessionId)
+      } catch (error) {
+        console.error("[LOGOUT] Error logging out:", error)
+        // Continue with logout even if API call fails
+      }
     }
 
     localStorage.clear()

@@ -43,13 +43,11 @@ export function AnalyticsTab() {
     if (!facultyId) return
 
     try {
-      const response = await fetch(`/api/classes?facultyId=${facultyId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setClasses(data.classes)
-        if (data.classes.length > 0) {
-          setSelectedClassId(data.classes[0].id)
-        }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = await classesApi.getClasses(facultyId)
+      setClasses(data.classes)
+      if (data.classes.length > 0) {
+        setSelectedClassId(data.classes[0].id)
       }
     } catch (error) {
       console.error("[v0] Failed to load classes:", error)
@@ -60,11 +58,9 @@ export function AnalyticsTab() {
     if (!selectedClassId) return
 
     try {
-      const response = await fetch(`/api/analytics/class-summary?classId=${selectedClassId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setAnalytics(data.analytics)
-      }
+      const { analyticsApi } = await import("@/lib/flask-api-client")
+      const data = await analyticsApi.getClassSummary(selectedClassId)
+      setAnalytics(data.analytics)
     } catch (error) {
       console.error("[v0] Failed to load analytics:", error)
     }
@@ -281,40 +277,53 @@ export function AnalyticsTab() {
                 <CardDescription>Most discussed subjects in conversations</CardDescription>
               </CardHeader>
               <CardContent>
-                <ChartContainer
-                  config={{
-                    count: {
-                      label: "Mentions",
-                      color: CHART_COLORS.accent,
-                    },
-                  }}
-                  className="h-[300px]"
-                >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={analytics.topicDistribution} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis 
-                        dataKey="topic" 
-                        tick={{ fontSize: 12, fill: '#6b7280' }}
-                        axisLine={{ stroke: '#d1d5db' }}
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 12, fill: '#6b7280' }}
-                        axisLine={{ stroke: '#d1d5db' }}
-                      />
-                      <ChartTooltip 
-                        content={<ChartTooltipContent 
-                          formatter={(value) => [`${value} mentions`, '']}
-                        />} 
-                      />
-                      <Bar 
-                        dataKey="count" 
-                        fill={CHART_COLORS.accent}
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+                {analytics.topicDistribution && analytics.topicDistribution.length > 0 ? (
+                  <ChartContainer
+                    config={{
+                      count: {
+                        label: "Mentions",
+                        color: CHART_COLORS.accent,
+                      },
+                    }}
+                    className="h-[300px]"
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analytics.topicDistribution} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis 
+                          dataKey="topic" 
+                          tick={{ fontSize: 12, fill: '#6b7280' }}
+                          axisLine={{ stroke: '#d1d5db' }}
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis 
+                          tick={{ fontSize: 12, fill: '#6b7280' }}
+                          axisLine={{ stroke: '#d1d5db' }}
+                        />
+                        <ChartTooltip 
+                          content={<ChartTooltipContent 
+                            formatter={(value) => [`${value} mentions`, '']}
+                          />} 
+                        />
+                        <Bar 
+                          dataKey="count" 
+                          fill={CHART_COLORS.accent}
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    <div className="text-center">
+                      <BookOpen className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No topics extracted yet</p>
+                      <p className="text-xs mt-1">Topics will appear after students have conversations</p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

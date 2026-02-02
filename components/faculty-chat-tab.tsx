@@ -40,20 +40,20 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const shouldAutoScrollRef = useRef(true) // Track if we should auto-scroll
   const isScrollingProgrammaticallyRef = useRef(false)
-  
+
   // Corpus/PDF check state
   const [hasCorpusPdfs, setHasCorpusPdfs] = useState<boolean | null>(null) // null = checking, true = has PDFs, false = no PDFs
   const [isCheckingCorpus, setIsCheckingCorpus] = useState(false) // Track if we're programmatically scrolling
-  
+
   // File/Photo Upload state
   const [attachments, setAttachments] = useState<File[]>([])
   const [attachmentPreviews, setAttachmentPreviews] = useState<Array<{ file: File; preview: string }>>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  
+
   // Deep Thinking Mode state
   const [deepThinking, setDeepThinking] = useState(false)
   const [isDeepThinking, setIsDeepThinking] = useState(false) // For showing animation
-  
+
   // Voice Input state
   const [isRecording, setIsRecording] = useState(false)
   const [isVoiceSupported, setIsVoiceSupported] = useState(false)
@@ -64,53 +64,45 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     loadClasses()
     loadConversations()
     checkRAGStatus()
-    
+
     // Check voice input support
     setIsVoiceSupported(speechToText.isBrowserSupported())
-    
+
     // Preload user's classes on mount (after RAG is ready)
     const preloadUserClasses = async () => {
       const userId = localStorage.getItem("userId")
       const userRole = localStorage.getItem("userRole") as 'student' | 'faculty' | null
-      
+
       if (userId && userRole) {
         // Wait a bit for RAG service to initialize
         await new Promise(resolve => setTimeout(resolve, 2000))
-        
+
         try {
-          const response = await fetch('/api/rag/preload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, userRole })
-          })
-          
-          if (response.ok) {
-            const result = await response.json()
-            console.log(`[Faculty Chat] Preload result: ${result.loaded}/${result.total} stores loaded`)
-          } else if (response.status === 503) {
+          const { chatApi } = await import("@/lib/flask-api-client")
+          const result = await chatApi.preloadRAG(userId, userRole)
+          console.log(`[Faculty Chat] Preload result: ${result.loaded}/${result.total} stores loaded`)
+          if (!result.success && result.error?.includes('not ready')) {
             // RAG not ready yet, retry after a delay
             setTimeout(preloadUserClasses, 3000)
-          } else {
-            console.warn('[Faculty Chat] Preload failed:', await response.text())
           }
         } catch (error) {
           console.error('[Faculty Chat] Failed to preload classes:', error)
         }
       }
     }
-    
+
     preloadUserClasses()
-    
+
     // Poll status every 5 seconds to detect when RAG becomes ready
     const statusInterval = setInterval(checkRAGStatus, 5000)
-    
+
     return () => clearInterval(statusInterval)
   }, [])
 
   useEffect(() => {
     // Clear current conversation when class changes
     setCurrentConversation(null)
-    
+
     if (selectedClassId) {
       loadConversations()
       checkCorpusPdfs()
@@ -130,15 +122,11 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
     setIsCheckingCorpus(true)
     try {
-      const response = await fetch(`/api/corpus/stats?classId=${selectedClassId}&materialType=${chatType}`)
-      if (response.ok) {
-        const data = await response.json()
-        const hasPdfs = (data.pdfCount || 0) > 0
-        setHasCorpusPdfs(hasPdfs)
-      } else {
-        // If API fails, assume no PDFs (safer to disable)
-        setHasCorpusPdfs(false)
-      }
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      // Use getFiles to check if PDFs exist
+      const data = await corpusApi.getFiles(selectedClassId, chatType)
+      const hasPdfs = (data.files?.length || 0) > 0
+      setHasCorpusPdfs(hasPdfs)
     } catch (error) {
       console.error('[Faculty Chat] Failed to check corpus PDFs:', error)
       setHasCorpusPdfs(false)
@@ -160,28 +148,18 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     if (!sessionId) return
 
     try {
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setUserName(data.user.name)
-        // Load TA mode if available
-        if (data.user.taMode) {
-          setTaMode(data.user.taMode)
-        } else {
-          // Load from API if not in session data
-          const userId = localStorage.getItem("userId")
-          if (userId) {
-            const taModeResponse = await fetch(`/api/users/ta-mode?userId=${userId}`)
-            if (taModeResponse.ok) {
-              const taModeData = await taModeResponse.json()
-              setTaMode(taModeData.taMode || 'normal')
-            }
-          }
+      const { authApi, usersApi } = await import("@/lib/flask-api-client")
+      const data = await authApi.getSession(sessionId)
+      setUserName(data.user.name)
+      // Load TA mode if available
+      const userId = localStorage.getItem("userId")
+      if (userId) {
+        try {
+          const taModeData = await usersApi.getTaMode(userId)
+          setTaMode(taModeData.taMode || 'normal')
+        } catch {
+          // If TA mode not available, use default
+          setTaMode('normal')
         }
       }
     } catch (error) {
@@ -191,10 +169,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
   const checkRAGStatus = async () => {
     try {
-      // Check RAG service status
-      const ragResponse = await fetch('/api/rag/status')
-      const ragData = ragResponse.ok ? await ragResponse.json() : { isAvailable: false }
-      
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const ragData = await chatApi.getRAGStatus()
       setRagStatus({
         isAvailable: ragData.isAvailable || false
       })
@@ -222,19 +198,19 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       if (isScrollingProgrammaticallyRef.current) {
         return
       }
-      
+
       const currentScrollTop = scrollElement.scrollTop
       // Only update if scroll position actually changed (user scrolled)
       if (currentScrollTop === lastScrollTop) {
         return
       }
       lastScrollTop = currentScrollTop
-      
+
       // Debounce to avoid too many updates
       if (scrollTimeout) {
         clearTimeout(scrollTimeout)
       }
-      
+
       scrollTimeout = setTimeout(() => {
         // This is user-initiated scrolling
         const isNear = isNearBottom(scrollElement)
@@ -317,17 +293,12 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     if (!userId) return
 
     try {
-      const response = await fetch(`/api/classes?facultyId=${userId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setClasses(data.classes || [])
-        // Auto-select first class if available
-        if (data.classes && data.classes.length > 0) {
-          setSelectedClassId(data.classes[0].id)
-        }
-      } else {
-        console.error("[v0] Failed to load classes:", response.status, response.statusText)
-        setClasses([])
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = await classesApi.getClasses(userId)
+      setClasses(data.classes || [])
+      // Auto-select first class if available
+      if (data.classes && data.classes.length > 0) {
+        setSelectedClassId(data.classes[0].id)
       }
     } catch (error) {
       console.error("[v0] Failed to load classes:", error)
@@ -338,7 +309,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   // Helper function to sanitize content chunks during streaming (optimized character whitelist)
   const sanitizeContentChunk = (content: string): string => {
     if (!content) return content
-    
+
     // Fast path: check if all ASCII (most common case)
     let hasNonASCII = false
     for (let i = 0; i < content.length; i++) {
@@ -348,45 +319,45 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       }
     }
     if (!hasNonASCII) return content // Early exit for ASCII-only
-    
+
     // Character whitelist filter (same as Python side)
     let result = ''
     for (let i = 0; i < content.length; i++) {
       const code = content.charCodeAt(i)
       // Allow: ASCII (0-127), safe Unicode ranges, and emojis
-      if (code <= 127 || 
-          (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
-          (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
-          (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
-          (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
-          (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
-          (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
-          (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
-          (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
-          (code >= 0x2600 && code <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
-          (code >= 0x2700 && code <= 0x27BF) ||  // Dingbats
-          (code >= 0x1F300 && code <= 0x1F9FF) || // Emoticons and Symbols
-          (code >= 0x1F600 && code <= 0x1F64F) || // Emoticons
-          (code >= 0x1F900 && code <= 0x1F9FF) || // Supplemental Symbols and Pictographs
-          (code >= 0x1FA00 && code <= 0x1FAFF) || // Symbols and Pictographs Extended-A
-          (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
-          (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
+      if (code <= 127 ||
+        (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
+        (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
+        (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
+        (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
+        (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
+        (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
+        (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
+        (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
+        (code >= 0x2600 && code <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
+        (code >= 0x2700 && code <= 0x27BF) ||  // Dingbats
+        (code >= 0x1F300 && code <= 0x1F9FF) || // Emoticons and Symbols
+        (code >= 0x1F600 && code <= 0x1F64F) || // Emoticons
+        (code >= 0x1F900 && code <= 0x1F9FF) || // Supplemental Symbols and Pictographs
+        (code >= 0x1FA00 && code <= 0x1FAFF) || // Symbols and Pictographs Extended-A
+        (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
+        (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
         result += content[i]
       }
       // Skip corrupted sequences but allow emojis
     }
-    
+
     // Clean up multiple spaces (but preserve newlines)
     result = result.replace(/[ \t]+/g, ' ')  // Collapse spaces/tabs only
     result = result.replace(/\n{3,}/g, '\n\n')  // Limit consecutive newlines to 2
-    
+
     return result
   }
 
   // Helper function to normalize timestamps from API response (JSON serializes Date to string)
   const normalizeConversation = (conversation: any): RAGConversation => {
     if (!conversation) return conversation
-    
+
     // Helper to safely parse a timestamp - only converts if valid, otherwise preserves original
     const safeParseTimestamp = (ts: any): Date => {
       if (ts instanceof Date) {
@@ -407,19 +378,19 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       console.warn('[Normalize] Failed to parse timestamp:', ts)
       return new Date(0) // Return epoch instead of current time
     }
-    
+
     return {
       ...conversation,
       createdAt: safeParseTimestamp(conversation.createdAt),
       updatedAt: safeParseTimestamp(conversation.updatedAt),
-      analyticsLastUpdated: conversation.analyticsLastUpdated 
+      analyticsLastUpdated: conversation.analyticsLastUpdated
         ? safeParseTimestamp(conversation.analyticsLastUpdated)
         : undefined,
-      messageHistory: Array.isArray(conversation.messageHistory) 
+      messageHistory: Array.isArray(conversation.messageHistory)
         ? conversation.messageHistory.map((msg: any) => ({
-            ...msg,
-            timestamp: safeParseTimestamp(msg.timestamp)
-          }))
+          ...msg,
+          timestamp: safeParseTimestamp(msg.timestamp)
+        }))
         : []
     }
   }
@@ -435,34 +406,27 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         return
       }
 
-      const url = `/api/chat/conversations?userId=${userId}&classId=${selectedClassId}&chatType=${chatType}`
-      
-      const response = await fetch(url)
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[v0] Conversations API response:", data)
-        
-        // Ensure conversations is an array and normalize timestamps
-        const conversations = Array.isArray(data.conversations) ? data.conversations : []
-        // Normalize all conversations to convert timestamp strings to Date objects
-        const normalizedConversations = conversations.map(conv => normalizeConversation(conv))
-        // Sort in reverse chronological order (newest first) - ChatGPT style
-        const sortedConversations = [...normalizedConversations].sort((a, b) => {
-          const dateA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : 
-                       (a.updatedAt ? new Date(a.updatedAt).getTime() : 
-                       (a.createdAt instanceof Date ? a.createdAt.getTime() : 
-                       (a.createdAt ? new Date(a.createdAt).getTime() : 0)))
-          const dateB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : 
-                       (b.updatedAt ? new Date(b.updatedAt).getTime() : 
-                       (b.createdAt instanceof Date ? b.createdAt.getTime() : 
-                       (b.createdAt ? new Date(b.createdAt).getTime() : 0)))
-          return dateB - dateA // Descending order (newest first)
-        })
-        setConversations(sortedConversations)
-      } else {
-        console.error("[v0] Failed to load conversations:", response.status, response.statusText)
-        setConversations([])
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.getConversations(userId, selectedClassId, chatType)
+      console.log("[v0] Conversations API response:", data)
+
+      // Ensure conversations is an array and normalize timestamps
+      const conversations = Array.isArray(data.conversations) ? data.conversations : []
+      // Normalize all conversations to convert timestamp strings to Date objects
+      const normalizedConversations = conversations.map(conv => normalizeConversation(conv))
+      // Sort in reverse chronological order (newest first) - ChatGPT style
+      const sortedConversations = [...normalizedConversations].sort((a, b) => {
+        const dateA = a.updatedAt instanceof Date ? a.updatedAt.getTime() :
+          (a.updatedAt ? new Date(a.updatedAt).getTime() :
+            (a.createdAt instanceof Date ? a.createdAt.getTime() :
+              (a.createdAt ? new Date(a.createdAt).getTime() : 0)))
+        const dateB = b.updatedAt instanceof Date ? b.updatedAt.getTime() :
+          (b.updatedAt ? new Date(b.updatedAt).getTime() :
+            (b.createdAt instanceof Date ? b.createdAt.getTime() :
+              (b.createdAt ? new Date(b.createdAt).getTime() : 0)))
+        return dateB - dateA // Descending order (newest first)
+      })
+      setConversations(sortedConversations)
     } catch (error) {
       console.error("[v0] Failed to load conversations:", error)
       setConversations([])
@@ -472,21 +436,17 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   const loadConversation = async (conversationId: string) => {
     try {
       console.log("[v0] Loading conversation:", conversationId)
-      const response = await fetch(`/api/chat/conversations/${conversationId}`)
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[v0] Loaded conversation data:", data)
-        console.log("[v0] Conversation messageHistory:", data.conversation?.messageHistory)
-        console.log("[v0] MessageHistory length:", data.conversation?.messageHistory?.length)
-        // Normalize timestamps from strings to Date objects
-        const normalizedConversation = normalizeConversation(data.conversation)
-        setCurrentConversation(normalizedConversation)
-        // Reset auto-scroll when loading a conversation
-        shouldAutoScrollRef.current = true
-        console.log("[v0] Current conversation set:", normalizedConversation?.id)
-      } else {
-        console.error("[v0] Failed to load conversation:", response.status, response.statusText)
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.getConversation(conversationId)
+      console.log("[v0] Loaded conversation data:", data)
+      console.log("[v0] Conversation messageHistory:", data.conversation?.messageHistory)
+      console.log("[v0] MessageHistory length:", data.conversation?.messageHistory?.length)
+      // Normalize timestamps from strings to Date objects
+      const normalizedConversation = normalizeConversation(data.conversation)
+      setCurrentConversation(normalizedConversation)
+      // Reset auto-scroll when loading a conversation
+      shouldAutoScrollRef.current = true
+      console.log("[v0] Current conversation set:", normalizedConversation?.id)
     } catch (error) {
       console.error("[v0] Failed to load conversation:", error)
     }
@@ -502,24 +462,15 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     }
 
     try {
-      const response = await fetch("/api/chat/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, classId: selectedClassId, chatType }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[v0] Created conversation response:", data)
-        // Normalize timestamps from strings to Date objects
-        const normalizedConversation = normalizeConversation(data.conversation)
-        setCurrentConversation(normalizedConversation)
-        // Reset auto-scroll when creating a new conversation
-        shouldAutoScrollRef.current = true
-        await loadConversations()
-      } else {
-        console.error("[v0] Failed to create conversation:", response.status, response.statusText)
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.createConversation({ userId, classId: selectedClassId, chatType, title: undefined })
+      console.log("[v0] Created conversation response:", data)
+      // Normalize timestamps from strings to Date objects
+      const normalizedConversation = normalizeConversation(data.conversation)
+      setCurrentConversation(normalizedConversation)
+      // Reset auto-scroll when creating a new conversation
+      shouldAutoScrollRef.current = true
+      await loadConversations()
     } catch (error) {
       console.error("[v0] Failed to create conversation:", error)
     }
@@ -537,18 +488,10 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     }
 
     try {
-      const response = await fetch(`/api/chat/conversations?conversationId=${conversationId}`, {
-        method: "DELETE",
-      })
-
-      if (response.ok) {
-        console.log("[v0] Conversation deleted successfully")
-        // Don't reload - optimistic update is sufficient and maintains order
-      } else {
-        // Revert optimistic update on error
-        console.error("[v0] Failed to delete conversation:", response.status, response.statusText)
-        loadConversations() // Reload to restore correct state
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      await chatApi.deleteConversation(conversationId)
+      console.log("[v0] Conversation deleted successfully")
+      // Don't reload - optimistic update is sufficient and maintains order
     } catch (error) {
       // Revert optimistic update on error
       console.error("[v0] Failed to delete conversation:", error)
@@ -570,7 +513,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     if (file.type.startsWith('image/')) return 'Image'
     if (file.type === 'application/pdf') return 'PDF'
     if (file.type.includes('document') || file.type.includes('word')) return 'Document'
-    
+
     // Check by file extension for better accuracy
     const ext = file.name.toLowerCase().split('.').pop() || ''
     if (ext === 'csv' || file.type === 'text/csv' || file.type === 'application/csv') return 'CSV'
@@ -584,7 +527,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     if (ext === 'css' || file.type === 'text/css') return 'CSS'
     if (['yaml', 'yml'].includes(ext) || file.type === 'text/yaml' || file.type === 'application/x-yaml') return 'YAML'
     if (file.type === 'text/plain' || ext === 'txt') return 'Text'
-    
+
     return 'File'
   }
 
@@ -637,7 +580,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   const removeAttachment = (index: number) => {
     const fileToRemove = attachments[index]
     setAttachments(prev => prev.filter((_, i) => i !== index))
-    
+
     // Clean up preview URL if it's an image
     const previewIndex = attachmentPreviews.findIndex(p => p.file === fileToRemove)
     if (previewIndex !== -1) {
@@ -652,7 +595,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   // Voice Input Handlers
   const startVoiceInput = async () => {
     voiceLogger.info('[Voice UI] 🎤 startVoiceInput called', { isVoiceSupported, isRecording })
-    
+
     if (!isVoiceSupported) {
       voiceLogger.warn('[Voice UI] ❌ Voice not supported')
       return
@@ -666,7 +609,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
     // Store the current input as base before starting
     baseInputRef.current = input
-    voiceLogger.info('[Voice UI] 📝 Base input stored', { 
+    voiceLogger.info('[Voice UI] 📝 Base input stored', {
       base: baseInputRef.current.substring(0, 50),
       baseLength: baseInputRef.current.length
     })
@@ -681,16 +624,16 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
             transcript: result.transcript.substring(0, 50),
             length: result.transcript.length
           })
-          
+
           if (result.isFinal) {
             // Final result - append to CURRENT base input (not accumulated)
             // The baseInputRef should already have all previous final results
             const currentBase = baseInputRef.current || ''
-            
+
             // Check if this transcript is already in the base to prevent duplicates
             const transcriptLower = result.transcript.trim().toLowerCase()
             const baseLower = currentBase.toLowerCase()
-            
+
             // Only append if this transcript is not already in the base
             let newText: string
             if (currentBase && baseLower.includes(transcriptLower)) {
@@ -702,7 +645,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               newText = currentBase // Keep existing base
             } else {
               // New transcript, append it
-              newText = currentBase 
+              newText = currentBase
                 ? `${currentBase} ${result.transcript}`.trim()
                 : result.transcript.trim()
               voiceLogger.info('[Voice UI] ✅ Final result - appending to base', {
@@ -711,7 +654,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 combined: newText.substring(0, 50)
               })
             }
-            
+
             setInput(newText)
             baseInputRef.current = newText // Update base for next final result
             // DON'T stop here - keep listening in continuous mode
@@ -719,7 +662,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           } else {
             // Interim result - show base input + latest interim (will be replaced by next interim or final)
             const currentBase = baseInputRef.current || ''
-            const displayText = currentBase 
+            const displayText = currentBase
               ? `${currentBase} ${result.transcript}`.trim()
               : result.transcript.trim()
             voiceLogger.info('[Voice UI] ⏳ Interim result - showing', {
@@ -864,7 +807,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         size: file.size
       })) : undefined
     }
-    
+
     // Update current conversation state immediately
     setCurrentConversation(prev => {
       if (!prev) return prev
@@ -889,7 +832,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         }, 500) // Increased timeout to account for smooth scroll animation
       }
     }, 0)
-    
+
     // If Deep Thinking Mode is enabled, scroll again when animation appears
     if (deepThinking) {
       // Scroll after a short delay to ensure animation is rendered
@@ -910,14 +853,14 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     try {
       console.log("[v0] Starting fetch request to /api/chat/ai-response")
       console.log("[v0] Request body:", { message: userMessage, userId, sessionId: currentConversation.id })
-      
+
       // Capture timestamp BEFORE sending request - this will be used for the assistant message
       const assistantMessageTimestamp = new Date()
-      
+
       // Send message and get AI response with timeout
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
-      
+
       // Prepare FormData if we have attachments, otherwise use JSON
       let requestBody: FormData | string
       let headers: HeadersInit
@@ -934,11 +877,11 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         formData.append('stream', 'true')
         formData.append('deepThinking', deepThinking.toString())
         formData.append('assistantMessageTimestamp', assistantMessageTimestamp.toISOString())
-        
+
         messageAttachments.forEach((file) => {
           formData.append(`attachments`, file)
         })
-        
+
         requestBody = formData
         headers = {} // Let browser set Content-Type for FormData
       } else {
@@ -957,12 +900,90 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         headers = { "Content-Type": "application/json" }
       }
 
-      const response = await fetch("/api/chat/ai-response", {
-        method: "POST",
-        headers,
-        body: requestBody,
-        signal: controller.signal
-      })
+      // Use Flask API client for non-streaming, direct fetch for streaming
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const FLASK_API_URL = process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5000'
+
+      let response: Response
+      // Always use streaming mode since we set stream: true in request body
+      const useStreaming = true
+      if (useStreaming) {
+        // For streaming, use direct fetch
+        const sessionId = localStorage.getItem('sessionId')
+        const fetchHeaders: HeadersInit = {
+          "Content-Type": "application/json",
+        }
+        if (sessionId) {
+          fetchHeaders['X-Session-Id'] = sessionId
+        }
+
+        response = await fetch(`${FLASK_API_URL}/api/chat/ai-response`, {
+          method: "POST",
+          headers: fetchHeaders,
+          body: requestBody,
+          signal: controller.signal
+        })
+      } else {
+        // For non-streaming, use API client
+        const result = await chatApi.sendMessage({
+          userId,
+          sessionId: currentConversation.id,
+          message: userMessage,
+          classId: selectedClassId,
+          chatType,
+          preferredModel,
+          stream: false,
+          deepThinking,
+        })
+
+        // Handle non-streaming response (similar to student-chat-interface)
+        if (result.response) {
+          const userMessageTimestampNow = new Date()
+          const userMessageObj = {
+            role: "user" as const,
+            content: userMessage,
+            timestamp: userMessageTimestampNow,
+          }
+
+          const assistantMessageObj = {
+            role: "assistant" as const,
+            content: result.response,
+            timestamp: assistantMessageTimestamp,
+            metadata: {
+              modelUsed: result.modelUsed || preferredModel,
+              timeTaken: result.timeTaken || 0,
+              success: true
+            }
+          }
+
+          setCurrentConversation(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              messageHistory: [...(prev.messageHistory || []), userMessageObj, assistantMessageObj]
+            }
+          })
+
+          setLoading(false)
+          return
+        }
+
+        // Fallback to fetch if API client doesn't handle it
+        const sessionId = localStorage.getItem('sessionId')
+        const fetchHeaders: HeadersInit = {
+          "Content-Type": "application/json",
+        }
+        if (sessionId) {
+          fetchHeaders['X-Session-Id'] = sessionId
+        }
+
+        response = await fetch(`${FLASK_API_URL}/api/chat/ai-response`, {
+          method: "POST",
+          headers: fetchHeaders,
+          body: requestBody,
+          signal: controller.signal
+        })
+      }
 
       clearTimeout(timeoutId)
       console.log("[v0] Fetch request started, status:", response.status)
@@ -972,7 +993,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         const contentType = response.headers.get('content-type')
         if (contentType?.includes('text/event-stream')) {
           console.log("[v0] Streaming response detected")
-          
+
           // Create placeholder for assistant message - use the same timestamp we sent to backend
           const assistantMessageObj = {
             role: "assistant" as const,
@@ -980,7 +1001,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
             timestamp: assistantMessageTimestamp,
             metadata: { timeToFirstToken: null }
           }
-          
+
           // Add empty assistant message that we'll update
           setCurrentConversation(prev => {
             if (!prev) return prev
@@ -989,42 +1010,42 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               messageHistory: [...(prev.messageHistory || []), assistantMessageObj]
             }
           })
-          
+
           // Hide loading indicator now that we're streaming the response
           setLoading(false)
-          
+
           // Read the stream
           const reader = response.body?.getReader()
           const decoder = new TextDecoder()
           let accumulatedResponse = '' // Declare outside the if block so it's accessible later
           let capturedModelUsed: string | undefined = undefined // Capture modelUsed from done event
-          
+
           if (reader) {
             while (true) {
               const { done, value } = await reader.read()
               if (done) break
-              
+
               const chunk = decoder.decode(value)
               const lines = chunk.split('\n').filter(line => line.trim() !== '')
-              
+
               for (const line of lines) {
                 if (line.startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.slice(6))
-                    
+
                     if (data.content) {
                       // Sanitize content immediately to remove corrupted emojis
                       const sanitizedChunk = sanitizeContentChunk(data.content)
-                      
+
                       // Track time to first token (only once)
                       if (firstTokenTimestamp === null && sanitizedChunk.trim()) {
                         firstTokenTimestamp = Date.now()
                         const ttft = firstTokenTimestamp - sendTimestamp
                         console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
                       }
-                      
+
                       accumulatedResponse += sanitizedChunk
-                      
+
                       // Update the last message (assistant) with new content
                       setCurrentConversation(prev => {
                         if (!prev) return prev
@@ -1042,7 +1063,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                         }
                         return { ...prev, messageHistory: messages }
                       })
-                      
+
                       // Auto-scroll only if user is at bottom - always check position during streaming
                       if (scrollRef.current) {
                         const element = scrollRef.current
@@ -1069,45 +1090,45 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                         }
                       }
                     }
-                    
+
                     if (data.done) {
                       console.log("[v0] Streaming completed, modelUsed:", data.modelUsed, "Final content length:", accumulatedResponse.length)
-                      
+
                       // Capture modelUsed from done event
                       if (data.modelUsed) {
                         capturedModelUsed = data.modelUsed
                       }
-                      
+
                       // Use the formatted response from the done event (includes emojis)
                       // If data.content is provided, it's the final formatted response from Python
                       const finalFormattedContent = data.content || accumulatedResponse
-                      
+
                       console.log("[v0] Final formatted content length:", finalFormattedContent.length)
                       console.log("[v0] Final formatted content preview:", finalFormattedContent.substring(0, 200))
-                      
+
                       // Update the message with the final formatted content (includes emojis)
-                        setCurrentConversation(prev => {
-                          if (!prev) return prev
-                          const messages = [...(prev.messageHistory || [])]
-                          if (messages.length > 0) {
-                            const lastMsg = messages[messages.length - 1]
-                            if (lastMsg.role === 'assistant') {
-                              messages[messages.length - 1] = {
-                                ...lastMsg,
+                      setCurrentConversation(prev => {
+                        if (!prev) return prev
+                        const messages = [...(prev.messageHistory || [])]
+                        if (messages.length > 0) {
+                          const lastMsg = messages[messages.length - 1]
+                          if (lastMsg.role === 'assistant') {
+                            messages[messages.length - 1] = {
+                              ...lastMsg,
                               content: finalFormattedContent, // Use formatted response with emojis
-                                metadata: {
-                                  ...lastMsg.metadata,
-                                  modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed
-                                }
+                              metadata: {
+                                ...lastMsg.metadata,
+                                modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed
                               }
                             }
                           }
-                          return { ...prev, messageHistory: messages }
-                        })
-                      
+                        }
+                        return { ...prev, messageHistory: messages }
+                      })
+
                       // Update accumulatedResponse for consistency
                       accumulatedResponse = finalFormattedContent
-                      
+
                       // Don't break here - continue reading until stream is done
                       // The break will happen when reader.read() returns done=true
                     }
@@ -1118,13 +1139,13 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               }
             }
           }
-          
+
           // Calculate total response time (send to last token)
           const lastTokenTimestamp = Date.now()
           const totalResponseTime = lastTokenTimestamp - sendTimestamp
           const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
           console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
-          
+
           // Update the final message with metadata - NO RELOAD to prevent timestamp blink
           // The backend already saved the message, we just need to update metadata in state
           setCurrentConversation(prev => {
@@ -1148,14 +1169,14 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
             }
             return { ...prev, messageHistory: messages }
           })
-          
+
           // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
           loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
         } else {
           // Non-streaming response (fallback)
           const responseData = await response.json()
           console.log("[v0] Non-streaming AI response received:", responseData)
-          
+
           // Reload the conversation to get the complete updated messages from database
           console.log("[v0] Reloading conversation:", currentConversation.id)
           await loadConversation(currentConversation.id)
@@ -1184,26 +1205,26 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     }
 
     // Get class name
-    const className = selectedClassId === 'entire-corpus' 
-      ? 'Entire Corpus' 
+    const className = selectedClassId === 'entire-corpus'
+      ? 'Entire Corpus'
       : classes.find(c => c.id === selectedClassId)?.name || 'Unknown Class'
-    
+
     // Format chat type
     const chatTypeFormatted = chatType === 'class_material' ? 'Class Material' : 'Syllabus/Schedule'
-    
+
     // Format date and time
     const startDate = new Date(currentConversation.createdAt)
-    const formattedDate = startDate.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    const formattedDate = startDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     })
-    const formattedTime = startDate.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    const formattedTime = startDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
       hour12: true
     })
-    
+
     // Build the export content
     let exportContent = `LearnBOT Chat Export\n`
     exportContent += `${'='.repeat(80)}\n\n`
@@ -1214,20 +1235,20 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     exportContent += `Time Started: ${formattedTime}\n`
     exportContent += `Conversation Title: ${currentConversation.title}\n`
     exportContent += `\n${'='.repeat(80)}\n\n`
-    
+
     // Add messages
     if (currentConversation.messageHistory && currentConversation.messageHistory.length > 0) {
       currentConversation.messageHistory.forEach((message, index) => {
         const role = message.role === 'user' ? '[USER]' : '[AI TA]'
-        const timestamp = new Date(message.timestamp).toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
+        const timestamp = new Date(message.timestamp).toLocaleTimeString('en-US', {
+          hour: '2-digit',
           minute: '2-digit',
           hour12: true
         })
-        
+
         exportContent += `${role} (${timestamp})\n`
         exportContent += `${message.content}\n\n`
-        
+
         // Add separator between messages (except last one)
         if (index < currentConversation.messageHistory.length - 1) {
           exportContent += `${'-'.repeat(80)}\n\n`
@@ -1236,23 +1257,23 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     } else {
       exportContent += `No messages in this conversation.\n`
     }
-    
+
     exportContent += `\n${'='.repeat(80)}\n`
     exportContent += `End of Chat Export\n`
     exportContent += `Total Messages: ${currentConversation.messageHistory?.length || 0}\n`
-    
+
     // Create blob and download
     const blob = new Blob([exportContent], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    
+
     // Create filename: LearnBOT_ClassName_Date_Time.txt
     const sanitizedClassName = className.replace(/[^a-z0-9]/gi, '_')
     const dateStr = startDate.toISOString().split('T')[0]
     const timeStr = startDate.toTimeString().split(' ')[0].replace(/:/g, '-')
     link.download = `LearnBOT_${sanitizedClassName}_${dateStr}_${timeStr}.txt`
-    
+
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -1308,266 +1329,253 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
             <PanelLeftClose className="h-4 w-4" />
           </Button>
         )}
-        
-        <div className="p-4 overflow-y-auto flex-1">
-        <div className="space-y-4 mb-4">
-          {/* Model Selection */}
-          <div className="space-y-2">
-            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-              <Zap className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-              Select Model
-            </label>
-            <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
-                <SelectValue placeholder="Choose a model..." />
-              </SelectTrigger>
-              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude 4.5 Haiku</SelectItem>
-                <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🚀 Remote A6000 (Gemma 27B)</SelectItem>
-                <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>⚡ Remote Blackwell (Gemma 27B)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
 
-          {/* TA Mode Selection */}
-          <div className="space-y-2">
-            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-              <Bot className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-              TA Mode
-            </label>
-            <div className={`flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-              <button
-                type="button"
-                onClick={async () => {
-                  const newMode: 'lenient' | 'normal' | 'strict' = 'lenient'
-                  setTaMode(newMode)
-                  const userId = localStorage.getItem("userId")
-                  if (userId) {
-                    try {
-                      await fetch('/api/users/ta-mode', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId, taMode: newMode })
-                      })
-                    } catch (error) {
-                      console.error('Failed to update TA mode:', error)
+        <div className="p-4 overflow-y-auto flex-1">
+          <div className="space-y-4 mb-4">
+            {/* Model Selection */}
+            <div className="space-y-2">
+              <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                <Zap className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                Select Model
+              </label>
+              <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
+                <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
+                  <SelectValue placeholder="Choose a model..." />
+                </SelectTrigger>
+                <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude 4.5 Haiku</SelectItem>
+                  <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🚀 Remote A6000 (Gemma 27B)</SelectItem>
+                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>⚡ Remote Blackwell (Gemma 27B)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* TA Mode Selection */}
+            <div className="space-y-2">
+              <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                <Bot className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                TA Mode
+              </label>
+              <div className={`flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const newMode: 'lenient' | 'normal' | 'strict' = 'lenient'
+                    setTaMode(newMode)
+                    const userId = localStorage.getItem("userId")
+                    if (userId) {
+                      try {
+                        const { usersApi } = await import("@/lib/flask-api-client")
+                        await usersApi.updateTaMode(userId, newMode)
+                      } catch (error) {
+                        console.error('Failed to update TA mode:', error)
+                      }
                     }
-                  }
-                }}
-                className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${
-                  taMode === 'lenient'
+                  }}
+                  className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${taMode === 'lenient'
                     ? isDarkMode
                       ? 'bg-green-600 text-white'
                       : 'bg-green-500 text-white'
                     : isDarkMode
-                    ? 'text-gray-300 hover:bg-gray-600'
-                    : 'text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Lenient
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const newMode: 'lenient' | 'normal' | 'strict' = 'normal'
-                  setTaMode(newMode)
-                  const userId = localStorage.getItem("userId")
-                  if (userId) {
-                    try {
-                      await fetch('/api/users/ta-mode', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId, taMode: newMode })
-                      })
-                    } catch (error) {
-                      console.error('Failed to update TA mode:', error)
+                      ? 'text-gray-300 hover:bg-gray-600'
+                      : 'text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                  Lenient
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const newMode: 'lenient' | 'normal' | 'strict' = 'normal'
+                    setTaMode(newMode)
+                    const userId = localStorage.getItem("userId")
+                    if (userId) {
+                      try {
+                        const { usersApi } = await import("@/lib/flask-api-client")
+                        await usersApi.updateTaMode(userId, newMode)
+                      } catch (error) {
+                        console.error('Failed to update TA mode:', error)
+                      }
                     }
-                  }
-                }}
-                className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${
-                  taMode === 'normal'
+                  }}
+                  className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${taMode === 'normal'
                     ? isDarkMode
                       ? 'bg-blue-600 text-white'
                       : 'bg-blue-500 text-white'
                     : isDarkMode
-                    ? 'text-gray-300 hover:bg-gray-600'
-                    : 'text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Normal
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const newMode: 'lenient' | 'normal' | 'strict' = 'strict'
-                  setTaMode(newMode)
-                  const userId = localStorage.getItem("userId")
-                  if (userId) {
-                    try {
-                      await fetch('/api/users/ta-mode', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId, taMode: newMode })
-                      })
-                    } catch (error) {
-                      console.error('Failed to update TA mode:', error)
+                      ? 'text-gray-300 hover:bg-gray-600'
+                      : 'text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const newMode: 'lenient' | 'normal' | 'strict' = 'strict'
+                    setTaMode(newMode)
+                    const userId = localStorage.getItem("userId")
+                    if (userId) {
+                      try {
+                        const { usersApi } = await import("@/lib/flask-api-client")
+                        await usersApi.updateTaMode(userId, newMode)
+                      } catch (error) {
+                        console.error('Failed to update TA mode:', error)
+                      }
                     }
-                  }
-                }}
-                className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${
-                  taMode === 'strict'
+                  }}
+                  className={`flex-1 px-3 py-2 text-xs font-medium rounded transition-colors ${taMode === 'strict'
                     ? isDarkMode
                       ? 'bg-red-600 text-white'
                       : 'bg-red-500 text-white'
                     : isDarkMode
-                    ? 'text-gray-300 hover:bg-gray-600'
-                    : 'text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Strict
-              </button>
-            </div>
-            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-              {taMode === 'lenient' && 'More forgiving - accepts partial understanding'}
-              {taMode === 'normal' && 'Balanced - standard checkpoint requirements'}
-              {taMode === 'strict' && 'Very strict - requires complete, precise understanding'}
-            </p>
-          </div>
-
-          {/* Class Selection */}
-          <div className="space-y-2">
-            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-              <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-              Select Class
-            </label>
-            <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
-                <SelectValue placeholder="Choose a class..." />
-              </SelectTrigger>
-              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                {/* Entire Corpus Option */}
-                <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                  <div className="flex items-center gap-2">
-                    <span className={`font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
-                  </div>
-                </SelectItem>
-                {classes.length > 0 && (
-                  <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Individual Classes
-                  </div>
-                )}
-                {classes.map((classItem) => (
-                  <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                    {classItem.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Chat Type Selection */}
-          <div className="space-y-2">
-            <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-              Chat Type
-            </label>
-            <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
-              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="h-4 w-4" />
-                    <span>Class Material</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    <span>Syllabus/Schedule</span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Chat Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Chats</h2>
-              {/* AI Status Indicator */}
-              <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                <Bot className="h-3 w-3" />
-                {ragStatus.isAvailable ? (
-                  <div className="flex items-center gap-1 text-green-600">
-                    <Wifi className="h-2 w-2" />
-                    <span className="text-xs">RAG</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 text-orange-600">
-                    <WifiOff className="h-2 w-2" />
-                    <span className="text-xs">Fallback</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <Button size="sm" onClick={createNewConversation} disabled={!selectedClassId}>
-              <Plus className="h-4 w-4 mr-1" />
-              New
-            </Button>
-          </div>
-        </div>
-        <div className="mt-4 flex-1 overflow-y-auto">
-          <div className="space-y-2 pr-2">
-            {!selectedClassId ? (
-              <div className="text-center py-8">
-                <BookOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                <p className="text-sm text-muted-foreground mb-2">Select a class to view conversations</p>
-                <p className="text-xs text-muted-foreground">Choose a class from the dropdown above to see its chat history</p>
-              </div>
-            ) : !conversations || conversations.length === 0 ? (
-              <div className="text-center py-8">
-                <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                <p className="text-sm text-muted-foreground mb-2">No conversations yet for this class</p>
-                <p className="text-xs text-muted-foreground">Start a new conversation to begin chatting</p>
-              </div>
-            ) : (
-              conversations.map((conversation) => (
-                <Card
-                  key={conversation.id}
-                  className={`p-3 cursor-pointer hover:bg-accent transition-colors group ${
-                    currentConversation?.id === conversation.id ? "bg-accent" : ""
-                  }`}
-                  onClick={() => loadConversation(conversation.id)}
+                      ? 'text-gray-300 hover:bg-gray-600'
+                      : 'text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0 pr-2">
-                      <p className="font-medium text-sm truncate w-full">{conversation.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1 truncate">
-                        {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory.length} messages
-                      </p>
-                      {conversation.currentTopic && (
-                        <p className="text-xs text-indigo-600 mt-1 truncate">Topic: {conversation.currentTopic}</p>
-                      )}
+                  Strict
+                </button>
+              </div>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {taMode === 'lenient' && 'More forgiving - accepts partial understanding'}
+                {taMode === 'normal' && 'Balanced - standard checkpoint requirements'}
+                {taMode === 'strict' && 'Very strict - requires complete, precise understanding'}
+              </p>
+            </div>
+
+            {/* Class Selection */}
+            <div className="space-y-2">
+              <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                Select Class
+              </label>
+              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
+                  <SelectValue placeholder="Choose a class..." />
+                </SelectTrigger>
+                <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                  {/* Entire Corpus Option */}
+                  <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 w-6 p-0 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100 text-red-600 hover:text-red-700"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteConversation(conversation.id)
-                      }}
-                      title="Delete conversation permanently"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </Card>
-              ))
-            )}
+                  </SelectItem>
+                  {classes.length > 0 && (
+                    <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Individual Classes
+                    </div>
+                  )}
+                  {classes.map((classItem) => (
+                    <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                      {classItem.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Chat Type Selection */}
+            <div className="space-y-2">
+              <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                Chat Type
+              </label>
+              <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+                <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                  <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="h-4 w-4" />
+                      <span>Class Material</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      <span>Syllabus/Schedule</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Chat Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Chats</h2>
+                {/* AI Status Indicator */}
+                <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                  <Bot className="h-3 w-3" />
+                  {ragStatus.isAvailable ? (
+                    <div className="flex items-center gap-1 text-green-600">
+                      <Wifi className="h-2 w-2" />
+                      <span className="text-xs">RAG</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 text-orange-600">
+                      <WifiOff className="h-2 w-2" />
+                      <span className="text-xs">Fallback</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Button size="sm" onClick={createNewConversation} disabled={!selectedClassId}>
+                <Plus className="h-4 w-4 mr-1" />
+                New
+              </Button>
+            </div>
           </div>
-        </div>
+          <div className="mt-4 flex-1 overflow-y-auto">
+            <div className="space-y-2 pr-2">
+              {!selectedClassId ? (
+                <div className="text-center py-8">
+                  <BookOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-sm text-muted-foreground mb-2">Select a class to view conversations</p>
+                  <p className="text-xs text-muted-foreground">Choose a class from the dropdown above to see its chat history</p>
+                </div>
+              ) : !conversations || conversations.length === 0 ? (
+                <div className="text-center py-8">
+                  <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-sm text-muted-foreground mb-2">No conversations yet for this class</p>
+                  <p className="text-xs text-muted-foreground">Start a new conversation to begin chatting</p>
+                </div>
+              ) : (
+                conversations.map((conversation) => (
+                  <Card
+                    key={conversation.id}
+                    className={`p-3 cursor-pointer hover:bg-accent transition-colors group ${currentConversation?.id === conversation.id ? "bg-accent" : ""
+                      }`}
+                    onClick={() => loadConversation(conversation.id)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0 pr-2">
+                        <p className="font-medium text-sm truncate w-full">{conversation.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1 truncate">
+                          {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory.length} messages
+                        </p>
+                        {conversation.currentTopic && (
+                          <p className="text-xs text-indigo-600 mt-1 truncate">Topic: {conversation.currentTopic}</p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100 text-red-600 hover:text-red-700"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteConversation(conversation.id)
+                        }}
+                        title="Delete conversation permanently"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1611,16 +1619,16 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 </>
               ) : (
                 <>
-              <p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                {selectedClassId 
-                  ? `Use the AI assistant to help with ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}`
-                  : "Select a class to start chatting with the AI assistant"
-                }
-              </p>
+                  <p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {selectedClassId
+                      ? `Use the AI assistant to help with ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}`
+                      : "Select a class to start chatting with the AI assistant"
+                    }
+                  </p>
                   <Button size="lg" onClick={createNewConversation} disabled={!selectedClassId || hasCorpusPdfs === false}>
-                <Plus className="h-5 w-5 mr-2" />
-                New Chat
-              </Button>
+                    <Plus className="h-5 w-5 mr-2" />
+                    New Chat
+                  </Button>
                 </>
               )}
             </div>
@@ -1660,19 +1668,17 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 {loading && !isDeepThinking && (
                   <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex-shrink-0">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        isDarkMode 
-                          ? 'bg-white/10 border border-white/20'
-                          : 'bg-gradient-to-br from-emerald-400 to-teal-500'
-                      } shadow-lg`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isDarkMode
+                        ? 'bg-white/10 border border-white/20'
+                        : 'bg-gradient-to-br from-emerald-400 to-teal-500'
+                        } shadow-lg`}>
                         <Bot className="w-4 h-4 text-white" />
                       </div>
                     </div>
-                    <div className={`flex-1 max-w-[85%] rounded-2xl px-5 py-4 ${
-                      isDarkMode
-                        ? 'bg-transparent'
-                        : 'bg-white border border-gray-200'
-                    } shadow-lg`}>
+                    <div className={`flex-1 max-w-[85%] rounded-2xl px-5 py-4 ${isDarkMode
+                      ? 'bg-transparent'
+                      : 'bg-white border border-gray-200'
+                      } shadow-lg`}>
                       <div className="flex gap-2">
                         <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-white/40' : 'bg-gray-400'}`}></div>
                         <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-white/40' : 'bg-gray-400'}`} style={{ animationDelay: '0.2s' }}></div>
@@ -1693,33 +1699,31 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                       const isImage = file.type.startsWith('image/')
                       const category = getFileCategory(file)
                       const fileSize = formatFileSize(file.size)
-                      
+
                       return (
-                        <div 
-                          key={index} 
-                          className={`relative group rounded-lg border overflow-hidden transition-all hover:shadow-md ${
-                            isDarkMode 
-                              ? 'bg-gray-900 border-gray-700' 
-                              : 'bg-white border-gray-300'
-                          }`}
+                        <div
+                          key={index}
+                          className={`relative group rounded-lg border overflow-hidden transition-all hover:shadow-md ${isDarkMode
+                            ? 'bg-gray-900 border-gray-700'
+                            : 'bg-white border-gray-300'
+                            }`}
                           style={{ width: isImage ? '140px' : '200px' }}
                         >
                           {isImage ? (
                             <>
                               {/* Image Thumbnail */}
                               <div className="relative w-full h-32 bg-gray-100">
-                                <img 
-                                  src={preview} 
-                                  alt={file.name} 
-                                  className="w-full h-full object-cover" 
+                                <img
+                                  src={preview}
+                                  alt={file.name}
+                                  className="w-full h-full object-cover"
                                 />
                                 {/* Category Badge */}
                                 <div className="absolute top-2 left-2">
-                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                                    isDarkMode 
-                                      ? 'bg-blue-600/90 text-white' 
-                                      : 'bg-blue-500 text-white'
-                                  }`}>
+                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${isDarkMode
+                                    ? 'bg-blue-600/90 text-white'
+                                    : 'bg-blue-500 text-white'
+                                    }`}>
                                     {category}
                                   </span>
                                 </div>
@@ -1734,14 +1738,12 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                               </div>
                               {/* Image Info */}
                               <div className={`p-2 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
-                                <p className={`text-xs font-medium truncate mb-0.5 ${
-                                  isDarkMode ? 'text-white' : 'text-gray-900'
-                                }`}>
+                                <p className={`text-xs font-medium truncate mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'
+                                  }`}>
                                   {file.name}
                                 </p>
-                                <p className={`text-xs ${
-                                  isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                                }`}>
+                                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                  }`}>
                                   {fileSize}
                                 </p>
                               </div>
@@ -1752,34 +1754,29 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                               <div className={`p-2 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
                                 <div className="flex items-center gap-2">
                                   {/* File Icon */}
-                                  <div className={`flex-shrink-0 w-8 h-8 rounded flex items-center justify-center ${
-                                    isDarkMode 
-                                      ? 'bg-gray-800 border border-gray-700' 
-                                      : 'bg-gray-100 border border-gray-200'
-                                  }`}>
-                                    <File className={`h-4 w-4 ${
-                                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                                    }`} />
+                                  <div className={`flex-shrink-0 w-8 h-8 rounded flex items-center justify-center ${isDarkMode
+                                    ? 'bg-gray-800 border border-gray-700'
+                                    : 'bg-gray-100 border border-gray-200'
+                                    }`}>
+                                    <File className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                      }`} />
                                   </div>
                                   {/* File Info */}
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1.5 mb-0.5">
-                                      <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                                        isDarkMode 
-                                          ? 'bg-purple-600/90 text-white' 
-                                          : 'bg-purple-500 text-white'
-                                      }`}>
+                                      <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${isDarkMode
+                                        ? 'bg-purple-600/90 text-white'
+                                        : 'bg-purple-500 text-white'
+                                        }`}>
                                         {category}
                                       </span>
                                     </div>
-                                    <p className={`text-xs font-medium truncate ${
-                                      isDarkMode ? 'text-white' : 'text-gray-900'
-                                    }`}>
+                                    <p className={`text-xs font-medium truncate ${isDarkMode ? 'text-white' : 'text-gray-900'
+                                      }`}>
                                       {file.name}
                                     </p>
-                                    <p className={`text-xs ${
-                                      isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                                    }`}>
+                                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                      }`}>
                                       {fileSize}
                                     </p>
                                   </div>
@@ -1800,7 +1797,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     })}
                   </div>
                 )}
-                
+
                 <div className="flex gap-2 items-end">
                   {/* File Upload Button - Pin Icon */}
                   <input
@@ -1822,7 +1819,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   >
                     <Paperclip className="h-4 w-4" />
                   </Button>
-                  
+
                   {/* Deep Thinking Mode - Brain Icon */}
                   <Button
                     type="button"
@@ -1835,18 +1832,18 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   >
                     <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
                   </Button>
-                  
-                <Textarea
-                  ref={textareaRef}
+
+                  <Textarea
+                    ref={textareaRef}
                     placeholder={hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? "No PDFs uploaded for this class..." : "Type your message... (Shift+Enter for new line)"}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyPress}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyPress}
                     disabled={loading || hasCorpusPdfs === false}
-                  className="flex-1 min-h-[44px] max-h-[200px] resize-none overflow-y-auto"
-                  rows={1}
-                />
-                  
+                    className="flex-1 min-h-[44px] max-h-[200px] resize-none overflow-y-auto"
+                    rows={1}
+                  />
+
                   {/* Voice Input Button */}
                   {isVoiceSupported && (
                     <div className="flex items-center gap-2">
@@ -1864,10 +1861,10 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                       </Button>
                     </div>
                   )}
-                  
+
                   <Button onClick={sendMessage} disabled={loading || (!input.trim() && attachments.length === 0) || hasCorpusPdfs === false} className="h-[44px]">
-                  <Send className="h-4 w-4" />
-                </Button>
+                    <Send className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </div>

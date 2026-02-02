@@ -2,25 +2,73 @@ import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import fs from "fs"
 import { spawn } from "child_process"
-import { getClassById } from "@/lib/db-service"
+import { getClassById, getCorpusFilesByClass } from "@/lib/db-service"
 import { VectorStoreManager } from "@/lib/vector-store-manager"
+import { pool } from "@/lib/db"
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const classId = searchParams.get("classId")
     const materialType = searchParams.get("materialType") || "class_material"
+    const studentId = searchParams.get("studentId") // Optional: check enrollment if provided
     const isSyllabus = materialType === "syllabus"
     
     if (!classId) {
       return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
     }
 
+    // Check student enrollment if studentId is provided
+    if (studentId) {
+      const client = await pool.connect()
+      try {
+        const enrollmentResult = await client.query(
+          'SELECT 1 FROM class_students WHERE class_id = $1 AND student_id = $2',
+          [classId, studentId]
+        )
+        if (enrollmentResult.rows.length === 0) {
+          return NextResponse.json({ 
+            pdfCount: 0, 
+            chunkCount: 0, 
+            isEnrolled: false,
+            hasIndexedFiles: false,
+            canChat: false 
+          })
+        }
+      } finally {
+        client.release()
+      }
+    }
+
+    // Check database for indexed files (more accurate than file system)
+    const corpusFiles = await getCorpusFilesByClass(classId, materialType as 'class_material' | 'syllabus')
+    const indexedFiles = corpusFiles.filter(file => file.isIndexed)
+    const hasIndexedFiles = indexedFiles.length > 0
+    const totalChunks = indexedFiles.reduce((sum, file) => sum + (file.chunkCount || 0), 0)
+
+    // If we have indexed files in the database, return that (most accurate)
+    if (hasIndexedFiles) {
+      return NextResponse.json({ 
+        pdfCount: indexedFiles.length, 
+        chunkCount: totalChunks,
+        isEnrolled: studentId ? true : undefined,
+        hasIndexedFiles: true,
+        canChat: true
+      })
+    }
+
+    // Fallback to file system check if no database records found
     const cls = await getClassById(classId)
     const vectorStoreFolder = isSyllabus ? cls?.syllabusVectorStoreFolder : cls?.vectorStoreFolder
     
     if (!vectorStoreFolder) {
-      return NextResponse.json({ pdfCount: 0, chunkCount: 0 })
+      return NextResponse.json({ 
+        pdfCount: 0, 
+        chunkCount: 0,
+        isEnrolled: studentId ? true : undefined,
+        hasIndexedFiles: false,
+        canChat: false
+      })
     }
 
     const basePath = VectorStoreManager.getVectorStorePathByFolder(vectorStoreFolder)
@@ -107,7 +155,13 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    return NextResponse.json({ pdfCount, chunkCount })
+    return NextResponse.json({ 
+      pdfCount, 
+      chunkCount,
+      isEnrolled: studentId ? true : undefined,
+      hasIndexedFiles: chunkCount > 0,
+      canChat: chunkCount > 0
+    })
   } catch (error) {
     console.error("Corpus stats error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
