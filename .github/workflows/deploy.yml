@@ -210,6 +210,12 @@ jobs:
             exit 0
           fi
 
+          # If Qdrant is already healthy on 6333 (e.g. from PROD or other env), skip start
+          if curl -sf http://localhost:6333/health >/dev/null 2>&1; then
+            echo "✅ Qdrant already running on port 6333 - skipping start"
+            exit 0
+          fi
+
           # Prefer Docker Compose V2, fallback to V1
           COMPOSE_CMD="docker compose"
           command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 || COMPOSE_CMD="docker-compose"
@@ -219,7 +225,15 @@ jobs:
           sudo docker stop learnbot-qdrant 2>/dev/null || true
           sudo docker rm -f learnbot-qdrant 2>/dev/null || true
           sleep 2
-          sudo $COMPOSE_CMD up -d qdrant
+          if ! sudo $COMPOSE_CMD up -d qdrant 2>&1; then
+            # Port already allocated = another env (e.g. PROD) is using Qdrant; treat as OK if healthy
+            if curl -sf http://localhost:6333/health >/dev/null 2>&1; then
+              echo "✅ Port 6333 in use but Qdrant is healthy - continuing (shared Qdrant)"
+              exit 0
+            fi
+            echo "❌ Qdrant start failed and port 6333 not healthy"
+            exit 1
+          fi
           sleep 5
           if curl -f http://localhost:6333/health >/dev/null 2>&1; then
             echo "✅ Qdrant is healthy"
