@@ -46,18 +46,18 @@ jobs:
 
           case "$DEPLOY_ENV" in
             PROD)
-              REPO_DIR="/var/www/LearnBot-UI"
+              REPO_DIR="/var/www/Learnbot-UI"
               PM2_NAMESPACE="prod"
-              LOG_DIR="/var/www/LearnBot-UI/logs"
+              LOG_DIR="/var/www/Learnbot-UI/logs"
               UI_PORT=3030
               PM2_ENV_FLAG="--env production"
               APP_NAME="learnbot-ui"
               DEFAULT_BRANCH="main"
               ;;
             UAT)
-              REPO_DIR="/var/www/LearnBot-UI-UAT"
+              REPO_DIR="/var/www/Learnbot-UI-UAT"
               PM2_NAMESPACE="uat"
-              LOG_DIR="/var/www/LearnBot-UI-UAT/logs"
+              LOG_DIR="/var/www/Learnbot-UI-UAT/logs"
               UI_PORT=3031
               PM2_ENV_FLAG=""
               APP_NAME="learnbot-ui-uat"
