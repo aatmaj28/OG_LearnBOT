@@ -6,7 +6,8 @@ module.exports = {
       name:
         process.env.NAMESPACE === 'prod' ? 'learnbot-flask' : 'learnbot-flask-uat',
       cwd: process.cwd(), // ← no hardcoded path
-      // Run Gunicorn from venv
+      // Run Gunicorn from venv (interpreter: 'none' = run as binary, not with Node)
+      interpreter: 'none',
       script: 'venv/bin/gunicorn',
       args: '-c gunicorn_config.py app:app',
       instances: 1,

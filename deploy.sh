@@ -112,9 +112,9 @@ if [[ -n "$COMPOSE_FILE" ]]; then
     echo "⏳ Waiting for Qdrant to be ready..."
     sleep 5
     
-    # Verify Qdrant health
-    if curl -f http://localhost:6333/health >/dev/null 2>&1; then
-        echo "✅ Qdrant is healthy"
+    # Verify Qdrant health (LearnBot uses host port 6335 per docker-compose)
+    if curl -f http://localhost:6335/health >/dev/null 2>&1; then
+        echo "✅ Qdrant is healthy (port 6335)"
     else
         echo "⚠️  Warning: Qdrant health check failed (may still be starting)"
         echo "   Check logs with: docker logs learnbot-qdrant"
