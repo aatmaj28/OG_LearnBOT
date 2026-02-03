@@ -5,7 +5,7 @@
  * Replace all /api/* calls with this client
  */
 
-const FLASK_API_URL = process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5000'
+const FLASK_API_URL = (process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5000').replace(/\/$/, '')
 
 /**
  * Base fetch function with error handling
@@ -14,7 +14,8 @@ async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${FLASK_API_URL}${endpoint}`
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+  const url = `${FLASK_API_URL}${path}`
 
   const defaultHeaders: HeadersInit = {
     'Content-Type': 'application/json',
