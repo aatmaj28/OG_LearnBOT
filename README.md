@@ -174,3 +174,5 @@ This project uses **Supabase** for the shared database, making team collaboratio
 ## License
 
 This project is licensed under the MIT License.
+
+<!-- config sync 2026-02-03 -->
