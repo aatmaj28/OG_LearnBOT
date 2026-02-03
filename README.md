@@ -65,3 +65,5 @@ Make sure CORS is configured to allow your frontend origin.
 - `/api/chat/*` - Chat and RAG endpoints
 - `/api/corpus/*` - Corpus management
 - `/api/analytics/*` - Analytics endpoints
+
+<!-- config sync 2026-02-03 -->
