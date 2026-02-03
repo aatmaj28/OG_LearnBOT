@@ -21,7 +21,7 @@ cp .env.example .env
 ```
 
 4. Update `.env` with your configuration:
-- Database credentials
+- Database credentials (DB_HOST, DB_PORT=5432 for standard PostgreSQL, DB_NAME, DB_USER, DB_PASSWORD)
 - API keys
 - Email configuration
 - etc.
