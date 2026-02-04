@@ -46,6 +46,101 @@ def map_row_to_user(row: Dict) -> Dict:
     }
 
 # ============================================================================
+# AUTH SESSIONS (shared across workers; fixes "Invalid or expired session")
+# ============================================================================
+
+def _ensure_auth_sessions_table(conn) -> None:
+    """Create auth_sessions table if it does not exist."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                id VARCHAR(128) PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TIMESTAMP NOT NULL
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error ensuring auth_sessions table: {e}')
+        raise
+    finally:
+        cursor.close()
+
+def session_create(session_id: str, user_id: str, expires_at: datetime) -> None:
+    """Insert a session row. Table is created if missing."""
+    conn = get_connection()
+    cursor = None
+    try:
+        _ensure_auth_sessions_table(conn)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO auth_sessions (id, user_id, expires_at) VALUES (%s, %s, %s)',
+            (session_id, int(user_id), expires_at)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error creating session: {e}')
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        return_connection(conn)
+
+def session_get(session_id: str) -> Optional[Dict]:
+    """Get session by id. Returns dict with user_id, expires_at or None. Deletes if expired."""
+    conn = get_connection()
+    cursor = None
+    try:
+        _ensure_auth_sessions_table(conn)
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute(
+            'SELECT user_id, expires_at FROM auth_sessions WHERE id = %s',
+            (session_id,)
+        )
+        row = cursor.fetchone()
+        cursor.close()
+        cursor = None
+        if not row:
+            return None
+        row = dict(row)
+        expires_at = row['expires_at'] if isinstance(row['expires_at'], datetime) else datetime.fromisoformat(str(row['expires_at']))
+        if expires_at < datetime.now():
+            del_cursor = conn.cursor()
+            del_cursor.execute('DELETE FROM auth_sessions WHERE id = %s', (session_id,))
+            conn.commit()
+            del_cursor.close()
+            return None
+        return {'user_id': str(row['user_id']), 'expires_at': expires_at}
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error getting session: {e}')
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        return_connection(conn)
+
+def session_delete(session_id: str) -> None:
+    """Delete a session by id."""
+    conn = get_connection()
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM auth_sessions WHERE id = %s', (session_id,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error deleting session: {e}')
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        return_connection(conn)
+
+# ============================================================================
 # USER OPERATIONS
 # ============================================================================
 
