@@ -67,4 +67,3 @@ Make sure CORS is configured to allow your frontend origin.
 - `/api/analytics/*` - Analytics endpoints
 
 <!-- config sync 2026-02-03 -->
-<!-- config sync dynamic-update 2026-02-03 -->
