@@ -105,13 +105,18 @@ def index():
         if not pdf_files:
             return jsonify({"error": "No PDF files found to index"}), 400
         
-        # Use existing Python indexing service
-        indexing_service_path = pathlib.Path('lib') / 'llamaindex-indexing-service.py'
-        
-        # Determine Python executable
-        venv_python = pathlib.Path('venv') / ('Scripts' if os.name == 'nt' else 'bin') / 'python'
+        # Use indexing script in backend lib/ (deployed with repo)
+        backend_root = pathlib.Path(__file__).resolve().parent.parent
+        indexing_service_path = backend_root / 'lib' / 'llamaindex-indexing-service.py'
+        if not indexing_service_path.exists():
+            return jsonify({
+                "error": "Indexing service not found (lib/llamaindex-indexing-service.py). Deploy may be incomplete."
+            }), 500
+
+        # Determine Python executable (venv relative to backend root)
+        venv_python = backend_root / 'venv' / ('Scripts' if os.name == 'nt' else 'bin') / 'python'
         python_exec = str(venv_python) if venv_python.exists() else (os.getenv('PYTHON_PATH', 'python'))
-        
+
         args = [
             str(indexing_service_path),
             str(store_path),
@@ -120,13 +125,14 @@ def index():
             cls.get('name', ''),
             *pdf_files
         ]
-        
-        # Execute indexing service
+
+        # Run with cwd=backend root so store_path (e.g. vector_stores/...) and script path resolve
         result = subprocess.run(
             [python_exec] + args,
             capture_output=True,
             text=True,
-            timeout=600  # 10 minute timeout
+            timeout=600,  # 10 minute timeout
+            cwd=str(backend_root)
         )
         
         if result.returncode != 0:

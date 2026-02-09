@@ -1247,39 +1247,28 @@ def get_corpus_file(class_id: str, file_name: str, material_type: str) -> Option
 
 def create_corpus_file(class_id: str, file_name: str, material_type: str, 
                        file_size: Optional[int] = None, uploaded_by: Optional[str] = None) -> Dict:
-    """Creates a corpus file record"""
+    """Creates a corpus file record (uploaded_by kept for API compatibility; DB may not have column)."""
     conn = get_connection()
     try:
-        # Get faculty ID from class if not provided
-        faculty_id = uploaded_by
-        if not faculty_id:
-            cursor = conn.cursor()
-            cursor.execute('SELECT faculty_id FROM classes WHERE id = %s', (class_id,))
-            row = cursor.fetchone()
-            if row:
-                faculty_id = str(row[0])
-            cursor.close()
-        
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            # Try minimal columns first (corpus_files may not have uploaded_by or status)
             cursor.execute(
-                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size, uploaded_by, status)
-                   VALUES (%s, %s, %s, %s, %s, 'pending')
+                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size)
+                   VALUES (%s, %s, %s, %s)
                    ON CONFLICT (class_id, file_name, material_type) 
                    DO UPDATE SET file_size = EXCLUDED.file_size
                    RETURNING *""",
-                [class_id, file_name, material_type, file_size, faculty_id]
+                [class_id, file_name, material_type, file_size]
             )
         except Exception as e:
-            # If status column doesn't exist or has different constraint, try without it
+            # If ON CONFLICT constraint differs, try without it
             conn.rollback()
             cursor.execute(
-                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size, uploaded_by)
-                   VALUES (%s, %s, %s, %s, %s)
-                   ON CONFLICT (class_id, file_name, material_type) 
-                   DO UPDATE SET file_size = EXCLUDED.file_size
+                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size)
+                   VALUES (%s, %s, %s, %s)
                    RETURNING *""",
-                [class_id, file_name, material_type, file_size, faculty_id]
+                [class_id, file_name, material_type, file_size]
             )
         
         row = cursor.fetchone()
