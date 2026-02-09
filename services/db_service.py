@@ -1328,26 +1328,16 @@ def delete_all_corpus_files(class_id: str, material_type: str) -> int:
         return_connection(conn)
 
 def mark_corpus_file_as_indexed(class_id: str, file_name: str, material_type: str, chunk_count: int) -> bool:
-    """Marks a corpus file as indexed"""
+    """Marks a corpus file as indexed (schema: is_indexed, chunk_count, indexed_at)."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """UPDATE corpus_files 
-                   SET status = 'indexed', chunk_count = %s, indexed_at = CURRENT_TIMESTAMP
-                   WHERE class_id = %s AND file_name = %s AND material_type = %s""",
-                (chunk_count, class_id, file_name, material_type)
-            )
-        except Exception as e:
-            # If columns don't exist, try without them
-            conn.rollback()
-            cursor.execute(
-                """UPDATE corpus_files 
-                   SET status = 'indexed'
-                   WHERE class_id = %s AND file_name = %s AND material_type = %s""",
-                (class_id, file_name, material_type)
-            )
+        cursor.execute(
+            """UPDATE corpus_files 
+               SET is_indexed = true, chunk_count = %s, indexed_at = CURRENT_TIMESTAMP
+               WHERE class_id = %s AND file_name = %s AND material_type = %s""",
+            (chunk_count, class_id, file_name, material_type)
+        )
         conn.commit()
         return cursor.rowcount > 0
     except Exception as e:
