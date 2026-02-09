@@ -320,6 +320,8 @@ def index_pdfs(
        
         for pdf_path in pdf_paths:
             try:
+                # Resolve to absolute path so the file is found regardless of cwd
+                pdf_path_abs = str(Path(pdf_path).resolve())
                 pdf_filename = os.path.basename(pdf_path)
                
                 # Skip if already processed (incremental mode)
@@ -328,9 +330,17 @@ def index_pdfs(
                     continue
                
                 print(f"[LlamaIndex] Processing NEW file: {pdf_filename}", file=sys.stderr)
-               
+                if not Path(pdf_path_abs).exists():
+                    print(f"[LlamaIndex] ERROR: File not found: {pdf_path_abs}", file=sys.stderr)
+                    chunks_per_file[pdf_filename] = 0
+                    continue
+
                 # Load PDF using LlamaIndex reader
-                documents = pdf_reader.load_data(file=Path(pdf_path))
+                documents = pdf_reader.load_data(file=Path(pdf_path_abs))
+                if not documents:
+                    print(f"[LlamaIndex] WARNING: No text extracted from {pdf_filename} (empty or image-only PDF?)", file=sys.stderr)
+                    chunks_per_file[pdf_filename] = 0
+                    continue
                 
                 # Add metadata to documents (class_id is REQUIRED for filtering)
                 for doc in documents:
@@ -356,6 +366,14 @@ def index_pdfs(
                 continue
        
         if len(all_documents) == 0:
+            # We processed files but got 0 documents (e.g. no text extracted) -> fail with clear message
+            if chunks_per_file and any(c == 0 for c in chunks_per_file.values()):
+                print(f"[LlamaIndex] ERROR: No text extracted from PDF(s). chunks_per_file={chunks_per_file}", file=sys.stderr)
+                return {
+                    "success": False,
+                    "error": "No text could be extracted from the PDF(s). Check that files exist at the expected path and contain extractable text (not image-only).",
+                    "chunks_per_file": chunks_per_file
+                }
             # All files were already indexed - get exact counts from Qdrant
             if existing_count > 0:
                 print(f"[LlamaIndex] All PDFs already indexed. Using existing collection with {existing_count} vectors.", file=sys.stderr)
