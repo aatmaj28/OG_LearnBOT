@@ -637,12 +637,15 @@ function RegisterContent() {
               </div>
             )}
 
-            {/* Login Link (only show on register step) */}
+            {/* Login Link (only show on register step) - faculty register -> faculty login, student -> student login */}
             {step === 'register' && (
               <div className="mt-4 text-center">
                 <p className="text-sm text-gray-600">
                   Already have an account?{" "}
-                  <Link href="/login" className="text-blue-600 hover:text-blue-700 font-medium">
+                  <Link
+                    href={searchParams.get("role") === "faculty" ? "/login?role=faculty" : "/login"}
+                    className="text-blue-600 hover:text-blue-700 font-medium"
+                  >
                     Login here
                   </Link>
                 </p>
