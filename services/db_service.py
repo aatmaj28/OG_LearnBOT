@@ -900,6 +900,18 @@ def delete_resource_by_id(resource_id: str) -> bool:
 # RAG CONVERSATION OPERATIONS
 # ============================================================================
 
+def _parse_json_field(value: Any, default: Any = None) -> Any:
+    """Parse JSON from DB: psycopg2 may return JSONB as dict/list already, or as str."""
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    import json
+    try:
+        return json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        return default
+
 def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None, 
                                    chat_type: Optional[str] = None) -> List[Dict]:
     """Gets RAG conversations by user"""
@@ -926,7 +938,6 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
         rows = cursor.fetchall()
         cursor.close()
         
-        import json
         conversations = []
         for row in rows:
             row_dict = dict(row)
@@ -941,13 +952,13 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
                 'updatedAt': row_dict['updated_at'],
                 'status': row_dict['status'],
                 'currentTopic': row_dict.get('current_topic'),
-                'checkpointState': json.loads(row_dict['checkpoint_state']) if row_dict.get('checkpoint_state') else {},
-                'messageHistory': json.loads(row_dict['message_history']) if row_dict.get('message_history') else [],
-                'studentProblemData': json.loads(row_dict['student_problem_data']) if row_dict.get('student_problem_data') else {},
-                'cachedContext': json.loads(row_dict['cached_context']) if row_dict.get('cached_context') else None,
+                'checkpointState': _parse_json_field(row_dict.get('checkpoint_state'), {}),
+                'messageHistory': _parse_json_field(row_dict.get('message_history'), []),
+                'studentProblemData': _parse_json_field(row_dict.get('student_problem_data'), {}),
+                'cachedContext': _parse_json_field(row_dict.get('cached_context')),
                 'lastRetrievalTopic': row_dict.get('last_retrieval_topic'),
                 'cachedSentiment': float(row_dict['cached_sentiment']) if row_dict.get('cached_sentiment') else None,
-                'cachedTopics': json.loads(row_dict['cached_topics']) if row_dict.get('cached_topics') else None,
+                'cachedTopics': _parse_json_field(row_dict.get('cached_topics')),
                 'analyticsLastUpdated': row_dict.get('analytics_last_updated'),
                 'conversationSummary': row_dict.get('conversation_summary')
             })
@@ -974,7 +985,6 @@ def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
         if not row:
             return None
         
-        import json
         row_dict = dict(row)
         return {
             'id': str(row_dict['id']),
@@ -987,13 +997,13 @@ def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
             'updatedAt': row_dict['updated_at'],
             'status': row_dict['status'],
             'currentTopic': row_dict.get('current_topic'),
-            'checkpointState': json.loads(row_dict['checkpoint_state']) if row_dict.get('checkpoint_state') else {},
-            'messageHistory': json.loads(row_dict['message_history']) if row_dict.get('message_history') else [],
-            'studentProblemData': json.loads(row_dict['student_problem_data']) if row_dict.get('student_problem_data') else {},
-            'cachedContext': json.loads(row_dict['cached_context']) if row_dict.get('cached_context') else None,
+            'checkpointState': _parse_json_field(row_dict.get('checkpoint_state'), {}),
+            'messageHistory': _parse_json_field(row_dict.get('message_history'), []),
+            'studentProblemData': _parse_json_field(row_dict.get('student_problem_data'), {}),
+            'cachedContext': _parse_json_field(row_dict.get('cached_context')),
             'lastRetrievalTopic': row_dict.get('last_retrieval_topic'),
             'cachedSentiment': float(row_dict['cached_sentiment']) if row_dict.get('cached_sentiment') else None,
-            'cachedTopics': json.loads(row_dict['cached_topics']) if row_dict.get('cached_topics') else None,
+            'cachedTopics': _parse_json_field(row_dict.get('cached_topics')),
             'analyticsLastUpdated': row_dict.get('analytics_last_updated'),
             'conversationSummary': row_dict.get('conversation_summary')
         }
