@@ -145,13 +145,19 @@ def index():
         try:
             last_line = result.stdout.strip().split('\n')[-1]
             index_result = json.loads(last_line)
-            
-            # Mark files as indexed in database
-            if 'chunks_per_file' in index_result:
-                for file_name, chunk_count in index_result['chunks_per_file'].items():
-                    safe_name = pathlib.Path(file_name).name
-                    db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
-            
+            chunks_per_file = index_result.get('chunks_per_file') or {}
+
+            # Mark every attempted PDF as indexed (so chunk_count and is_indexed get set even when script returns empty chunks_per_file)
+            for pdf_path in pdf_files:
+                safe_name = pathlib.Path(pdf_path).name
+                chunk_count = chunks_per_file.get(safe_name)
+                if chunk_count is None:
+                    # Key might be full path in script output
+                    chunk_count = chunks_per_file.get(pdf_path, 0)
+                if not isinstance(chunk_count, int):
+                    chunk_count = int(chunk_count) if chunk_count is not None else 0
+                db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
+
             return jsonify({
                 "success": True,
                 "chunks": index_result.get('chunks', 0),
