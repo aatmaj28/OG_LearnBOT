@@ -93,20 +93,21 @@ def index():
         if not vector_store_folder:
             return jsonify({"error": f"Class {material_type} vector store not configured"}), 400
         
+        backend_root = pathlib.Path(__file__).resolve().parent.parent
         store_path = get_vector_store_path_by_folder(vector_store_folder)
-        pdf_dir = pathlib.Path(store_path) / "source_pdfs"
+        # Use absolute paths so the indexing script finds files on server
+        pdf_dir = (backend_root / store_path / "source_pdfs").resolve()
         
         if not pdf_dir.exists():
             return jsonify({"error": "No PDFs directory found. Upload PDFs first."}), 400
         
-        # Get all PDF files
+        # Get all PDF files (absolute paths)
         pdf_files = [str(f) for f in pdf_dir.glob("*.pdf")]
         
         if not pdf_files:
             return jsonify({"error": "No PDF files found to index"}), 400
         
         # Use indexing script in backend lib/ (deployed with repo)
-        backend_root = pathlib.Path(__file__).resolve().parent.parent
         indexing_service_path = backend_root / 'lib' / 'llamaindex-indexing-service.py'
         if not indexing_service_path.exists():
             return jsonify({
@@ -119,7 +120,7 @@ def index():
 
         args = [
             str(indexing_service_path),
-            str(store_path),
+            str((backend_root / store_path).resolve()),
             'true' if is_syllabus else 'false',
             class_id,
             cls.get('name', ''),
@@ -145,7 +146,18 @@ def index():
         try:
             last_line = result.stdout.strip().split('\n')[-1]
             index_result = json.loads(last_line)
+
+            # Script can return success: false (e.g. no text extracted from PDFs)
+            if index_result.get('success') is False:
+                err = index_result.get('error', 'Indexing failed')
+                print(f"[CORPUS] INDEX script reported failure: {err}", flush=True)
+                print(f"[CORPUS] script stderr: {result.stderr[:2000] if result.stderr else '(none)'}", flush=True)
+                return jsonify({"error": err, "success": False}), 500
+
             chunks_per_file = index_result.get('chunks_per_file') or {}
+            total_chunks = index_result.get('chunks', 0)
+            if total_chunks == 0 and result.stderr:
+                print(f"[CORPUS] INDEX returned 0 chunks. script stderr (last 1500 chars): {result.stderr[-1500:]}", flush=True)
 
             # Mark every attempted PDF as indexed (so chunk_count and is_indexed get set even when script returns empty chunks_per_file)
             for pdf_path in pdf_files:
