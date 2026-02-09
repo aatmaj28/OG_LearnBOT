@@ -40,13 +40,11 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
     if (!facultyId) return
 
     try {
-      const response = await fetch(`/api/classes?facultyId=${facultyId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setClasses(data.classes)
-        if (data.classes.length > 0) {
-          setSelectedClassId(data.classes[0].id)
-        }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = await classesApi.getClasses(facultyId)
+      setClasses(data.classes ?? [])
+      if (data.classes?.length) {
+        setSelectedClassId(data.classes[0].id)
       }
     } catch (error) {
       console.error("[v0] Failed to load classes:", error)

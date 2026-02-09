@@ -231,7 +231,7 @@ function RegisterContent() {
   }
 
   const handleGoToLogin = () => {
-    router.push('/login')
+    router.push(role === "faculty" ? "/login?role=faculty" : "/login")
   }
 
   return (
