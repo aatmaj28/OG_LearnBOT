@@ -1219,8 +1219,8 @@ def get_corpus_file(class_id: str, file_name: str, material_type: str) -> Option
     try:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute(
-            'SELECT * FROM corpus_files WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s',
-            (class_id, file_name, file_name, material_type)
+            'SELECT * FROM corpus_files WHERE class_id = %s AND file_name = %s AND material_type = %s',
+            (class_id, file_name, material_type)
         )
         row = cursor.fetchone()
         cursor.close()
@@ -1310,8 +1310,8 @@ def delete_corpus_file(class_id: str, file_name: str, material_type: str) -> boo
     try:
         cursor = conn.cursor()
         cursor.execute(
-            'DELETE FROM corpus_files WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s',
-            (class_id, file_name, file_name, material_type)
+            'DELETE FROM corpus_files WHERE class_id = %s AND file_name = %s AND material_type = %s',
+            (class_id, file_name, material_type)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -1347,8 +1347,8 @@ def mark_corpus_file_as_indexed(class_id: str, file_name: str, material_type: st
             cursor.execute(
                 """UPDATE corpus_files 
                    SET status = 'indexed', chunk_count = %s, indexed_at = CURRENT_TIMESTAMP
-                   WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s""",
-                (chunk_count, class_id, file_name, file_name, material_type)
+                   WHERE class_id = %s AND file_name = %s AND material_type = %s""",
+                (chunk_count, class_id, file_name, material_type)
             )
         except Exception as e:
             # If columns don't exist, try without them
@@ -1356,8 +1356,8 @@ def mark_corpus_file_as_indexed(class_id: str, file_name: str, material_type: st
             cursor.execute(
                 """UPDATE corpus_files 
                    SET status = 'indexed'
-                   WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s""",
-                (class_id, file_name, file_name, material_type)
+                   WHERE class_id = %s AND file_name = %s AND material_type = %s""",
+                (class_id, file_name, material_type)
             )
         conn.commit()
         return cursor.rowcount > 0
