@@ -13,7 +13,8 @@ def _check_qdrant():
         return {"qdrant": "not_configured", "message": "QDRANT_URL is not set"}
     try:
         import urllib.request
-        req = urllib.request.Request(f"{url.rstrip('/')}/health", method="GET")
+        # Qdrant uses /readyz for readiness (not /health)
+        req = urllib.request.Request(f"{url.rstrip('/')}/readyz", method="GET")
         with urllib.request.urlopen(req, timeout=5) as resp:
             if resp.status == 200:
                 return {"qdrant": "reachable", "url": url}
