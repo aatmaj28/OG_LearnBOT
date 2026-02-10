@@ -452,11 +452,9 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!userId) return
 
     try {
-      const response = await fetch(`/api/classes/resources?classId=${selectedClass.id}&userId=${userId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setResources(data.resources || [])
-      }
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = await classesApi.getResources(selectedClass.id, userId)
+      setResources(data.resources || [])
     } catch (error) {
       console.error("[v0] Failed to load resources:", error)
     }
