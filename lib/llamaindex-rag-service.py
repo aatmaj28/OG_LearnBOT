@@ -1045,10 +1045,39 @@ Rules:
         return None
 
 
-# Legacy function - redirects to Claude
-def strip_pii_with_blackwell(text, timeout=2):
-    """Legacy wrapper - now uses Claude instead of Blackwell for PII stripping"""
-    return strip_pii_with_claude(text, timeout=timeout)
+def strip_pii_with_blackwell(text, timeout=5):
+    """
+    Strip PII from text using Blackwell (vLLM / Gemma).
+    Used as fallback when Claude PII stripping fails.
+    Returns cleaned text, or None if call fails.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    try:
+        pii_system = """You are a PII stripping system. Remove or replace all PII from user queries while preserving the core question.
+PII includes: names, ages, DOB, emails, phones, addresses, student IDs (NUID, SSN), credit cards.
+Rules: Replace PII with placeholders like [NAME], [AGE], [EMAIL]. Preserve the core question. Return ONLY the cleaned text, nothing else."""
+        content = f"{pii_system}\n\nClean this: {text}"
+        response = blackwell_session.post(
+            REMOTE_BLACKWELL_URL,
+            json={
+                "model": REMOTE_BLACKWELL_MODEL,
+                "messages": [{"role": "user", "content": content}],
+                "max_tokens": 256,
+                "temperature": 0.1,
+                "stream": False
+            },
+            timeout=timeout
+        )
+        if response.status_code == 200:
+            result = response.json()
+            cleaned = (result.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+            if cleaned:
+                return cleaned
+        return None
+    except Exception as e:
+        print(f"⚠️ Blackwell PII stripping error: {str(e)}", file=sys.stderr)
+        return None
 
 
 def mask_pii(text):
@@ -1059,7 +1088,7 @@ def mask_pii(text):
     if not text or not isinstance(text, str):
         return text
     
-    # Try Claude-based PII stripping first (fast 2s timeout)
+    # Try Claude first, then Blackwell, then regex
     enable_llm_pii_stripping = os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true'
     
     if enable_llm_pii_stripping:
@@ -1067,8 +1096,11 @@ def mask_pii(text):
         if cleaned:
             print(f"🔒 PII stripped using Claude (2s timeout)", file=sys.stderr)
             return cleaned
-        # Fallback to regex if Claude times out or fails (silent - already logged in function)
-        pass
+        cleaned = strip_pii_with_blackwell(text, timeout=5)
+        if cleaned:
+            print(f"🔒 PII stripped using Blackwell (Gemma) fallback", file=sys.stderr)
+            return cleaned
+        # Fallback to regex if both LLMs fail
     
     # Regex-based fallback (original implementation)
     import re
@@ -1154,12 +1186,13 @@ def mask_pii_in_history(messages):
         if msg.get('role') == 'user':
             content = msg.get('content', '')
             if enable_llm_pii_stripping:
-                # Try Claude-based stripping first (2s timeout for speed)
                 cleaned = strip_pii_with_claude(content, timeout=2)
+                if not cleaned:
+                    cleaned = strip_pii_with_blackwell(content, timeout=5)
                 if cleaned:
                     masked_messages.append({**msg, 'content': cleaned})
                     continue
-            # Fallback to regex (also used if Claude times out)
+            # Fallback to regex if both LLMs fail
             masked_messages.append({**msg, 'content': mask_pii(content)})
         else:
             masked_messages.append(msg)
@@ -1168,31 +1201,30 @@ def mask_pii_in_history(messages):
 
 
 def call_guard_llm(prompt, system_prompt, timeout=30):
-    """Call guard LLM to analyze query intent"""
+    """Call guard LLM to analyze query intent (uses Gemma/Blackwell vLLM)"""
     try:
-        full_prompt = f"{system_prompt}\n\n{prompt}"
-        response = requests.post(
-            REMOTE_OLLAMA_URL,
+        full_content = f"{system_prompt}\n\n{prompt}"
+        response = blackwell_session.post(
+            REMOTE_BLACKWELL_URL,
             json={
-                "model": GUARD_MODEL,
-                "prompt": full_prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.3,
-                    "num_predict": 512
-                }
+                "model": REMOTE_BLACKWELL_MODEL,
+                "messages": [{"role": "user", "content": full_content}],
+                "max_tokens": 512,
+                "temperature": 0.3,
+                "stream": False
             },
             timeout=timeout
         )
         
         if response.status_code == 200:
             result = response.json()
-            return result.get("response", "")
+            return (result.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
         else:
-            print(f"❌ Guard LLM error: {response.status_code}", file=sys.stderr)
+            err_body = (getattr(response, "text", None) or "")[:200]
+            print(f"❌ Guard LLM error (Blackwell {REMOTE_BLACKWELL_URL}, model={REMOTE_BLACKWELL_MODEL}): {response.status_code} {err_body} - using heuristic fallback", file=sys.stderr)
             return None
     except Exception as e:
-        print(f"❌ Guard LLM call failed: {str(e)}", file=sys.stderr)
+        print(f"❌ Guard LLM call failed (Blackwell): {str(e)} - using heuristic fallback", file=sys.stderr)
         return None
 
 
@@ -1660,6 +1692,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
             
             connection_start = time.time()
             print(f"[RAG] 🚀 Calling Blackwell vLLM (RAG pipeline): url={REMOTE_BLACKWELL_URL}, model={REMOTE_BLACKWELL_MODEL}", file=sys.stderr)
+            sys.stderr.flush()
             response = blackwell_session.post(
                 REMOTE_BLACKWELL_URL,
                 json={
@@ -1730,9 +1763,14 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                     print(f"   ⏱️ LLM Stage 4 (Token generation): {streaming_time:.3f}s ({chunk_count} chunks)", file=sys.stderr)
                 
                 return full_text, 'remote-blackwell'
+            # Non-200: log so we know why Blackwell was skipped
+            err_body = (response.text[:500] if getattr(response, 'text', None) else '') or ''
+            print(f"❌ Blackwell vLLM returned {response.status_code}: {err_body}", file=sys.stderr)
             return None, None
         except Exception as e:
+            import traceback
             print(f"❌ Blackwell vLLM streaming error: {str(e)}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
             return None, None
     
     # Log which branch we take so we can verify remote-blackwell tries Blackwell first
@@ -1745,6 +1783,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
     elif preferred_model == 'remote-blackwell':
         response_text, model_used = try_blackwell_stream()
         if not response_text:
+            print(f"[RAG] ⚠️ Blackwell returned no response, trying Claude fallback (so user still gets a reply)", file=sys.stderr)
             response_text, model_used = try_claude_stream()
     else:  # remote-a6000 or default
         response_text, model_used = try_remote_ollama_stream()
