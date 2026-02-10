@@ -821,6 +821,9 @@ def load_vector_store_index(vector_store_path: str):
     """
     global vector_stores, embedder
     
+    if not vector_store_path:
+        raise ValueError("vector_store_path is required (cannot be None or empty). Ensure the chat conversation has a class with a vector store configured.")
+    
     # Lazy initialization of embedding model if not already set
     # This handles the case when the module is imported from Flask instead of run as __main__
     if embedder is None or Settings.embed_model is None:
