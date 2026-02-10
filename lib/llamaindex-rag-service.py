@@ -861,19 +861,33 @@ def load_vector_store_index(vector_store_path: str):
                 qdrant_client = QdrantClient(path=QDRANT_PERSIST_DIR)
                 print(f"[RAG] ✅ Using Qdrant local storage", file=sys.stderr)
             
-            # Check if collection exists
+            # Check if collection exists (exact name first, then case-insensitive match)
+            collection_info = None
+            resolved_collection_name = collection_name
             try:
                 collection_info = qdrant_client.get_collection(collection_name)
-                collection_count = collection_info.points_count
-            except Exception as e:
-                # List available collections for debugging if collection not found
+                resolved_collection_name = collection_name
+            except Exception:
                 try:
                     collections = qdrant_client.get_collections().collections
                     available_names = [c.name for c in collections]
-                    print(f"[RAG Error] Qdrant collection '{collection_name}' not found. Available collections: {available_names}", file=sys.stderr)
-                except:
-                    pass
-                raise FileNotFoundError(f"Qdrant collection not found: {collection_name}")
+                    # Case-insensitive match: Qdrant names are case-sensitive; indexing may have created e.g. FINA_2201
+                    for name in available_names:
+                        if name.lower() == collection_name.lower():
+                            resolved_collection_name = name
+                            collection_info = qdrant_client.get_collection(name)
+                            print(f"[RAG] Using Qdrant collection '{resolved_collection_name}' (resolved from path '{collection_name}')", file=sys.stderr)
+                            break
+                    if collection_info is None:
+                        print(f"[RAG Error] Qdrant collection '{collection_name}' not found. Available: {available_names}", file=sys.stderr)
+                        raise FileNotFoundError(f"Qdrant collection not found: {collection_name}. Available: {available_names}")
+                except FileNotFoundError:
+                    raise
+                except Exception as e2:
+                    print(f"[RAG Error] Qdrant collection '{collection_name}' not found: {e2}. Available: {available_names if 'available_names' in dir() else '?'}", file=sys.stderr)
+                    raise FileNotFoundError(f"Qdrant collection not found: {collection_name}")
+            collection_name = resolved_collection_name
+            collection_count = collection_info.points_count if collection_info else 0
             
             # Check if collection is empty
             if collection_count == 0:
@@ -2535,6 +2549,19 @@ Rules:
             index=index,
             similarity_top_k=top_k_initial
         )
+        
+        # Verify collection still exists before query (helps debug 404 if name/instance mismatch)
+        qdrant_client = store_data.get("qdrant_client")
+        rag_collection_name = store_data.get("collection_name", "")
+        if qdrant_client and rag_collection_name:
+            try:
+                qdrant_client.get_collection(rag_collection_name)
+            except Exception as e:
+                try:
+                    available = [c.name for c in qdrant_client.get_collections().collections]
+                    print(f"[RAG Error] Before retrieve: collection '{rag_collection_name}' not found ({e}). Available: {available}", file=sys.stderr)
+                except Exception:
+                    print(f"[RAG Error] Before retrieve: collection '{rag_collection_name}' not found: {e}", file=sys.stderr)
         
         # Retrieve nodes (Qdrant filtering by class_id happens at vector store level if needed)
         try:
