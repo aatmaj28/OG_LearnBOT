@@ -46,6 +46,8 @@ REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', 'http://localhost:5001/api/ge
 REMOTE_OLLAMA_MODEL = os.getenv('REMOTE_OLLAMA_MODEL', 'gemma3:27b')
 REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.224.226:8000/v1/chat/completions')
 REMOTE_BLACKWELL_MODEL = os.getenv('REMOTE_BLACKWELL_MODEL', 'google/gemma-3-12b-it')
+# Short system prompt for Blackwell (Gemma) to avoid vLLM long-prompt failures; restore full prompt when fixed
+BLACKWELL_SHORT_SYSTEM = "You are a helpful teaching assistant. Answer the student's question clearly and concisely."
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
@@ -1353,25 +1355,19 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
     
     def try_blackwell(stream=False):
         try:
-            if not system_prompt or not isinstance(system_prompt, str):
-                return None, None
             if not prompt or not isinstance(prompt, str):
                 return None, None
             
-            system_content = system_prompt[:4000] if len(system_prompt) > 4000 else system_prompt
             user_content = prompt.strip()
-            
-            if not system_content or not user_content:
+            if not user_content:
                 return None, None
             
             try:
-                system_content_clean = str(system_content).encode('utf-8', errors='ignore').decode('utf-8')
                 user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
             except:
-                system_content_clean = str(system_content)
                 user_content_clean = str(user_content)
-            
-            combined_user_content = f"{system_content_clean}\n\n{user_content_clean}"
+            user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
+            combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
             messages = [{"role": "user", "content": combined_user_content}]
             
             print(f"[RAG] 🚀 Calling Blackwell vLLM: url={REMOTE_BLACKWELL_URL}, model={REMOTE_BLACKWELL_MODEL}", file=sys.stderr)
@@ -1666,25 +1662,20 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
         try:
             prompt_start = time.time()
             
-            if not system_prompt or not isinstance(system_prompt, str):
-                return None, None
             if not prompt or not isinstance(prompt, str):
                 return None, None
             
-            system_content = system_prompt[:4000] if len(system_prompt) > 4000 else system_prompt
             user_content = prompt.strip()
-            
-            if not system_content or not user_content:
+            if not user_content:
                 return None, None
             
             try:
-                system_content_clean = str(system_content).encode('utf-8', errors='ignore').decode('utf-8')
                 user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
             except:
-                system_content_clean = str(system_content)
                 user_content_clean = str(user_content)
-            
-            combined_user_content = f"{system_content_clean}\n\n{user_content_clean}"
+            # Limit user content length for Blackwell to avoid long-prompt issues (testing)
+            user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
+            combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
             messages = [{"role": "user", "content": combined_user_content}]
             
             prompt_time = time.time() - prompt_start
