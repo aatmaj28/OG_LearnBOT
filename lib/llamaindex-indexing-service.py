@@ -513,6 +513,21 @@ def index_pdfs(
         print(f"[LlamaIndex] New documents to index: {new_chunks_count}", file=sys.stderr)
         
         # Create Qdrant vector store
+        # Qdrant server 1.7.x does not have GET /collections/{name}/exists; client 1.16+ calls it
+        # in QdrantVectorStore.__init__ via collection_exists(). Patch to use get_collection instead.
+        def _collection_exists_via_get(collection_name: str, **kwargs):
+            try:
+                qdrant_client.get_collection(collection_name)
+                return True
+            except UnexpectedResponse as e:
+                if e.status_code == 404:
+                    return False
+                raise
+            except Exception:
+                return False
+        qdrant_client.collection_exists = _collection_exists_via_get
+        print(f"[LlamaIndex] Patched client.collection_exists for Qdrant server 1.7.x compatibility.", file=sys.stderr)
+        
         print(f"[LlamaIndex] Step: create QdrantVectorStore(collection_name={collection_name!r}) and StorageContext.", file=sys.stderr)
         sys.stderr.flush()
         vector_store = QdrantVectorStore(
