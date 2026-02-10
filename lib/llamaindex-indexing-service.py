@@ -192,12 +192,13 @@ def get_or_init_qdrant_client():
             if _global_qdrant_client is None:
                 # Initialize Qdrant client (server mode by default, local mode if QDRANT_URL is empty)
                 if QDRANT_URL and QDRANT_URL.strip():
-                    # Server mode: Connect via HTTP
+                    # Server mode: Connect via HTTP (prefer_grpc=False so we use the given REST port, e.g. 6335)
                     print(f"[LlamaIndex] 🔌 Connecting to Qdrant server at: {QDRANT_URL} (this happens once)", file=sys.stderr)
                     _global_qdrant_client = QdrantClient(
                         url=QDRANT_URL,
                         api_key=QDRANT_API_KEY,
-                        timeout=60
+                        timeout=60,
+                        prefer_grpc=False
                     )
                     print(f"[LlamaIndex] ✅ Qdrant connection established and cached (will be reused)", file=sys.stderr)
                 else:
@@ -673,7 +674,8 @@ def initialize_indexing_resources():
                 _global_qdrant_client = QdrantClient(
                     url=QDRANT_URL,
                     api_key=QDRANT_API_KEY,
-                    timeout=60
+                    timeout=60,
+                    prefer_grpc=False
                 )
                 print(f"[LlamaIndex] ✅ Connected to Qdrant server", file=sys.stderr)
             else:
