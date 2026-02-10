@@ -17,7 +17,7 @@ def init_pool():
             # Keep max low so multiple workers (Gunicorn) + prod/uat don't exhaust PostgreSQL
             connection_pool = psycopg2.pool.SimpleConnectionPool(
                 1,  # min connections
-                5,  # max connections per process (e.g. 4 workers × 5 = 20 per app; prod+uat = 40 total)
+                2,  # max per process (e.g. 4 workers × 2 = 8 per app; avoids "too many clients already")
                 host=Config.DB_HOST,
                 port=Config.DB_PORT,
                 database=Config.DB_NAME,
