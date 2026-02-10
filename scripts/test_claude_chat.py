@@ -18,13 +18,14 @@ try:
 except ImportError:
     pass
 
-api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+# Fallback key for server testing when .env doesn't load; remove for production if needed
+_DEFAULT_API_KEY = "REDACTED_ANTHROPIC_API_KEY"
+api_key = (os.getenv("ANTHROPIC_API_KEY") or _DEFAULT_API_KEY).strip()
 model = (os.getenv("CLAUDE_MODEL_ID") or "claude-sonnet-4-20250514").strip()
 
 def main():
     if not api_key or "your-" in api_key.lower() or "sk-ant-" not in api_key:
-        print("ERROR: ANTHROPIC_API_KEY not set or invalid in .env", file=sys.stderr)
-        print(f"  (loaded from {_env_path})", file=sys.stderr)
+        print("ERROR: ANTHROPIC_API_KEY not set or invalid", file=sys.stderr)
         sys.exit(1)
     import requests
     url = "https://api.anthropic.com/v1/messages"
