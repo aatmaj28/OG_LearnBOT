@@ -33,12 +33,12 @@ async function createTunnel(modelId: 'remote-a6000' | 'remote-blackwell'): Promi
     'remote-a6000': {
       localPort: 5001,
       remotePort: 11434,
-      tunnelCommand: "ssh -L 5001:localhost:11434 ra_aatmaj@129.10.156.97"
+      tunnelCommand: "ssh -L 5001:localhost:11434 ra_aatmaj@129.10.224.226"
     },
     'remote-blackwell': {
       localPort: 8001,
       remotePort: 8000,
-      tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97"
+      tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.224.226"
     }
   }[modelId]
 
@@ -94,7 +94,7 @@ async function createTunnel(modelId: 'remote-a6000' | 'remote-blackwell'): Promi
 async function pingTunnel(modelId: 'remote-a6000' | 'remote-blackwell'): Promise<boolean> {
   const endpoints = {
     'remote-a6000': 'http://localhost:5001/api/generate',
-    'remote-blackwell': 'http://129.10.156.97:8000/v1/chat/completions'
+    'remote-blackwell': 'http://129.10.224.226:8000/v1/chat/completions'
   }
 
   try {

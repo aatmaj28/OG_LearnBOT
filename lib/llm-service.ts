@@ -110,11 +110,11 @@ export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
   'remote-blackwell': {
     name: "Gemma (Blackwell)",
     type: "vllm",
-    endpoint: "http://129.10.156.97:8000/v1/chat/completions",
+    endpoint: "http://129.10.224.226:8000/v1/chat/completions",
     model: "google/gemma-3-12b-it",
     description: "vLLM on NVIDIA RTX 6000 Blackwell (96GB VRAM)",
     requiresTunnel: true,
-    tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97"
+    tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.224.226"
   }
 }
 

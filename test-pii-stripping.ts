@@ -32,8 +32,8 @@ try {
 
 // Blackwell vLLM Configuration (LOCAL remote LLM - our infrastructure)
 // Options:
-//   1. Via SSH tunnel: http://localhost:8001/v1/chat/completions (requires: ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97)
-//   2. Direct endpoint: http://129.10.156.97:8000/v1/chat/completions (if accessible)
+//   1. Via SSH tunnel: http://localhost:8001/v1/chat/completions (requires: ssh -L 8001:localhost:8000 ra_aatmaj@129.10.224.226)
+//   2. Direct endpoint: http://129.10.224.226:8000/v1/chat/completions (if accessible)
 // Set BLACKWELL_ENDPOINT in .env to override
 const BLACKWELL_ENDPOINT = process.env.BLACKWELL_ENDPOINT || 'http://localhost:8001/v1/chat/completions'
 const BLACKWELL_MODEL = 'google/gemma-3-12b-it'
@@ -192,7 +192,7 @@ async function runTests() {
   logAndAdd(`✅ Model: ${BLACKWELL_MODEL}`, results)
   logAndAdd('', results)
   logAndAdd('⚠️  Make sure SSH tunnel is active if using localhost endpoint:', results)
-  logAndAdd('   ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97', results)
+  logAndAdd('   ssh -L 8001:localhost:8000 ra_aatmaj@129.10.224.226', results)
   logAndAdd('', results)
   logAndAdd('='.repeat(80), results)
   logAndAdd('', results)

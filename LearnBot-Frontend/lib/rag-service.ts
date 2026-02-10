@@ -1461,7 +1461,7 @@ import requests
 # Configuration
 REMOTE_OLLAMA_URL = "${process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'}"
 REMOTE_OLLAMA_MODEL = "${process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'}"
-REMOTE_BLACKWELL_URL = "${process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'}"
+REMOTE_BLACKWELL_URL = "${process.env.REMOTE_BLACKWELL_URL || 'http://129.10.224.226:8000/v1/chat/completions'}"
 REMOTE_BLACKWELL_MODEL = "${process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'}"
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = "${process.env.ENABLE_LLM_GUARDS || 'true'}".lower() == 'true'

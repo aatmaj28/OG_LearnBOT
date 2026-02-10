@@ -1065,7 +1065,7 @@ ${conversationText}
 Summary:`
 
     // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
-    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'
+    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.224.226:8000/v1/chat/completions'
     const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
     const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
     const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
@@ -1194,7 +1194,7 @@ Respond in JSON format:
 }`
 
     // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
-    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.156.97:8000/v1/chat/completions'
+    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.224.226:8000/v1/chat/completions'
     const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
     const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
     const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
