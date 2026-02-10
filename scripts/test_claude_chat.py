@@ -8,18 +8,23 @@ This checks if the backend can reach api.anthropic.com and get a response.
 import os
 import sys
 
+# Load .env from project root (parent of scripts/) so it works from any cwd
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_script_dir)
+_env_path = os.path.join(_project_root, ".env")
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(_env_path)
 except ImportError:
     pass
 
-api_key = os.getenv("ANTHROPIC_API_KEY", "")
-model = os.getenv("CLAUDE_MODEL_ID", "claude-sonnet-4-20250514")
+api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+model = (os.getenv("CLAUDE_MODEL_ID") or "claude-sonnet-4-20250514").strip()
 
 def main():
-    if not api_key or "your-" in api_key or "sk-ant-" not in api_key:
+    if not api_key or "your-" in api_key.lower() or "sk-ant-" not in api_key:
         print("ERROR: ANTHROPIC_API_KEY not set or invalid in .env", file=sys.stderr)
+        print(f"  (loaded from {_env_path})", file=sys.stderr)
         sys.exit(1)
     import requests
     url = "https://api.anthropic.com/v1/messages"

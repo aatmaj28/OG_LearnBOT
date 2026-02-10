@@ -8,15 +8,18 @@ This checks if the backend can reach 129.10.224.226:8000 and get a response.
 import os
 import sys
 
-# Load .env if present
+# Load .env from project root (parent of scripts/) so it works from any cwd
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_script_dir)
+_env_path = os.path.join(_project_root, ".env")
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(_env_path)
 except ImportError:
     pass
 
-url = os.getenv("REMOTE_BLACKWELL_URL", "http://129.10.224.226:8000/v1/chat/completions")
-model = os.getenv("REMOTE_BLACKWELL_MODEL", "google/gemma-3-12b-it")
+url = (os.getenv("REMOTE_BLACKWELL_URL") or "http://129.10.224.226:8000/v1/chat/completions").strip()
+model = (os.getenv("REMOTE_BLACKWELL_MODEL") or "google/gemma-3-12b-it").strip()
 
 def main():
     import requests
