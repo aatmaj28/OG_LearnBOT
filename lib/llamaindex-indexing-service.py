@@ -17,6 +17,7 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.readers.file import PDFReader
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 # Use sentence-transformers directly (already installed)
 from sentence_transformers import SentenceTransformer
@@ -192,10 +193,15 @@ def get_or_init_qdrant_client():
             if _global_qdrant_client is None:
                 # Initialize Qdrant client (server mode by default, local mode if QDRANT_URL is empty)
                 if QDRANT_URL and QDRANT_URL.strip():
-                    # Server mode: Connect via HTTP (prefer_grpc=False so we use the given REST port, e.g. 6335)
-                    print(f"[LlamaIndex] 🔌 Connecting to Qdrant server at: {QDRANT_URL} (this happens once)", file=sys.stderr)
+                    # Server mode: use host+port for REST so we hit the exact port (e.g. 6335)
+                    from urllib.parse import urlparse
+                    parsed = urlparse(QDRANT_URL.strip())
+                    host = parsed.hostname or "localhost"
+                    port = parsed.port or 6333
+                    print(f"[LlamaIndex] 🔌 Connecting to Qdrant server at: {host}:{port} (REST only) (this happens once)", file=sys.stderr)
                     _global_qdrant_client = QdrantClient(
-                        url=QDRANT_URL,
+                        host=host,
+                        port=port,
                         api_key=QDRANT_API_KEY,
                         timeout=60,
                         prefer_grpc=False
@@ -269,17 +275,41 @@ def index_pdfs(
             collection_info = qdrant_client.get_collection(collection_name)
             existing_count = collection_info.points_count
             print(f"[LlamaIndex] Found existing Qdrant collection: {collection_name} ({existing_count} vectors)", file=sys.stderr)
-        except Exception:
-            # Collection doesn't exist, create it
-            qdrant_client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=vector_size,
-                    distance=Distance.COSINE
+        except UnexpectedResponse as e:
+            # 404 = collection doesn't exist; create it
+            if e.status_code == 404:
+                print(f"[LlamaIndex] Collection {collection_name} not found (404), creating...", file=sys.stderr)
+                try:
+                    qdrant_client.create_collection(
+                        collection_name=collection_name,
+                        vectors_config=VectorParams(
+                            size=vector_size,
+                            distance=Distance.COSINE
+                        )
+                    )
+                    existing_count = 0
+                    print(f"[LlamaIndex] Created new Qdrant collection: {collection_name}", file=sys.stderr)
+                except Exception as create_err:
+                    print(f"[LlamaIndex] ERROR create_collection failed: {create_err}", file=sys.stderr)
+                    raise
+            else:
+                raise
+        except Exception as e:
+            # Other errors (e.g. connection) - try creating anyway in case get_collection path was wrong
+            print(f"[LlamaIndex] get_collection raised: {e}", file=sys.stderr)
+            try:
+                qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE
+                    )
                 )
-            )
-            existing_count = 0
-            print(f"[LlamaIndex] Created new Qdrant collection: {collection_name}", file=sys.stderr)
+                existing_count = 0
+                print(f"[LlamaIndex] Created new Qdrant collection: {collection_name}", file=sys.stderr)
+            except Exception as create_err:
+                print(f"[LlamaIndex] ERROR create_collection failed: {create_err}", file=sys.stderr)
+                raise
         
         # Check which files are already indexed.
         # Prefer metadata.json (fast, avoids Qdrant scroll bugs); fall back to Qdrant if needed.
@@ -670,9 +700,14 @@ def initialize_indexing_resources():
         # Initialize Qdrant client
         if _global_qdrant_client is None:
             if QDRANT_URL and QDRANT_URL.strip():
-                print(f"[LlamaIndex] Connecting to Qdrant server at: {QDRANT_URL}", file=sys.stderr)
+                from urllib.parse import urlparse
+                parsed = urlparse(QDRANT_URL.strip())
+                host = parsed.hostname or "localhost"
+                port = parsed.port or 6333
+                print(f"[LlamaIndex] Connecting to Qdrant server at: {host}:{port} (REST only)", file=sys.stderr)
                 _global_qdrant_client = QdrantClient(
-                    url=QDRANT_URL,
+                    host=host,
+                    port=port,
                     api_key=QDRANT_API_KEY,
                     timeout=60,
                     prefer_grpc=False
