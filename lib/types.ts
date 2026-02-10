@@ -1,4 +1,4 @@
-// Database types and interfaces
+// Database types and interfaces (LearnBot UI)
 
 export type UserRole = "student" | "faculty"
 
@@ -152,3 +152,4 @@ export interface Resource {
   fileSize: number
   uploadedAt: Date
 }
+
