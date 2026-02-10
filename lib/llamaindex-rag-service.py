@@ -1381,12 +1381,8 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
         response_text, model_used = try_claude()
         if not response_text:
             response_text, model_used = try_blackwell()
-        if not response_text:
-            response_text, model_used = try_remote_ollama()
     elif preferred_model == 'remote-blackwell':
         response_text, model_used = try_blackwell()
-        if not response_text:
-            response_text, model_used = try_remote_ollama()
         if not response_text:
             response_text, model_used = try_claude()
     else:  # remote-a6000 or default
@@ -1743,12 +1739,8 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
         response_text, model_used = try_claude_stream()
         if not response_text:
             response_text, model_used = try_blackwell_stream()
-        if not response_text:
-            response_text, model_used = try_remote_ollama_stream()
     elif preferred_model == 'remote-blackwell':
         response_text, model_used = try_blackwell_stream()
-        if not response_text:
-            response_text, model_used = try_remote_ollama_stream()
         if not response_text:
             response_text, model_used = try_claude_stream()
     else:  # remote-a6000 or default
@@ -2860,6 +2852,7 @@ before and after. This is MANDATORY, not optional.
                 print(f"🧠 Deep thinking mode enabled (combined with TA mode)", file=sys.stderr)
             
             # Teaching LLM Stage - Use streaming for real-time response
+            print(f"[RAG] 📌 Teaching LLM stage - preferred_model={preferred_model!r} (Gemma/Blackwell uses 'remote-blackwell')", file=sys.stderr)
             llm_start = time.time()
             teaching_response, model_used, llm_time_ms = call_llm_with_streaming(
                 full_prompt,
