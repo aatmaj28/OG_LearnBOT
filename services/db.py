@@ -22,7 +22,8 @@ def init_pool():
                 port=Config.DB_PORT,
                 database=Config.DB_NAME,
                 user=Config.DB_USER,
-                password=Config.DB_PASSWORD
+                password=Config.DB_PASSWORD,
+                application_name="learnbot-backend"
             )
         except Exception as e:
             print(f"[DB] Error creating connection pool: {e}")

@@ -17,7 +17,7 @@ llama-index
 llama-index-vector-stores-qdrant
 llama-index-readers-file
 einops
-qdrant-client==1.8.2  # Pinned to work with Qdrant server 1.7.x
+qdrant-client>=1.16.2  # Matches current LlamaIndex/qdrant_fastembed expectations
 
 # Email
 flask-mail==0.9.1
