@@ -118,12 +118,16 @@ def conversation_detail(conversation_id):
 def ai_response():
     """AI response endpoint - migrated from app/api/chat/ai-response/route.ts"""
     try:
-        # This will use the existing Python RAG service
-        # Import the RAG service from the existing Python file
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-        
-        # Use the existing llamaindex-rag-service.py
-        from lib.llamaindex_rag_service import process_query
+        # RAG service lives in backend lib/ as llamaindex-rag-service.py (hyphen; use importlib)
+        backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        rag_service_path = os.path.join(backend_root, 'lib', 'llamaindex-rag-service.py')
+        if not os.path.isfile(rag_service_path):
+            return jsonify({"error": "RAG service not found (lib/llamaindex-rag-service.py). Deploy may be incomplete."}), 500
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("llamaindex_rag_service", rag_service_path)
+        rag_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rag_module)
+        process_query = rag_module.process_query
         
         # Handle both JSON and FormData
         if request.content_type and 'multipart/form-data' in request.content_type:
