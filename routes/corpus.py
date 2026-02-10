@@ -129,10 +129,11 @@ def index():
 
         # Pass QDRANT_URL (and QDRANT_API_KEY) so the indexing script uses the same Qdrant as Flask (subprocess may not inherit env under Gunicorn)
         subprocess_env = os.environ.copy()
-        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6335")
+        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6335").strip() or "http://localhost:6335"
         subprocess_env["QDRANT_URL"] = qdrant_url
         if os.getenv("QDRANT_API_KEY"):
             subprocess_env["QDRANT_API_KEY"] = os.getenv("QDRANT_API_KEY")
+        print(f"[CORPUS] INDEX passing QDRANT_URL={qdrant_url} to indexing script", flush=True)
 
         # Run with cwd=backend root so store_path (e.g. vector_stores/...) and script path resolve
         result = subprocess.run(
