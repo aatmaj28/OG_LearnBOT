@@ -340,9 +340,9 @@ jobs:
 
           # Ensure QDRANT_URL is set (fallback when secret QDRANT_URL_PROD/UAT is missing or empty)
           if ! sudo -u deploy grep -q '^QDRANT_URL=http' .env; then
-            sudo -u deploy sed -i 's|^QDRANT_URL=.*|QDRANT_URL=http://localhost:6335|' .env 2>/dev/null || true
-            sudo -u deploy grep -q '^QDRANT_URL=' .env || sudo -u deploy bash -c 'echo "QDRANT_URL=http://localhost:6335" >> .env'
-            echo "✅ Set QDRANT_URL=http://localhost:6335 in .env (secret was missing or empty)"
+            sudo -u deploy sed -i 's|^QDRANT_URL=.*|QDRANT_URL=http://localhost:6337|' .env 2>/dev/null || true
+            sudo -u deploy grep -q '^QDRANT_URL=' .env || sudo -u deploy bash -c 'echo "QDRANT_URL=http://localhost:6337" >> .env'
+            echo "✅ Set QDRANT_URL=http://localhost:6337 in .env (secret was missing or empty)"
           fi
 
           # Ensure GMAIL_APP_PASSWORD is set to a known default if missing/empty
