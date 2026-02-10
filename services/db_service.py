@@ -379,9 +379,28 @@ def get_user_ta_mode(user_id: str) -> Optional[str]:
 # ============================================================================
 
 def generate_vector_store_folder_name(class_name: str) -> str:
-    """Generates vector store folder name from class name"""
+    """Generates vector store folder name from class name (safe for paths and Qdrant)."""
     import re
-    return re.sub(r'[^a-z0-9\s]', '', class_name.lower()).replace(r'\s+', '_').strip()
+    cleaned = re.sub(r'[^a-z0-9\s]', '', class_name.lower())
+    return re.sub(r'\s+', '_', cleaned).strip() or 'default'
+
+
+def update_class_vector_store_folder(class_id: str, folder_name: str, is_syllabus: bool = False) -> bool:
+    """Sets vector_store_folder or syllabus_vector_store_folder for a class. Returns True if updated."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        col = 'syllabus_vector_store_folder' if is_syllabus else 'vector_store_folder'
+        cursor.execute(f'UPDATE classes SET {col} = %s WHERE id = %s', (folder_name, class_id))
+        updated = cursor.rowcount > 0
+        conn.commit()
+        cursor.close()
+        return updated
+    except Exception as e:
+        print(f'[DB] Error updating class vector store folder: {e}')
+        raise
+    finally:
+        return_connection(conn)
 
 # ============================================================================
 # PENDING REGISTRATIONS (for OTP verification)

@@ -35,10 +35,8 @@ def upload():
         folder_suffix = "_syllabus" if is_syllabus else ""
         
         if not current_folder:
-            vector_store_folder = db_service.generate_vector_store_folder_name(cls['name']) + folder_suffix
-            # Update class with vector store folder
-            # This would require an update function - for now, assume it exists
-            current_folder = vector_store_folder
+            current_folder = db_service.generate_vector_store_folder_name(cls['name']) + folder_suffix
+            db_service.update_class_vector_store_folder(class_id, current_folder, is_syllabus=is_syllabus)
         
         store_path = get_vector_store_path_by_folder(current_folder)
         pdf_dir = pathlib.Path(store_path) / "source_pdfs"
@@ -93,13 +91,16 @@ def index():
         
         vector_store_folder = cls.get('syllabusVectorStoreFolder' if is_syllabus else 'vectorStoreFolder')
         if not vector_store_folder:
-            return jsonify({"error": f"Class {material_type} vector store not configured"}), 400
+            vector_store_folder = db_service.generate_vector_store_folder_name(cls.get('name', 'class')) + ('_syllabus' if is_syllabus else '')
+            db_service.update_class_vector_store_folder(class_id, vector_store_folder, is_syllabus=is_syllabus)
+            print(f"[CORPUS] INDEX assigned vector_store_folder={vector_store_folder} for class id={class_id}", flush=True)
         print(f"[CORPUS] INDEX class name={cls.get('name')} vector_store_folder={vector_store_folder}", flush=True)
         
         backend_root = pathlib.Path(__file__).resolve().parent.parent
         store_path = get_vector_store_path_by_folder(vector_store_folder)
         # Use absolute paths so the indexing script finds files on server
         pdf_dir = (backend_root / store_path / "source_pdfs").resolve()
+        pdf_dir.mkdir(parents=True, exist_ok=True)
         output_path_abs = (backend_root / store_path).resolve()
         print(f"[CORPUS] INDEX backend_root={backend_root} store_path={store_path} pdf_dir={pdf_dir} output_path_abs={output_path_abs}", flush=True)
         
@@ -258,9 +259,11 @@ def files():
             
             vector_store_folder = cls.get('syllabusVectorStoreFolder' if is_syllabus else 'vectorStoreFolder')
             if not vector_store_folder:
-                return jsonify({"error": "Class not found"}), 404
+                vector_store_folder = db_service.generate_vector_store_folder_name(cls.get('name', 'class')) + ('_syllabus' if is_syllabus else '')
+                db_service.update_class_vector_store_folder(class_id, vector_store_folder, is_syllabus=is_syllabus)
             
-            base_path = pathlib.Path(get_vector_store_path_by_folder(vector_store_folder))
+            backend_root = pathlib.Path(__file__).resolve().parent.parent
+            base_path = (backend_root / get_vector_store_path_by_folder(vector_store_folder)).resolve()
             pdf_dir = base_path / "source_pdfs"
             file_path = pdf_dir / filename
             

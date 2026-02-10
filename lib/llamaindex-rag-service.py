@@ -848,7 +848,8 @@ def load_vector_store_index(vector_store_path: str):
                     qdrant_client = QdrantClient(
                         url=QDRANT_URL,
                         api_key=QDRANT_API_KEY,
-                        timeout=60
+                        timeout=60,
+                        check_compatibility=False  # Server may be 1.7.x while client is 1.16.x
                     )
                     print(f"[RAG] ✅ Connected to Qdrant server at {QDRANT_URL}", file=sys.stderr)
                 except Exception as e:
@@ -889,9 +890,22 @@ def load_vector_store_index(vector_store_path: str):
             collection_name = resolved_collection_name
             collection_count = collection_info.points_count if collection_info else 0
             
-            # Check if collection is empty
+            # If exact/case-matched collection is empty, try other case variants that have points
             if collection_count == 0:
-                raise ValueError(f"Qdrant collection '{collection_name}' is empty")
+                try:
+                    collections = qdrant_client.get_collections().collections
+                    for c in collections:
+                        if c.name.lower() == collection_name.lower() and c.points_count and c.points_count > 0:
+                            collection_name = c.name
+                            collection_info = qdrant_client.get_collection(c.name)
+                            collection_count = collection_info.points_count
+                            print(f"[RAG] Using non-empty collection '{collection_name}' ({collection_count} vectors)", file=sys.stderr)
+                            break
+                except Exception:
+                    pass
+            # Allow empty collections: RAG will return 0 chunks and pipeline continues (LLM-only or friendly message)
+            if collection_count == 0:
+                print(f"[RAG] ⚠️ Qdrant collection '{collection_name}' is empty (no indexed documents yet); retrieval will return no chunks", file=sys.stderr)
             
             # Qdrant server 1.7.x has no GET /collections/{name}/exists; LlamaIndex calls it in QdrantVectorStore.__init__
             def _collection_exists_via_get(name: str, **kwargs):
