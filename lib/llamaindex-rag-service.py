@@ -1735,6 +1735,9 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
             print(f"❌ Blackwell vLLM streaming error: {str(e)}", file=sys.stderr)
             return None, None
     
+    # Log which branch we take so we can verify remote-blackwell tries Blackwell first
+    branch = 'claude' if preferred_model == 'claude' else 'blackwell' if preferred_model == 'remote-blackwell' else 'else'
+    print(f"[RAG] 🔀 LLM branch: preferred_model={preferred_model!r} -> trying {branch} first", file=sys.stderr)
     if preferred_model == 'claude':
         response_text, model_used = try_claude_stream()
         if not response_text:
