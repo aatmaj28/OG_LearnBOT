@@ -345,6 +345,20 @@ jobs:
             echo "✅ Set QDRANT_URL=http://localhost:6335 in .env (secret was missing or empty)"
           fi
 
+          # Ensure GMAIL_APP_PASSWORD is set to a known default if missing/empty
+          # (Gmail UI shows spaces, but app password is actually 16 chars with no spaces)
+          if ! sudo -u deploy grep -q '^GMAIL_APP_PASSWORD=' .env; then
+            sudo -u deploy bash -c 'echo "GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs" >> .env'
+            echo "✅ Added default GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs to .env (no secret set)"
+          else
+            # If present but only first token or clearly wrong length, overwrite with default
+            CURRENT_GMAIL_PASS=$(sudo -u deploy grep '^GMAIL_APP_PASSWORD=' .env | sed "s/^GMAIL_APP_PASSWORD=//")
+            if [ "${#CURRENT_GMAIL_PASS}" -lt 16 ]; then
+              sudo -u deploy sed -i 's|^GMAIL_APP_PASSWORD=.*|GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs|' .env 2>/dev/null || true
+              echo "✅ Normalized GMAIL_APP_PASSWORD to default eeywqkflxdvsjmhs in .env (was short/likely truncated)"
+            fi
+          fi
+
           # Verify .env file is readable
           if [ ! -f .env ]; then
             echo "❌ ERROR: .env file not found at $(pwd)/.env"

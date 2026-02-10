@@ -17,7 +17,7 @@ llama-index
 llama-index-vector-stores-qdrant
 llama-index-readers-file
 einops
-qdrant-client>=1.16.2  # Requires pydantic 2.2.1+ support
+qdrant-client==1.8.2  # Pinned to work with Qdrant server 1.7.x
 
 # Email
 flask-mail==0.9.1
