@@ -542,9 +542,16 @@ def index_pdfs(
                 show_progress=True
             )
            
-        # Get final count from collection
-        collection_info = qdrant_client.get_collection(collection_name)
-        final_count = collection_info.points_count
+        # Get final count from collection (post-insert get_collection can 404 on some setups; use fallback)
+        try:
+            collection_info = qdrant_client.get_collection(collection_name)
+            final_count = collection_info.points_count
+        except UnexpectedResponse as e:
+            print(f"[LlamaIndex] Warning: get_collection (post-insert) returned {getattr(e, 'status_code', '?')}: {e}", file=sys.stderr)
+            final_count = sum(chunks_per_file.values()) if chunks_per_file else new_chunks_count
+        except Exception as e:
+            print(f"[LlamaIndex] Warning: get_collection (post-insert) failed: {e}", file=sys.stderr)
+            final_count = sum(chunks_per_file.values()) if chunks_per_file else new_chunks_count
         
         # Get exact chunk counts per file from Qdrant
         # Query all points and count by source_file
@@ -676,6 +683,8 @@ def index_pdfs(
        
     except Exception as e:
         print(f"[LlamaIndex] ERROR: {e}", file=sys.stderr)
+        if isinstance(e, UnexpectedResponse):
+            print(f"[LlamaIndex] Qdrant UnexpectedResponse: status_code={getattr(e, 'status_code', '?')} content={getattr(e, 'content', b'')!r}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
         return {"success": False, "error": str(e)}
