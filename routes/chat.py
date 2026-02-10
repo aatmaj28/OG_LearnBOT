@@ -196,7 +196,17 @@ def ai_response():
         
         # Call RAG service
         result = process_query(request_data)
-        
+
+        # Log AI response to server logs BEFORE attempting DB write, so we can see it even if DB fails
+        try:
+            response_preview = (result.get('response') or '').strip()
+            # Truncate long responses to avoid huge logs
+            if len(response_preview) > 500:
+                response_preview = response_preview[:500] + "... [truncated]"
+            print(f"[CHAT] AI RAW RESPONSE (session_id={session_id}, class_id={conv_class_id}): {response_preview}", flush=True)
+        except Exception as log_error:
+            print(f"[CHAT] Error logging AI response: {log_error}", flush=True)
+
         # Update conversation with new message
         updated_history = conversation.get('messageHistory', [])
         updated_history.append({"role": "user", "content": message})
