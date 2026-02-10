@@ -236,7 +236,12 @@ def files():
             
             corpus_files = db_service.get_corpus_files_by_class(class_id, material_type)
             files = [f['fileName'] for f in corpus_files]
-            return jsonify({"files": files})
+            total_chunks = sum(f.get('chunkCount', 0) or 0 for f in corpus_files)
+            return jsonify({
+                "files": files,
+                "totalChunks": total_chunks,
+                "filesData": [{"fileName": f["fileName"], "chunkCount": f.get("chunkCount", 0)} for f in corpus_files]
+            })
         
         elif request.method == "DELETE":
             class_id = request.args.get("classId")
