@@ -345,6 +345,20 @@ jobs:
             echo "✅ Set QDRANT_URL=http://localhost:6337 in .env (secret was missing or empty)"
           fi
 
+          # Ensure REMOTE_BLACKWELL_URL is set (fallback when secret REMOTE_BLACKWELL_URL_PROD/UAT is missing or empty)
+          if ! sudo -u deploy grep -q '^REMOTE_BLACKWELL_URL=http' .env; then
+            sudo -u deploy sed -i 's|^REMOTE_BLACKWELL_URL=.*|REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions|' .env 2>/dev/null || true
+            sudo -u deploy grep -q '^REMOTE_BLACKWELL_URL=' .env || sudo -u deploy bash -c 'echo "REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions" >> .env'
+            echo "✅ Set REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions in .env (secret was missing or empty)"
+          fi
+
+          # Ensure REMOTE_BLACKWELL_MODEL is set (fallback when secret REMOTE_BLACKWELL_MODEL_PROD/UAT is missing or empty)
+          if ! sudo -u deploy grep -q '^REMOTE_BLACKWELL_MODEL=' .env; then
+            sudo -u deploy sed -i 's|^REMOTE_BLACKWELL_MODEL=.*|REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it|' .env 2>/dev/null || true
+            sudo -u deploy grep -q '^REMOTE_BLACKWELL_MODEL=' .env || sudo -u deploy bash -c 'echo "REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it" >> .env'
+            echo "✅ Set REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it in .env (secret was missing or empty)"
+          fi
+
           # Ensure GMAIL_APP_PASSWORD is set to a known default if missing/empty
           # (Gmail UI shows spaces, but app password is actually 16 chars with no spaces)
           if ! sudo -u deploy grep -q '^GMAIL_APP_PASSWORD=' .env; then

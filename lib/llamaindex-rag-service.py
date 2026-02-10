@@ -44,7 +44,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 # Configuration from environment variables
 REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', 'http://localhost:5001/api/generate')
 REMOTE_OLLAMA_MODEL = os.getenv('REMOTE_OLLAMA_MODEL', 'gemma3:27b')
-REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.156.97:8000/v1/chat/completions')
+REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.224.226:8000/v1/chat/completions')
 REMOTE_BLACKWELL_MODEL = os.getenv('REMOTE_BLACKWELL_MODEL', 'google/gemma-3-12b-it')
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
@@ -1342,6 +1342,8 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
             combined_user_content = f"{system_content_clean}\n\n{user_content_clean}"
             messages = [{"role": "user", "content": combined_user_content}]
             
+            print(f"[RAG] 🚀 Calling Blackwell vLLM: url={REMOTE_BLACKWELL_URL}, model={REMOTE_BLACKWELL_MODEL}", file=sys.stderr)
+            
             response = blackwell_session.post(
                 REMOTE_BLACKWELL_URL,
                 json={
@@ -1356,10 +1358,13 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
             )
             if response.status_code == 200:
                 if stream:
+                    print(f"[RAG] ✅ Blackwell vLLM streaming response started (model={REMOTE_BLACKWELL_MODEL})", file=sys.stderr)
                     return response, 'remote-blackwell'
                 else:
                     result = response.json()
-                    return result['choices'][0]['message']['content'], 'remote-blackwell'
+                    response_text = result['choices'][0]['message']['content']
+                    print(f"[RAG] ✅ Blackwell vLLM response received (model={REMOTE_BLACKWELL_MODEL}, length={len(response_text)} chars)", file=sys.stderr)
+                    return response_text, 'remote-blackwell'
             else:
                 error_text = response.text if hasattr(response, 'text') else 'No error text'
                 print(f"❌ Blackwell vLLM error {response.status_code}: {error_text}", file=sys.stderr)
@@ -1658,6 +1663,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
             print(f"   ⏱️ LLM Stage 1 (Prompt construction): {prompt_time:.3f}s", file=sys.stderr)
             
             connection_start = time.time()
+            print(f"[RAG] 🚀 Calling Blackwell vLLM (RAG pipeline): url={REMOTE_BLACKWELL_URL}, model={REMOTE_BLACKWELL_MODEL}", file=sys.stderr)
             response = blackwell_session.post(
                 REMOTE_BLACKWELL_URL,
                 json={
@@ -1675,6 +1681,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
             print(f"   ⏱️ LLM Stage 2 (API connection): {connection_time:.3f}s", file=sys.stderr)
             
             if response.status_code == 200:
+                print(f"[RAG] ✅ Blackwell vLLM streaming response started (model={REMOTE_BLACKWELL_MODEL})", file=sys.stderr)
                 full_text = ""
                 first_chunk_received = False
                 first_chunk_time = None
