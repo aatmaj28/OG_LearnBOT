@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Paperclip, File, Brain, X } from "lucide-react"
+import { MessageSquare, Send, Plus, Bot, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Paperclip, File, Brain, X } from "lucide-react"
 import type { RAGConversation, Class, ModelBackend, ChatAttachment } from "@/lib/types"
 import { ChatMessage } from "@/components/chat-message"
 import { speechToText } from "@/lib/speech-to-text"
@@ -1343,9 +1343,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   <SelectValue placeholder="Choose a model..." />
                 </SelectTrigger>
                 <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude 4.5 Haiku</SelectItem>
-                  <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🚀 Remote A6000 (Gemma 27B)</SelectItem>
-                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>⚡ Remote Blackwell (Gemma 27B)</SelectItem>
+                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude</SelectItem>
+                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>⚡ Gemma (Blackwell)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1504,21 +1503,6 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Chats</h2>
-                {/* AI Status Indicator */}
-                <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                  <Bot className="h-3 w-3" />
-                  {ragStatus.isAvailable ? (
-                    <div className="flex items-center gap-1 text-green-600">
-                      <Wifi className="h-2 w-2" />
-                      <span className="text-xs">RAG</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-orange-600">
-                      <WifiOff className="h-2 w-2" />
-                      <span className="text-xs">Fallback</span>
-                    </div>
-                  )}
-                </div>
               </div>
               <Button size="sm" onClick={createNewConversation} disabled={!selectedClassId}>
                 <Plus className="h-4 w-4 mr-1" />

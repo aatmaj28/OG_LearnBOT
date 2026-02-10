@@ -83,9 +83,9 @@ async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partia
     }
   }
 }
-// Supports Claude API, Remote A6000 (Ollama), and Remote Blackwell (vLLM)
+// Supports Claude API and Remote Blackwell (vLLM)
 
-export type ModelBackend = 'claude' | 'remote-a6000' | 'remote-blackwell'
+export type ModelBackend = 'claude' | 'remote-blackwell'
 
 export interface ModelInfo {
   name: string
@@ -99,29 +99,20 @@ export interface ModelInfo {
 
 export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
   'claude': {
-    name: "Claude 4.5 Haiku",
+    name: "Claude",
     type: "claude",
     endpoint: "https://api.anthropic.com/v1/messages",
     model: "claude-haiku-4-5-20251001",
-    description: "Anthropic's Claude 4.5 Haiku - Fast, instruction-tuned Claude endpoint",
+    description: "Anthropic Claude - Fast, instruction-tuned endpoint",
     requiresTunnel: false,
     tunnelCommand: ""
   },
-  'remote-a6000': {
-    name: "Remote A6000 (Gemma 27B)",
-    type: "ollama",
-    endpoint: "http://localhost:5001/api/generate",
-    model: "gemma3:27b",
-    description: "Ollama on NVIDIA RTX A6000 (48GB VRAM)",
-    requiresTunnel: true,
-    tunnelCommand: "ssh -L 5001:localhost:11434 ra_aatmaj@129.10.156.97"
-  },
   'remote-blackwell': {
-    name: "Remote Blackwell (Gemma 12B)",
+    name: "Gemma (Blackwell)",
     type: "vllm",
     endpoint: "http://129.10.156.97:8000/v1/chat/completions",
     model: "google/gemma-3-12b-it",
-    description: "vLLM on NVIDIA RTX 6000 Blackwell (96GB VRAM) - 2x faster",
+    description: "vLLM on NVIDIA RTX 6000 Blackwell (96GB VRAM)",
     requiresTunnel: true,
     tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.156.97"
   }
@@ -129,7 +120,6 @@ export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
 
 const CLAUDE_MODEL_ID = process.env.CLAUDE_MODEL_ID || MODEL_CONFIGS['claude'].model
 const CLAUDE_BACKEND: ModelBackend = 'claude'
-const REMOTE_A6000_BACKEND: ModelBackend = 'remote-a6000'
 const REMOTE_BLACKWELL_BACKEND: ModelBackend = 'remote-blackwell'
 
 export interface LLMResponse {
@@ -254,17 +244,17 @@ async function callRemoteOllama(prompt: string, systemPrompt: string, config?: P
 
     return {
       response: responseText,
-      modelUsed: REMOTE_A6000_BACKEND,
+      modelUsed: REMOTE_BLACKWELL_BACKEND,
       timeTaken: endTime - startTime,
       success: true,
-      modelInfo: MODEL_CONFIGS['remote-a6000']
+      modelInfo: MODEL_CONFIGS['remote-blackwell']
     }
   } catch (error) {
     const endTime = Date.now()
     console.error('Remote Ollama error:', error)
     return {
       response: '',
-      modelUsed: REMOTE_A6000_BACKEND,
+      modelUsed: REMOTE_BLACKWELL_BACKEND,
       timeTaken: endTime - startTime,
       success: false,
       error: error instanceof Error ? error.message : String(error)
@@ -348,7 +338,7 @@ export async function generateLLMResponse(
   console.log(`[LLM Service] Attempting with preferred backend: ${config.preferredBackend}`)
 
   // Try preferred backend first
-  let result: LLMResponse
+  let result: LLMResponse = { response: '', modelUsed: config.preferredBackend, timeTaken: 0, success: false, error: '' }
   
   if (config.preferredBackend === 'claude') {
     result = await callClaude(prompt, config.systemPrompt, config)
@@ -367,52 +357,7 @@ export async function generateLLMResponse(
     }
     console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
     
-    // Fallback to A6000
-    console.log('[LLM Service] Falling back to A6000...')
-    result = await callRemoteOllama(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ A6000 succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ A6000 failed: ${result.error}`)
-    
   } else if (config.preferredBackend === 'remote-blackwell') {
-    result = await callVLLM(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ Blackwell succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
-    
-    // Fallback to A6000
-    console.log('[LLM Service] Falling back to A6000...')
-    result = await callRemoteOllama(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ A6000 succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ A6000 failed: ${result.error}`)
-    
-    // Fallback to Claude
-    console.log('[LLM Service] Falling back to Claude...')
-    result = await callClaude(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ Claude succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ Claude failed: ${result.error}`)
-    
-  } else {
-    // Remote A6000
-    result = await callRemoteOllama(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ A6000 succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ A6000 failed: ${result.error}`)
-    
-    // Fallback to Blackwell
-    console.log('[LLM Service] Falling back to Blackwell...')
     result = await callVLLM(prompt, config.systemPrompt, config)
     if (result.success) {
       console.log(`[LLM Service] ✅ Blackwell succeeded in ${result.timeTaken}ms`)
@@ -432,7 +377,7 @@ export async function generateLLMResponse(
 
   // All backends failed
   return {
-    response: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key, A6000, or Blackwell tunnel active).",
+    response: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key or Blackwell tunnel active).",
     modelUsed: config.preferredBackend,
     timeTaken: result?.timeTaken || 0,
     success: false,
@@ -567,7 +512,7 @@ async function* streamRemoteOllama(
     })
 
     if (!response.ok) {
-      yield { content: '', done: true, error: `Remote A6000 error: ${response.status}`, modelUsed: REMOTE_A6000_BACKEND }
+      yield { content: '', done: true, error: `Remote A6000 error: ${response.status}`, modelUsed: REMOTE_BLACKWELL_BACKEND }
       return
     }
 
@@ -575,7 +520,7 @@ async function* streamRemoteOllama(
     const decoder = new TextDecoder()
 
     if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: REMOTE_A6000_BACKEND }
+      yield { content: '', done: true, error: 'No response stream', modelUsed: REMOTE_BLACKWELL_BACKEND }
       return
     }
 
@@ -590,10 +535,10 @@ async function* streamRemoteOllama(
         try {
           const parsed = JSON.parse(line)
           if (parsed.response) {
-            yield { content: parsed.response, done: false, modelUsed: REMOTE_A6000_BACKEND }
+            yield { content: parsed.response, done: false, modelUsed: REMOTE_BLACKWELL_BACKEND }
           }
           if (parsed.done) {
-            yield { content: '', done: true, modelUsed: REMOTE_A6000_BACKEND }
+            yield { content: '', done: true, modelUsed: REMOTE_BLACKWELL_BACKEND }
             return
           }
         } catch (e) {
@@ -602,10 +547,10 @@ async function* streamRemoteOllama(
       }
     }
 
-    yield { content: '', done: true, modelUsed: REMOTE_A6000_BACKEND }
+    yield { content: '', done: true, modelUsed: REMOTE_BLACKWELL_BACKEND }
   } catch (error) {
     console.error('Remote A6000 streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: REMOTE_A6000_BACKEND }
+    yield { content: '', done: true, error: String(error), modelUsed: REMOTE_BLACKWELL_BACKEND }
   }
 }
 
@@ -625,29 +570,6 @@ export async function* generateLLMStreamingResponse(
     for await (const chunk of streamClaude(prompt, config.systemPrompt, config)) {
       if (chunk.error) {
         console.log(`[LLM Service] ❌ Claude streaming failed: ${chunk.error}`)
-        break
-      }
-      hasSuccess = true
-      yield chunk
-      if (chunk.done) return
-    }
-
-    if (!hasSuccess) {
-      console.log('[LLM Service] Falling back to Remote Ollama...')
-      for await (const chunk of streamRemoteOllama(prompt, config.systemPrompt, config)) {
-        if (chunk.error) {
-          console.log(`[LLM Service] ❌ Remote Ollama streaming failed: ${chunk.error}`)
-          break
-        }
-        hasSuccess = true
-        yield chunk
-        if (chunk.done) return
-      }
-    }
-  } else if (config.preferredBackend === 'remote-a6000') {
-    for await (const chunk of streamRemoteOllama(prompt, config.systemPrompt, config)) {
-      if (chunk.error) {
-        console.log(`[LLM Service] ❌ Remote A6000 streaming failed: ${chunk.error}`)
         break
       }
       hasSuccess = true
@@ -679,19 +601,6 @@ export async function* generateLLMStreamingResponse(
     }
 
     if (!hasSuccess) {
-      console.log('[LLM Service] Falling back to A6000...')
-      for await (const chunk of streamRemoteOllama(prompt, config.systemPrompt, config)) {
-        if (chunk.error) {
-          console.log(`[LLM Service] ❌ Remote A6000 streaming failed: ${chunk.error}`)
-          break
-        }
-        hasSuccess = true
-        yield chunk
-        if (chunk.done) return
-      }
-    }
-
-    if (!hasSuccess) {
       console.log('[LLM Service] Falling back to Claude...')
       for await (const chunk of streamClaude(prompt, config.systemPrompt, config)) {
         if (chunk.error) {
@@ -708,7 +617,7 @@ export async function* generateLLMStreamingResponse(
   // If all failed
   if (!hasSuccess) {
     yield {
-      content: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key, A6000, or Blackwell tunnel).",
+      content: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key or Blackwell tunnel).",
       done: true,
       error: 'All backends failed',
       modelUsed: config.preferredBackend

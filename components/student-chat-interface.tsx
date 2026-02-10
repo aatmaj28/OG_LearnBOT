@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LogoutButton } from "@/components/logout-button"
 import { ChatMessage } from "@/components/chat-message"
-import { MessageSquare, Send, Plus, Bot, Wifi, WifiOff, BookOpen, Trash2, Zap, Calendar, PanelLeftClose, PanelLeftOpen, Sun, Moon, Download, Clock, FileText, FolderOpen, ChevronLeft, ChevronRight, X, ExternalLink, Upload, CheckCircle2, Mic, MicOff, Paperclip, File, Brain, BrainCircuit } from "lucide-react"
+import { MessageSquare, Send, Plus, Bot, BookOpen, Trash2, Zap, Calendar, PanelLeftClose, PanelLeftOpen, Sun, Moon, Download, Clock, FileText, FolderOpen, ChevronLeft, ChevronRight, X, ExternalLink, Upload, CheckCircle2, Mic, MicOff, Paperclip, File, Brain, BrainCircuit } from "lucide-react"
 import { VoiceWave } from "@/components/voice-wave"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
@@ -1993,13 +1993,10 @@ export function StudentChatInterface() {
                 </SelectTrigger>
                 <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
                   <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <span className="text-sm">🧠 Claude 4.5 Haiku</span>
-                  </SelectItem>
-                  <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <span className="text-sm">🚀 Remote A6000 (Gemma 27B)</span>
+                    <span className="text-sm">🧠 Claude</span>
                   </SelectItem>
                   <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <span className="text-sm">⚡ Remote Blackwell (Gemma 27B)</span>
+                    <span className="text-sm">⚡ Gemma (Blackwell)</span>
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -2058,20 +2055,6 @@ export function StudentChatInterface() {
                 </SelectContent>
               </Select>
 
-              {/* AI Status Indicator */}
-              <div className={`flex items-center gap-2 px-2.5 py-1 rounded-md ${isDarkMode ? 'bg-white/5' : 'bg-gray-100'}`}>
-                {ragStatus.isAvailable ? (
-                  <div className="flex items-center gap-1.5">
-                    <Wifi className={`h-3.5 w-3.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
-                    <span className={`text-xs font-medium ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>RAG</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <WifiOff className={`h-3.5 w-3.5 ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`} />
-                    <span className={`text-xs font-medium ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`}>Fallback</span>
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Export Chat Button */}

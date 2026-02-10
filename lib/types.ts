@@ -3,7 +3,7 @@
 export type UserRole = "student" | "faculty"
 
 // LLM Backend Types
-export type ModelBackend = 'claude' | 'remote-a6000' | 'remote-blackwell'
+export type ModelBackend = 'claude' | 'remote-blackwell'
 
 export interface ModelResponseMetadata {
   modelUsed: ModelBackend
