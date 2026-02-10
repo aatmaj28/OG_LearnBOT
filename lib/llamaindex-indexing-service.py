@@ -241,8 +241,14 @@ def index_pdfs(
     """
     try:
         print(f"[LlamaIndex] Processing {len(pdf_paths)} PDFs", file=sys.stderr)
-        print(f"[LlamaIndex] Output path: {output_path}", file=sys.stderr)
-        print(f"[LlamaIndex] Is syllabus: {is_syllabus}", file=sys.stderr)
+        print(f"[LlamaIndex] Output path (raw): {output_path}", file=sys.stderr)
+        output_path_resolved = str(Path(output_path).resolve())
+        print(f"[LlamaIndex] Output path (resolved): {output_path_resolved}", file=sys.stderr)
+        print(f"[LlamaIndex] Is syllabus: {is_syllabus} class_id={class_id!r} class_name={class_name!r}", file=sys.stderr)
+        for i, p in enumerate(pdf_paths):
+            exists = Path(p).exists()
+            print(f"[LlamaIndex] pdf_paths[{i}] exists={exists}: {p}", file=sys.stderr)
+        sys.stderr.flush()
         
         # Get or initialize cached embedding model (loaded once, reused for all indexing)
         embed_model = get_or_init_embed_model()
@@ -263,14 +269,20 @@ def index_pdfs(
         
         # Get collection name from output path
         collection_name = get_collection_name(output_path)
-        print(f"[LlamaIndex] Using Qdrant collection: {collection_name}", file=sys.stderr)
+        print(f"[LlamaIndex] Collection name from output_path: {collection_name!r} (from path {output_path!r})", file=sys.stderr)
+        sys.stderr.flush()
         
         # Get or initialize cached Qdrant client (connected once, reused for all indexing)
+        print(f"[LlamaIndex] Getting Qdrant client (QDRANT_URL={os.getenv('QDRANT_URL', '(not set)')!r})...", file=sys.stderr)
         qdrant_client = get_or_init_qdrant_client()
+        print(f"[LlamaIndex] Qdrant client obtained.", file=sys.stderr)
+        sys.stderr.flush()
         
         # Get or create collection
         # Qdrant collections need vector size (768 for nomic-embed-text-v1.5)
         vector_size = 768
+        print(f"[LlamaIndex] Step: get_or_create_collection. Calling get_collection(collection_name={collection_name!r})...", file=sys.stderr)
+        sys.stderr.flush()
         try:
             collection_info = qdrant_client.get_collection(collection_name)
             existing_count = collection_info.points_count
@@ -321,6 +333,8 @@ def index_pdfs(
             else:
                 try:
                     # Qdrant scroll API to get all points with payload
+                    print(f"[LlamaIndex] Step: scroll (already_processed). Calling scroll(collection_name={collection_name!r}, limit=10000)...", file=sys.stderr)
+                    sys.stderr.flush()
                     scroll_result = qdrant_client.scroll(
                         collection_name=collection_name,
                         limit=10000,  # Adjust if you have more than 10k chunks
@@ -360,7 +374,8 @@ def index_pdfs(
                     print(f"[LlamaIndex] Skipping (already indexed): {pdf_filename}", file=sys.stderr)
                     continue
                
-                print(f"[LlamaIndex] Processing NEW file: {pdf_filename}", file=sys.stderr)
+                print(f"[LlamaIndex] Processing NEW file: {pdf_filename} path_abs={pdf_path_abs} exists={Path(pdf_path_abs).exists()}", file=sys.stderr)
+                sys.stderr.flush()
                 if not Path(pdf_path_abs).exists():
                     print(f"[LlamaIndex] ERROR: File not found: {pdf_path_abs}", file=sys.stderr)
                     chunks_per_file[pdf_filename] = 0
@@ -498,6 +513,8 @@ def index_pdfs(
         print(f"[LlamaIndex] New documents to index: {new_chunks_count}", file=sys.stderr)
         
         # Create Qdrant vector store
+        print(f"[LlamaIndex] Step: create QdrantVectorStore(collection_name={collection_name!r}) and StorageContext.", file=sys.stderr)
+        sys.stderr.flush()
         vector_store = QdrantVectorStore(
             client=qdrant_client,
             collection_name=collection_name
@@ -507,8 +524,9 @@ def index_pdfs(
         # Create or update index
         if existing_count > 0 and new_chunks_count > 0:
             # Incremental: add new documents to existing index
-            print(f"[LlamaIndex] Adding {new_chunks_count} new documents to existing collection...", file=sys.stderr)
-           
+            print(f"[LlamaIndex] Step: INCREMENTAL. Adding {new_chunks_count} new documents to existing collection {collection_name!r}.", file=sys.stderr)
+            print(f"[LlamaIndex] About to call VectorStoreIndex.from_vector_store (may call Qdrant)...", file=sys.stderr)
+            sys.stderr.flush()
             # Load existing index
             try:
                 index = VectorStoreIndex.from_vector_store(
@@ -525,15 +543,18 @@ def index_pdfs(
                 )
            
             # Add new documents
-            print(f"[LlamaIndex] Inserting {len(all_documents)} new documents into index...", file=sys.stderr)
+            print(f"[LlamaIndex] About to insert {len(all_documents)} documents (LlamaIndex will call Qdrant upsert)...", file=sys.stderr)
+            sys.stderr.flush()
             for doc in all_documents:
                 index.insert(doc)
-            print(f"[LlamaIndex] Inserted {len(all_documents)} documents (they will be chunked into nodes)", file=sys.stderr)
+            print(f"[LlamaIndex] Inserted {len(all_documents)} documents (they will be chunked into nodes).", file=sys.stderr)
+            sys.stderr.flush()
            
         else:
             # Full rebuild or new collection
-            print(f"[LlamaIndex] Creating new index with {len(all_documents)} documents...", file=sys.stderr)
-           
+            print(f"[LlamaIndex] Step: FULL REBUILD. Creating new index with {len(all_documents)} documents (LlamaIndex will call Qdrant).", file=sys.stderr)
+            print(f"[LlamaIndex] About to call VectorStoreIndex.from_documents(collection_name={collection_name!r})...", file=sys.stderr)
+            sys.stderr.flush()
             # Create index
             index = VectorStoreIndex.from_documents(
                 all_documents,
@@ -541,8 +562,12 @@ def index_pdfs(
                 embed_model=embed_model,
                 show_progress=True
             )
+            print(f"[LlamaIndex] VectorStoreIndex.from_documents completed.", file=sys.stderr)
+            sys.stderr.flush()
            
         # Get final count from collection (post-insert get_collection can 404 on some setups; use fallback)
+        print(f"[LlamaIndex] Step: post-insert get_collection. Calling get_collection(collection_name={collection_name!r})...", file=sys.stderr)
+        sys.stderr.flush()
         try:
             collection_info = qdrant_client.get_collection(collection_name)
             final_count = collection_info.points_count
@@ -558,6 +583,8 @@ def index_pdfs(
         exact_chunks_per_file = {}
         try:
             # Scroll through all points to count per file
+            print(f"[LlamaIndex] Step: scroll for exact chunk counts. Calling scroll(collection_name={collection_name!r})...", file=sys.stderr)
+            sys.stderr.flush()
             scroll_result = qdrant_client.scroll(
                 collection_name=collection_name,
                 limit=10000,  # Adjust if you have more than 10k chunks
@@ -565,6 +592,7 @@ def index_pdfs(
                 with_vectors=False
             )
             points = scroll_result[0]
+            print(f"[LlamaIndex] Scroll returned {len(points)} points.", file=sys.stderr)
             
             # Count chunks per file
             for point in points:
@@ -587,6 +615,8 @@ def index_pdfs(
         try:
             # Query Qdrant collection directly to get all points with payload
             # This ensures we get the complete picture, especially for incremental indexing
+            print(f"[LlamaIndex] Step: scroll for metadata. Calling scroll(collection_name={collection_name!r})...", file=sys.stderr)
+            sys.stderr.flush()
             scroll_result = qdrant_client.scroll(
                 collection_name=collection_name,
                 limit=10000,  # Adjust if you have more than 10k chunks
@@ -594,6 +624,7 @@ def index_pdfs(
                 with_vectors=False
             )
             points = scroll_result[0]  # First element is the list of points
+            print(f"[LlamaIndex] Scroll for metadata returned {len(points)} points.", file=sys.stderr)
             
             if points:
                 # Build metadata array from Qdrant results
@@ -673,6 +704,8 @@ def index_pdfs(
         else:
             print(f"[LlamaIndex] ✅ Indexing completed successfully! Total chunks: {final_count}", file=sys.stderr)
        
+        print(f"[LlamaIndex] === INDEXING SUCCESS === chunks={final_count} pdfs={len(pdf_paths)} chunks_per_file={exact_chunks_per_file}", file=sys.stderr)
+        sys.stderr.flush()
         return {
             "success": True,
             "chunks": final_count,
@@ -682,11 +715,18 @@ def index_pdfs(
         }
        
     except Exception as e:
-        print(f"[LlamaIndex] ERROR: {e}", file=sys.stderr)
-        if isinstance(e, UnexpectedResponse):
-            print(f"[LlamaIndex] Qdrant UnexpectedResponse: status_code={getattr(e, 'status_code', '?')} content={getattr(e, 'content', b'')!r}", file=sys.stderr)
         import traceback
+        # Failure summary at END of stderr so it's visible even when log is long/truncated
+        print("\n" + "=" * 60, file=sys.stderr)
+        print("INDEXING FAILED", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        print(f"Exception: {type(e).__name__}: {e}", file=sys.stderr)
+        if isinstance(e, UnexpectedResponse):
+            print(f"Qdrant status_code: {getattr(e, 'status_code', '?')}  content: {getattr(e, 'content', b'')!r}", file=sys.stderr)
+        print("Traceback:", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        sys.stderr.flush()
         return {"success": False, "error": str(e)}
 
 
@@ -755,6 +795,13 @@ if __name__ == "__main__":
     class_id = sys.argv[3] if sys.argv[3] else None
     class_name = sys.argv[4] if sys.argv[4] else None
     pdf_paths = sys.argv[5:]
+   
+    # Diagnostic: log exactly what we received and env
+    print(f"[LlamaIndex] === INDEXING SCRIPT START ===", file=sys.stderr)
+    print(f"[LlamaIndex] argv: output_path={output_path!r} is_syllabus={is_syllabus} class_id={class_id!r} class_name={class_name!r}", file=sys.stderr)
+    print(f"[LlamaIndex] pdf_paths ({len(pdf_paths)}): {pdf_paths}", file=sys.stderr)
+    print(f"[LlamaIndex] env QDRANT_URL={os.getenv('QDRANT_URL', '(not set)')!r}", file=sys.stderr)
+    sys.stderr.flush()
    
     result = index_pdfs(pdf_paths, output_path, is_syllabus, class_id, class_name)
     print(json.dumps(result))
