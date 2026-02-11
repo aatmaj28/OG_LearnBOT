@@ -249,7 +249,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [isDarkModeInternal, setIsDarkModeInternal] = useState(false)
   const isDarkMode = isDarkModeProp ?? isDarkModeInternal
   const effectiveShowHeader = showHeader
-  const [sidebarWidth, setSidebarWidth] = useState(256) // Default 256px (w-64)
+  const [sidebarWidth, setSidebarWidth] = useState(288) // Default 288px so chat cards fit without overflow
   const [isResizing, setIsResizing] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true) // Track if we should auto-scroll
@@ -673,39 +673,21 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     if (!conversation) return conversation
 
     // Helper to safely parse a timestamp - only converts if valid, otherwise preserves original
+    // Match faculty: parse as-is so server local time (e.g. EST from datetime.now().isoformat()) displays correctly
     const safeParseTimestamp = (ts: any): Date => {
       if (ts instanceof Date) {
-        // Validate the Date object is not invalid
         return isNaN(ts.getTime()) ? ts : ts
       }
       if (!ts) {
-        // If timestamp is missing, we can't recover it - but this shouldn't happen
         console.warn('[Normalize] Missing timestamp, this should not happen')
-        return new Date(0) // Return epoch instead of current time to make it obvious
+        return new Date(0)
       }
-
-      // Handle string timestamps - ensure UTC strings are properly parsed
-      if (typeof ts === 'string') {
-        const dateStr = ts
-        // If it's an ISO string without timezone info, assume UTC and add 'Z'
-        if (dateStr.includes('T') && !dateStr.includes('Z') && !dateStr.includes('+') && !dateStr.includes('-', 10)) {
-          // ISO format without timezone - assume UTC
-          const parsed = new Date(dateStr + 'Z')
-          if (!isNaN(parsed.getTime())) {
-            return parsed
-          }
-        }
-      }
-
-      // Try parsing as-is (handles strings with timezone info, or other formats)
       const parsed = new Date(ts)
-      // Only use parsed date if it's valid
       if (!isNaN(parsed.getTime())) {
         return parsed
       }
-      // If parsing failed, log warning but return epoch (not current time)
       console.warn('[Normalize] Failed to parse timestamp:', ts)
-      return new Date(0) // Return epoch instead of current time
+      return new Date(0)
     }
 
     return {
@@ -1917,7 +1899,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
         {!isSidebarCollapsed && (
           <div
             ref={sidebarRef}
-            className={`border-r transition-all duration-200 ease-in-out ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} flex flex-col relative`}
+            className={`border-r transition-all duration-200 ease-in-out overflow-hidden ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} flex flex-col relative`}
             style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '500px' }}
           >
             {/* Resize Handle */}
@@ -2025,9 +2007,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             </div>
 
             {/* Conversations List - ChatGPT Style */}
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-              <ScrollArea className="flex-1 h-full">
-                <div className="p-2 space-y-2">
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
+              <ScrollArea className="flex-1 h-full w-full min-w-0">
+                <div className="p-2 space-y-2 min-w-0">
                   {!selectedClassId ? (
                     <div className="text-center py-8 px-4">
                       <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
@@ -2051,7 +2033,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                             loadConversation(conversation.id)
                           }
                         }}
-                        className={`p-3 cursor-pointer transition-colors group ${currentConversation?.id === conversation.id
+                        className={`p-3 cursor-pointer transition-colors group min-w-0 overflow-hidden ${currentConversation?.id === conversation.id
                           ? isDarkMode ? "bg-white/10 border-white/20" : "bg-accent border-accent"
                           : isDarkMode ? "bg-transparent border-white/10 hover:bg-white/5" : "hover:bg-accent border-border"
                           }`}

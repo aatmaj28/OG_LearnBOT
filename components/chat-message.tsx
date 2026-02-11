@@ -384,7 +384,7 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
                     console.warn('[ChatMessage] Invalid or epoch timestamp:', timestamp)
                     return '--:--'
                   }
-                  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' })
                 } catch (e) {
                   // Don't default to current time - show a placeholder instead
                   console.warn('[ChatMessage] Error parsing timestamp:', timestamp, e)
