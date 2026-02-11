@@ -46,8 +46,14 @@ REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', 'http://localhost:5001/api/ge
 REMOTE_OLLAMA_MODEL = os.getenv('REMOTE_OLLAMA_MODEL', 'gemma3:27b')
 REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.224.226:8000/v1/chat/completions')
 REMOTE_BLACKWELL_MODEL = os.getenv('REMOTE_BLACKWELL_MODEL', 'google/gemma-3-12b-it')
-# Short system prompt for Blackwell (Gemma) to avoid vLLM long-prompt failures; restore full prompt when fixed
+# Short system prompt for Blackwell (Gemma) fallback when prompt was built for Claude (long)
 BLACKWELL_SHORT_SYSTEM = "You are a helpful teaching assistant. Answer the student's question clearly and concisely."
+# Compressed TA + formatting for Blackwell when user selects Gemma (remote-blackwell) - similar to full prompt but short enough for vLLM
+BLACKWELL_COMPRESSED_SYSTEM = """You are LearnBOT, an AI teaching assistant. TEACH through guided discovery; never give direct answers or final calculations.
+
+CHECKPOINTS: Use exactly "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form only—never CP1/CP2/CP3). Order: 1=Problem Classification (type, course, solving for, given); 2=Conceptual (why, meaning); 3=Formula & setup. Never skip checkpoints or give numerical answers.
+
+FORMATTING: Numbered lists—one item per line, blank line before list and after each item. Use **bold** for 3–5 key terms (e.g. **Checkpoint 1**, **important**). Blank lines between sections. Conversational, professional; 1–2 emojis OK."""
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
@@ -1366,8 +1372,12 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
                 user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
             except:
                 user_content_clean = str(user_content)
-            user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
-            combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
+            # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
+            if user_content_clean.strip().startswith("You are LearnBOT"):
+                combined_user_content = user_content_clean[:8000] if len(user_content_clean) > 8000 else user_content_clean
+            else:
+                user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
+                combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
             messages = [{"role": "user", "content": combined_user_content}]
             
             print(f"[RAG] 🚀 Calling Blackwell vLLM: url={REMOTE_BLACKWELL_URL}, model={REMOTE_BLACKWELL_MODEL}", file=sys.stderr)
@@ -1641,7 +1651,8 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                     "request_id": request_id,
                                     "chunk": chunk
                                 }
-                                print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
+                                if stream_callback:
+                                    stream_callback(chunk_message)
                                 # No delay for vLLM - it's already fast and delay causes significant slowdown
                                 # if STREAM_CHUNK_DELAY > 0:
                                 #     time.sleep(STREAM_CHUNK_DELAY)
@@ -1673,9 +1684,12 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                 user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
             except:
                 user_content_clean = str(user_content)
-            # Limit user content length for Blackwell to avoid long-prompt issues (testing)
-            user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
-            combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
+            # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
+            if user_content_clean.strip().startswith("You are LearnBOT"):
+                combined_user_content = user_content_clean[:8000] if len(user_content_clean) > 8000 else user_content_clean
+            else:
+                user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
+                combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
             messages = [{"role": "user", "content": combined_user_content}]
             
             prompt_time = time.time() - prompt_start
@@ -1742,7 +1756,8 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                                             "request_id": request_id,
                                             "chunk": chunk
                                         }
-                                        print(json.dumps(chunk_message, ensure_ascii=False), flush=True)
+                                        if stream_callback:
+                                            stream_callback(chunk_message)
                                         # No delay for vLLM - it's already fast and delay causes significant slowdown
                                         # if STREAM_CHUNK_DELAY > 0:
                                         #     time.sleep(STREAM_CHUNK_DELAY)
@@ -2809,13 +2824,23 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                         if content:
                             history_text += f"{role}: {content}\n\n"
             
-            # Build final prompt for LLM
-            full_prompt = f"{system_prompt}\n\n"
-            if history_text:
-                full_prompt += f"Previous conversation:\n{history_text}\n\n"
-            full_prompt += f"Context from textbook:\n{context_text}\n\n"
-            full_prompt += f"Student question: {query}\n\n"
-            full_prompt += """Please provide a helpful, educational response.
+            # Build final prompt for LLM (Blackwell gets compressed prompt to avoid vLLM long-prompt limits)
+            if preferred_model == 'remote-blackwell':
+                _ctx = context_text[:4000] if len(context_text) > 4000 else context_text
+                full_prompt = f"{BLACKWELL_COMPRESSED_SYSTEM}\n\n"
+                if history_text:
+                    _hist = history_text[:2000] if len(history_text) > 2000 else history_text
+                    full_prompt += f"Previous conversation:\n{_hist}\n\n"
+                full_prompt += f"Context from textbook:\n{_ctx}\n\n"
+                full_prompt += f"Student question: {query}\n\n"
+                full_prompt += "Provide a helpful educational response following the rules above."
+            else:
+                full_prompt = f"{system_prompt}\n\n"
+                if history_text:
+                    full_prompt += f"Previous conversation:\n{history_text}\n\n"
+                full_prompt += f"Context from textbook:\n{context_text}\n\n"
+                full_prompt += f"Student question: {query}\n\n"
+                full_prompt += """Please provide a helpful, educational response.
 
 ================================================================================
 CRITICAL FORMATTING REQUIREMENTS - YOU MUST FOLLOW THESE EXACTLY:
