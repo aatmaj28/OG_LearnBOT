@@ -1,12 +1,12 @@
 "use client"
 
 import { AuthGuard } from "@/components/auth-guard"
-import { StudentChatInterface } from "@/components/student-chat-interface"
+import { StudentDashboard } from "@/components/student-dashboard"
 
 export default function StudentChatPage() {
   return (
     <AuthGuard requiredRole="student">
-      <StudentChatInterface />
+      <StudentDashboard />
     </AuthGuard>
   )
 }

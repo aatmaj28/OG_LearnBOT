@@ -186,7 +186,16 @@ const capitalizeTitle = (title: string): string => {
     .trim()
 }
 
-export function StudentChatInterface() {
+interface StudentChatInterfaceProps {
+  /** When false, do not render the top header (used when embedded in StudentDashboard) */
+  showHeader?: boolean
+  /** 'full' = sidebar has Model/Class/Chat Type + My Chats (like Faculty); 'minimal' = only New chat + list */
+  sidebarLayout?: 'minimal' | 'full'
+  /** When provided (e.g. from dashboard), use this for theme; when showHeader is false this is typically passed */
+  isDarkMode?: boolean
+}
+
+export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minimal', isDarkMode: isDarkModeProp }: StudentChatInterfaceProps = {}) {
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
   const [input, setInput] = useState("")
@@ -200,7 +209,10 @@ export function StudentChatInterface() {
     isAvailable: boolean
   }>({ isAvailable: false })
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-  const [isDarkMode, setIsDarkMode] = useState(false)
+  const [isDarkModeInternal, setIsDarkModeInternal] = useState(false)
+  const isDarkMode = isDarkModeProp ?? isDarkModeInternal
+  const effectiveShowHeader = showHeader
+  const toggleDarkMode = () => setIsDarkModeInternal((prev) => !prev)
   const [sidebarWidth, setSidebarWidth] = useState(256) // Default 256px (w-64)
   const [isResizing, setIsResizing] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -273,10 +285,12 @@ export function StudentChatInterface() {
       }
     }
     
-    // Load dark mode state from localStorage
-    const savedDarkMode = localStorage.getItem("studentDarkMode")
-    if (savedDarkMode !== null) {
-      setIsDarkMode(savedDarkMode === "true")
+    // Load dark mode state from localStorage (only when not controlled by parent)
+    if (isDarkModeProp === undefined) {
+      const savedDarkMode = localStorage.getItem("studentDarkMode")
+      if (savedDarkMode !== null) {
+        setIsDarkModeInternal(savedDarkMode === "true")
+      }
     }
     
     // Cleanup: stop recording if component unmounts
@@ -1432,8 +1446,9 @@ export function StudentChatInterface() {
   }
 
   const toggleDarkMode = () => {
+    if (isDarkModeProp !== undefined) return
     const newState = !isDarkMode
-    setIsDarkMode(newState)
+    setIsDarkModeInternal(newState)
     localStorage.setItem("studentDarkMode", String(newState))
   }
 
@@ -1700,7 +1715,8 @@ export function StudentChatInterface() {
 
   return (
     <div className={`h-screen flex flex-col overflow-hidden ${isDarkMode ? 'dark bg-black' : 'bg-gradient-to-br from-gray-50 to-blue-50/20'}`}>
-      {/* Header */}
+      {/* Header - only when not embedded in dashboard */}
+      {effectiveShowHeader && (
       <header className={`border-b shadow-sm ${isDarkMode ? 'bg-black border-white/10' : 'bg-white/80'} backdrop-blur-sm`}>
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
@@ -1715,7 +1731,6 @@ export function StudentChatInterface() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Dark Mode Toggle */}
             <Button
               size="icon-sm"
               variant="ghost"
@@ -1733,6 +1748,7 @@ export function StudentChatInterface() {
           </div>
         </div>
       </header>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
         {/* Collapsed Sidebar - Very narrow strip with expand button */}
@@ -1779,6 +1795,76 @@ export function StudentChatInterface() {
             <PanelLeftClose className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`} />
           </Button>
           
+          {/* Optional: Select Model, Class, Chat Type (when sidebarLayout is 'full', like Faculty) */}
+          {sidebarLayout === 'full' && (
+            <div className={`p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
+              <div className="space-y-2">
+                <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
+                  <Zap className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
+                  Select Model
+                </label>
+                <Select value={preferredModel} onValueChange={(v) => setPreferredModel(v as ModelBackend)}>
+                  <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                    <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>🧠 Claude 4.5 Haiku</SelectItem>
+                    <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>🚀 Remote A6000 (Gemma 27B)</SelectItem>
+                    <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>⚡ Remote Blackwell (Gemma 27B)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
+                  <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
+                  Select Class
+                </label>
+                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                  <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
+                    <SelectValue placeholder="Select class..." />
+                  </SelectTrigger>
+                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                    <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                      <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
+                    </SelectItem>
+                    {classes.length > 0 && (
+                      <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Individual Classes</div>
+                    )}
+                    {classes.map((c) => (
+                      <SelectItem key={c.id} value={c.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">{c.name}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
+                  Chat Type
+                </label>
+                <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+                  <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                    <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                      <div className="flex items-center gap-2">
+                        <BookOpen className="h-3 w-3" />
+                        <span className="text-sm">Class Material</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-3 w-3" />
+                        <span className="text-sm">Syllabus</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
           {/* New Chat Button - ChatGPT Style */}
           <div className={`p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
             <Button 
@@ -1852,71 +1938,69 @@ export function StudentChatInterface() {
 
         {/* Main Chat Area */}
         <div className={`flex-1 flex flex-col overflow-hidden relative ${isDarkMode ? 'bg-black' : 'bg-white'}`}>
-          {/* Chat Header - ChatGPT Style with Model/Class Selector */}
+          {/* Chat Header: when sidebarLayout is 'minimal' show full bar (model/class/chat type); when 'full' show only RAG status + Export */}
           <div className={`border-b ${isDarkMode ? 'border-white/10 bg-black' : 'border-gray-200 bg-white'} px-4 py-2.5 flex items-center justify-between`}>
             <div className="flex items-center gap-3 flex-1 min-w-0">
-              {/* Model Selector - ChatGPT Style */}
-              <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-                <SelectTrigger className={`h-8 w-[180px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <span className="text-sm">🧠 Claude 4.5 Haiku</span>
-                  </SelectItem>
-                  <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <span className="text-sm">🚀 Remote A6000 (Gemma 27B)</span>
-                  </SelectItem>
-                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <span className="text-sm">⚡ Remote Blackwell (Gemma 27B)</span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Class Selector */}
-              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                <SelectTrigger className={`h-8 w-[200px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
-                  <SelectValue placeholder="Select class..." />
-                </SelectTrigger>
-                <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                  <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
-                  </SelectItem>
-                  {classes.length > 0 && (
-                    <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Individual Classes
-                    </div>
-                  )}
-                  {classes.map((classItem) => (
-                    <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                      <span className="text-sm">{classItem.name}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* Chat Type Selector */}
-              <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
-                <SelectTrigger className={`h-8 w-[160px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                  <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <div className="flex items-center gap-2">
-                      <BookOpen className="h-3 w-3" />
-                      <span className="text-sm">Class Material</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-3 w-3" />
-                      <span className="text-sm">Syllabus</span>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* AI Status Indicator */}
+              {sidebarLayout === 'minimal' && (
+                <>
+                  <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
+                    <SelectTrigger className={`h-8 w-[180px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                      <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">🧠 Claude 4.5 Haiku</span>
+                      </SelectItem>
+                      <SelectItem value="remote-a6000" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">🚀 Remote A6000 (Gemma 27B)</span>
+                      </SelectItem>
+                      <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">⚡ Remote Blackwell (Gemma 27B)</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                    <SelectTrigger className={`h-8 w-[200px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                      <SelectValue placeholder="Select class..." />
+                    </SelectTrigger>
+                    <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                      <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
+                      </SelectItem>
+                      {classes.length > 0 && (
+                        <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                          Individual Classes
+                        </div>
+                      )}
+                      {classes.map((classItem) => (
+                        <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          <span className="text-sm">{classItem.name}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+                    <SelectTrigger className={`h-8 w-[160px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                      <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <div className="flex items-center gap-2">
+                          <BookOpen className="h-3 w-3" />
+                          <span className="text-sm">Class Material</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-3 w-3" />
+                          <span className="text-sm">Syllabus</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+              {/* AI Status Indicator (always show) */}
               <div className={`flex items-center gap-2 px-2.5 py-1 rounded-md ${isDarkMode ? 'bg-white/5' : 'bg-gray-100'}`}>
                 {ragStatus.isAvailable ? (
                   <div className="flex items-center gap-1.5">
