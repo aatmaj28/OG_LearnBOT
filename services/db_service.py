@@ -960,6 +960,16 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
         conversations = []
         for row in rows:
             row_dict = dict(row)
+            message_history = _parse_json_field(row_dict.get('message_history'), [])
+            # First user message snippet for list card title (avoid "Chat (Date)" on frontend)
+            title_snippet = None
+            if isinstance(message_history, list):
+                for msg in message_history:
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        content = (msg.get('content') or '').strip()
+                        if content:
+                            title_snippet = content[:45].strip() + ('...' if len(content) > 45 else '')
+                        break
             conversations.append({
                 'id': str(row_dict['id']),
                 'userId': str(row_dict['user_id']),
@@ -967,12 +977,13 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
                 'classId': str(row_dict['class_id']) if row_dict.get('class_id') else None,
                 'chatType': row_dict.get('chat_type'),
                 'title': row_dict['title'],
+                'titleSnippet': title_snippet,
                 'createdAt': row_dict['created_at'],
                 'updatedAt': row_dict['updated_at'],
                 'status': row_dict['status'],
                 'currentTopic': row_dict.get('current_topic'),
                 'checkpointState': _parse_json_field(row_dict.get('checkpoint_state'), {}),
-                'messageHistory': _parse_json_field(row_dict.get('message_history'), []),
+                'messageHistory': message_history,
                 'studentProblemData': _parse_json_field(row_dict.get('student_problem_data'), {}),
                 'cachedContext': _parse_json_field(row_dict.get('cached_context')),
                 'lastRetrievalTopic': row_dict.get('last_retrieval_topic'),
