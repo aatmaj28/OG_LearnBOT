@@ -1380,6 +1380,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             let accumulatedResponse = ''
             let chunkCount = 0
 
+            try {
             while (true) {
               const { done, value } = await reader.read()
               if (done) {
@@ -1505,7 +1506,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                 }
               }
             }
-          }
 
           // Calculate total response time (send to last token)
           const lastTokenTimestamp = Date.now()
@@ -1541,6 +1541,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
           // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
           loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
+            } catch (streamError: unknown) {
+              console.error("[v0] Stream read error (often ERR_HTTP2_PROTOCOL_ERROR):", streamError)
+              toast.error("Connection interrupted during response. Please try again.")
+              await loadConversation(currentConversation.id).catch(() => {})
+            }
+          }
         } else {
           // Non-streaming response (fallback)
           console.log("[v0] ⚠️ Non-streaming response detected (Content-Type:", contentType, ")")
