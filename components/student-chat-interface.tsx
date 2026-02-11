@@ -238,7 +238,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [userName, setUserName] = useState("")
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [chatType, setChatType] = useState<ChatType>("class_material")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("claude")
+  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-blackwell")
   const [classes, setClasses] = useState<Class[]>([])
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
@@ -1789,13 +1789,22 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     if (currentConversation.messageHistory && currentConversation.messageHistory.length > 0) {
       currentConversation.messageHistory.forEach((message, index) => {
         const role = message.role === 'user' ? '[USER]' : '[AI TA]'
-        const timestamp = new Date(message.timestamp).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
+        let timestampDisplay = '--:--'
+        try {
+          const date = new Date(message.timestamp as any)
+          const timeValue = date.getTime()
+          if (!isNaN(timeValue) && timeValue !== 0) {
+            timestampDisplay = date.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            })
+          }
+        } catch {
+          // leave timestampDisplay as '--:--'
+        }
 
-        exportContent += `${role} (${timestamp})\n`
+        exportContent += `${role} (${timestampDisplay})\n`
         exportContent += `${message.content}\n\n`
 
         // Add separator between messages (except last one)
@@ -1922,8 +1931,16 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                    <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>🧠 Claude</SelectItem>
-                    <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>⚡ Gemma (Blackwell)</SelectItem>
+                    <SelectItem
+                      value="claude"
+                      disabled
+                      className={`${isDarkMode ? 'focus:bg-white/10 focus:text-white text-white/40' : 'text-gray-400'} cursor-not-allowed`}
+                    >
+                      🧠 Claude (temporarily unavailable)
+                    </SelectItem>
+                    <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                      ⚡ Gemma (Blackwell)
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>

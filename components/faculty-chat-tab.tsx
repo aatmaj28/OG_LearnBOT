@@ -28,7 +28,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   const [loading, setLoading] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [chatType, setChatType] = useState<ChatType>("class_material")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("claude")
+  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-blackwell")
   const [taMode, setTaMode] = useState<'lenient' | 'normal' | 'strict'>('normal')
   const [classes, setClasses] = useState<Class[]>([])
   const [ragStatus, setRagStatus] = useState<{
@@ -1240,13 +1240,22 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     if (currentConversation.messageHistory && currentConversation.messageHistory.length > 0) {
       currentConversation.messageHistory.forEach((message, index) => {
         const role = message.role === 'user' ? '[USER]' : '[AI TA]'
-        const timestamp = new Date(message.timestamp).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
+        let timestampDisplay = '--:--'
+        try {
+          const date = new Date(message.timestamp as any)
+          const timeValue = date.getTime()
+          if (!isNaN(timeValue) && timeValue !== 0) {
+            timestampDisplay = date.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            })
+          }
+        } catch {
+          // leave timestampDisplay as '--:--'
+        }
 
-        exportContent += `${role} (${timestamp})\n`
+        exportContent += `${role} (${timestampDisplay})\n`
         exportContent += `${message.content}\n\n`
 
         // Add separator between messages (except last one)
@@ -1339,13 +1348,21 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 Select Model
               </label>
               <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-                <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
-                  <SelectValue placeholder="Choose a model..." />
-                </SelectTrigger>
-                <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>🧠 Claude</SelectItem>
-                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>⚡ Gemma (Blackwell)</SelectItem>
-                </SelectContent>
+              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
+                <SelectValue placeholder="Choose a model..." />
+              </SelectTrigger>
+              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                <SelectItem
+                  value="claude"
+                  disabled
+                  className={`${isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100 text-gray-500' : 'text-gray-400'} cursor-not-allowed`}
+                >
+                  🧠 Claude (temporarily unavailable)
+                </SelectItem>
+                <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                  ⚡ Gemma (Blackwell)
+                </SelectItem>
+              </SelectContent>
               </Select>
             </div>
 

@@ -370,9 +370,10 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
               {(() => {
                 try {
                   const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
-                  if (isNaN(date.getTime())) {
-                    // Don't default to current time - show a placeholder instead
-                    console.warn('[ChatMessage] Invalid timestamp:', timestamp)
+                  const timeValue = date.getTime()
+                  if (isNaN(timeValue) || timeValue === 0) {
+                    // Treat invalid or epoch (1970-01-01) timestamps as unknown instead of showing 07:00 PM
+                    console.warn('[ChatMessage] Invalid or epoch timestamp:', timestamp)
                     return '--:--'
                   }
                   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
