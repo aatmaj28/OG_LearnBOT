@@ -90,26 +90,26 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
 
   const viewStudentChats = async (student: User) => {
     setSelectedStudent(student)
+    setStudentSessions([]) // clear previous so we don't show stale list
 
     try {
-      // Use the new conversations API instead of sessions
-      const response = await fetch(`/api/chat/conversations?userId=${student.id}`)
-      if (response.ok) {
-        const data = await response.json()
-        // Convert RAGConversations to ChatSessions for compatibility
-        const sessions = data.conversations.map((conv: any) => ({
-          id: conv.id,
-          userId: conv.userId,
-          title: conv.title,
-          createdAt: conv.createdAt,
-          updatedAt: conv.updatedAt,
-          status: conv.status,
-          messageCount: conv.messageHistory?.length || 0
-        }))
-        setStudentSessions(sessions)
-      }
+      // Use Flask API (same source as analytics count) so chat history matches
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.getConversations(student.id, selectedClassId || undefined) as { conversations?: any[] }
+      const list = data.conversations ?? []
+      const sessions = list.map((conv: any) => ({
+        id: conv.id,
+        userId: conv.userId,
+        title: conv.title,
+        createdAt: conv.createdAt,
+        updatedAt: conv.updatedAt,
+        status: conv.status,
+        messageCount: conv.messageHistory?.length || 0
+      }))
+      setStudentSessions(sessions)
     } catch (error) {
       console.error("[v0] Failed to load student conversations:", error)
+      setStudentSessions([])
     }
   }
 
@@ -117,22 +117,18 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
     setSelectedSession(session)
 
     try {
-      // Use the conversations API to get the full conversation with messages
-      const response = await fetch(`/api/chat/conversations/${session.id}`)
-      if (response.ok) {
-        const data = await response.json()
-        // Convert RAGConversation messageHistory to ChatMessage format
-        const messages = data.conversation?.messageHistory?.map((msg: any) => ({
-          id: `${session.id}-${msg.timestamp}`,
-          sessionId: session.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          metadata: msg.metadata || {}
-        })) || []
-        setSessionMessages(messages)
-        setShowChatDialog(true)
-      }
+      const { chatApi } = await import("@/lib/flask-api-client")
+      const data = await chatApi.getConversation(session.id) as { conversation?: { messageHistory?: any[] } }
+      const messages = (data.conversation?.messageHistory ?? []).map((msg: any) => ({
+        id: `${session.id}-${msg.timestamp}`,
+        sessionId: session.id,
+        role: msg.role,
+        content: msg.content,
+        timestamp: new Date(msg.timestamp),
+        metadata: msg.metadata || {}
+      }))
+      setSessionMessages(messages)
+      setShowChatDialog(true)
     } catch (error) {
       console.error("[v0] Failed to load conversation messages:", error)
     }
