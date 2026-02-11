@@ -251,16 +251,20 @@ def ai_response():
                 
                 # Yield chunks as they arrive
                 try:
+                    import time
                     while True:
                         try:
                             # Wait for chunk with timeout to check if streaming is done
                             item_type, item_data = chunk_queue.get(timeout=0.1)
                             
                             if item_type == 'chunk':
-                                # Yield SSE-formatted chunk
+                                # Yield SSE-formatted chunk immediately
                                 sse_data = json.dumps({"content": item_data}, ensure_ascii=False)
-                                yield f"data: {sse_data}\n\n"
-                                print(f"[CHAT] YIELDED CHUNK: {item_data[:50]}...", flush=True)
+                                chunk_line = f"data: {sse_data}\n\n"
+                                print(f"[CHAT] YIELDED CHUNK ({len(item_data)} chars): {item_data[:50]}...", flush=True)
+                                yield chunk_line
+                                # Force flush to ensure chunk is sent immediately
+                                sys.stdout.flush()
                             elif item_type == 'done':
                                 # Streaming complete, break to handle final result
                                 break
@@ -327,7 +331,7 @@ def ai_response():
                     yield f"data: {error_data}\n\n"
             
             # Return streaming response
-            return Response(
+            response = Response(
                 stream_with_context(generate_stream()),
                 mimetype='text/event-stream',
                 headers={
@@ -336,6 +340,9 @@ def ai_response():
                     'Connection': 'keep-alive'
                 }
             )
+            # Ensure response is not buffered
+            response.direct_passthrough = True
+            return response
         else:
             # Non-streaming response (existing logic)
             print(f"[CHAT] NON-STREAMING MODE (session_id={session_id}, class_id={conv_class_id})", flush=True)
