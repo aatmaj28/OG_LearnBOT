@@ -1366,6 +1366,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           if (reader) {
             let accumulatedResponse = ''
             let chunkCount = 0
+            // Buffer incomplete SSE lines so we don't parse partial JSON when a read() splits mid-event
+            let sseBuffer = ''
 
             try {
             while (true) {
@@ -1375,14 +1377,17 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                 break
               }
 
-              const chunk = decoder.decode(value)
-              console.log(`[v0] 📦 Raw chunk received (${chunk.length} bytes):`, chunk.substring(0, 100))
-              const lines = chunk.split('\n').filter(line => line.trim() !== '')
+              const chunk = decoder.decode(value, { stream: true })
+              sseBuffer += chunk
+              const lines = sseBuffer.split('\n')
+              sseBuffer = lines.pop() ?? ''
 
               for (const line of lines) {
-                if (line.startsWith('data: ')) {
+                const trimmed = line.trim()
+                if (trimmed === '') continue
+                if (trimmed.startsWith('data: ')) {
                   try {
-                    const data = JSON.parse(line.slice(6))
+                    const data = JSON.parse(trimmed.slice(6))
                     console.log(`[v0] 📨 Parsed SSE data:`, data)
 
                     if (data.content) {
