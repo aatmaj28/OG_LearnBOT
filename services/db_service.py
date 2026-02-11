@@ -87,7 +87,7 @@ def session_create(session_id: str, user_id: str, expires_at: datetime) -> None:
     finally:
         if cursor is not None:
             cursor.close()
-        return_connection(conn)
+        return_connection(conn)  # required: never leak pool connection
 
 def session_get(session_id: str) -> Optional[Dict]:
     """Get session by id. Returns dict with user_id, expires_at or None. Deletes if expired."""
@@ -121,7 +121,7 @@ def session_get(session_id: str) -> Optional[Dict]:
     finally:
         if cursor is not None:
             cursor.close()
-        return_connection(conn)
+        return_connection(conn)  # required: never leak pool connection
 
 def session_delete(session_id: str) -> None:
     """Delete a session by id."""
@@ -138,7 +138,7 @@ def session_delete(session_id: str) -> None:
     finally:
         if cursor is not None:
             cursor.close()
-        return_connection(conn)
+        return_connection(conn)  # required: never leak pool connection
 
 # ============================================================================
 # USER OPERATIONS
@@ -989,12 +989,14 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
     finally:
         return_connection(conn)
 
-def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
-    """Gets RAG conversation by ID"""
+def get_rag_conversation_by_id(conversation_id: str, conn=None) -> Optional[Dict]:
+    """Gets RAG conversation by ID. If conn is provided, uses it (caller owns it); otherwise gets and returns a pool connection."""
     if not conversation_id or conversation_id in ('undefined', 'null'):
         return None
-    
-    conn = get_connection()
+
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
     try:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute('SELECT * FROM rag_conversations WHERE id = %s', (conversation_id,))
@@ -1030,7 +1032,8 @@ def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
         print(f'[DB] Error getting RAG conversation by ID: {e}')
         raise
     finally:
-        return_connection(conn)
+        if own_conn:
+            return_connection(conn)
 
 def create_rag_conversation(user_id: str, title: Optional[str] = None, 
                             class_id: Optional[str] = None, 
@@ -1154,8 +1157,8 @@ def update_rag_conversation(conversation_id: str, updates: Dict) -> Optional[Dic
             values.append(updates['conversationSummary'])
         
         if not update_fields:
-            return get_rag_conversation_by_id(conversation_id)
-        
+            return get_rag_conversation_by_id(conversation_id, conn=conn)
+
         update_fields.append('updated_at = %s')
         values.append(datetime.now())
         values.append(conversation_id)
@@ -1167,8 +1170,8 @@ def update_rag_conversation(conversation_id: str, updates: Dict) -> Optional[Dic
         )
         conn.commit()
         cursor.close()
-        
-        return get_rag_conversation_by_id(conversation_id)
+
+        return get_rag_conversation_by_id(conversation_id, conn=conn)
     except Exception as e:
         print(f'[DB] Error updating RAG conversation: {e}')
         raise
