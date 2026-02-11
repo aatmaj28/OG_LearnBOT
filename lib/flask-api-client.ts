@@ -474,6 +474,21 @@ export const corpusApi = {
   getStats: async (collectionName: string) => {
     return apiRequest(`/api/corpus/stats?collectionName=${collectionName}`)
   },
+
+  /** For student portal: check if class has indexed PDFs (enables chat box). */
+  getClassCorpusStats: async (classId: string, materialType: string = 'class_material', studentId?: string) => {
+    const params = new URLSearchParams()
+    params.append('classId', classId)
+    params.append('materialType', materialType)
+    if (studentId) params.append('studentId', studentId)
+    return apiRequest(`/api/corpus/stats?${params.toString()}`) as Promise<{
+      pdfCount?: number
+      chunkCount?: number
+      isEnrolled?: boolean
+      hasIndexedFiles?: boolean
+      canChat?: boolean
+    }>
+  },
 }
 
 /**
