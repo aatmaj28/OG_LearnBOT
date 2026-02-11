@@ -23,9 +23,17 @@ interface ChatMessageProps {
   isDarkMode?: boolean
 }
 
+// Replace literal HTML line-break tags with newlines so they render as clean line breaks, not raw text
+function stripHtmlLineBreaks(text: string): string {
+  return text.replace(/<br\s*\/?>/gi, '\n')
+}
+
 // Function to sanitize content using efficient character whitelist (same as Python/frontend)
 function sanitizeContent(content: string): string {
   if (!content) return content
+
+  // Remove literal <br/>, <br>, <br /> etc so response is clean (LLM sometimes emits these)
+  content = stripHtmlLineBreaks(content)
 
   // Fast path: check if all ASCII (most common case)
   let hasNonASCII = false

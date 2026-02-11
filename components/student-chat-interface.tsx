@@ -16,6 +16,7 @@ import { VoiceWave } from "@/components/voice-wave"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import type { RAGConversation, Class, ModelBackend, Assignment, Resource, ChatAttachment } from "@/lib/types"
+import { getConversationCardTitle } from "@/lib/utils"
 import { speechToText } from "@/lib/speech-to-text"
 import { voiceLogger } from "@/lib/voice-logger"
 import { DeepThinkingAnimation } from "@/components/deep-thinking-animation"
@@ -500,6 +501,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   // Helper function to sanitize content chunks during streaming (optimized character whitelist)
   const sanitizeContentChunk = (content: string): string => {
     if (!content) return content
+
+    // Replace literal <br/>, <br>, <br /> with newlines so they don't show as raw text
+    content = content.replace(/<br\s*\/?>/gi, '\n')
 
     // Fast path: check if all ASCII (most common case)
     let hasNonASCII = false
@@ -2023,7 +2027,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             {/* Conversations List - ChatGPT Style */}
             <div className="flex-1 overflow-hidden flex flex-col min-h-0">
               <ScrollArea className="flex-1 h-full">
-                <div className="p-2 space-y-1">
+                <div className="p-2 space-y-2">
                   {!selectedClassId ? (
                     <div className="text-center py-8 px-4">
                       <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
@@ -2036,48 +2040,46 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                     </div>
                   ) : (
                     conversations.map((conversation) => (
-                      <div
+                      <Card
                         key={conversation.id}
-                        className={`w-full rounded-lg transition-colors group relative ${currentConversation?.id === conversation.id
-                          ? isDarkMode ? "bg-white/10" : "bg-gray-100"
-                          : isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => loadConversation(conversation.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            loadConversation(conversation.id)
+                          }
+                        }}
+                        className={`p-3 cursor-pointer transition-colors group ${currentConversation?.id === conversation.id
+                          ? isDarkMode ? "bg-white/10 border-white/20" : "bg-accent border-accent"
+                          : isDarkMode ? "bg-transparent border-white/10 hover:bg-white/5" : "hover:bg-accent border-border"
                           }`}
                       >
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => loadConversation(conversation.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              loadConversation(conversation.id)
-                            }
-                          }}
-                          className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors cursor-pointer ${currentConversation?.id === conversation.id
-                            ? isDarkMode ? "text-white" : "text-gray-900"
-                            : isDarkMode ? "text-white/70 hover:text-white" : "text-gray-700"
-                            }`}
-                        >
-                          <div className="flex items-start justify-between gap-2 min-h-[2.5rem]">
-                            <p className={`text-sm flex-1 break-words leading-relaxed pr-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {getShortTitle(conversation)}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0 pr-2">
+                            <p className={`font-medium text-sm truncate w-full ${currentConversation?.id === conversation.id ? isDarkMode ? "text-white" : "text-gray-900" : isDarkMode ? "text-white/90" : "text-gray-800"}`}>
+                              {getConversationCardTitle(conversation)}
                             </p>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className={`h-6 w-6 p-0 flex-shrink-0 opacity-100 ${isDarkMode ? 'hover:bg-red-500/20 text-red-400 hover:text-red-300' : 'hover:bg-red-50 text-red-500 hover:text-red-600'}`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                                deleteConversation(conversation.id)
-                              }}
-                              title="Delete conversation"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            <p className={`text-xs mt-1 truncate ${isDarkMode ? "text-white/50" : "text-muted-foreground"}`}>
+                              {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory?.length ?? 0} messages
+                            </p>
                           </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={`h-6 w-6 p-0 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${isDarkMode ? "hover:bg-red-500/20 text-red-400 hover:text-red-300" : "hover:bg-red-100 text-red-600 hover:text-red-700"}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              deleteConversation(conversation.id)
+                            }}
+                            title="Delete conversation"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
-                      </div>
+                      </Card>
                     ))
                   )}
                 </div>
