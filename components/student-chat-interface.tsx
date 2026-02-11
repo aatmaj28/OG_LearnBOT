@@ -249,9 +249,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [isDarkModeInternal, setIsDarkModeInternal] = useState(false)
   const isDarkMode = isDarkModeProp ?? isDarkModeInternal
   const effectiveShowHeader = showHeader
-  const SIDEBAR_MIN_WIDTH = 280
+  const SIDEBAR_MIN_WIDTH = 300
   const SIDEBAR_MAX_WIDTH = 500
-  const [sidebarWidth, setSidebarWidth] = useState(300) // Fixed default so chat cards never overflow
+  const [sidebarWidth, setSidebarWidth] = useState(320) // Wide enough so "2 messages" and card text stay visible
   const [isResizing, setIsResizing] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true) // Track if we should auto-scroll
@@ -2008,10 +2008,10 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
               </Button>
             </div>
 
-            {/* Conversations List - ChatGPT Style */}
+            {/* Conversations List - ChatGPT Style - pr-4 keeps text clear of scrollbar */}
             <div className="flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
-              <ScrollArea className="flex-1 h-full w-full min-w-0">
-                <div className="p-2 space-y-2 min-w-0">
+              <ScrollArea className="flex-1 h-full w-full min-w-0 overflow-x-hidden">
+                <div className="px-2 pt-2 pb-2 pr-4 space-y-2 min-w-0 max-w-full">
                   {!selectedClassId ? (
                     <div className="text-center py-8 px-4">
                       <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
@@ -2035,7 +2035,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                             loadConversation(conversation.id)
                           }
                         }}
-                        className={`p-3 cursor-pointer transition-colors group min-w-0 overflow-hidden ${currentConversation?.id === conversation.id
+                        className={`p-3 cursor-pointer transition-colors group min-w-0 max-w-full overflow-hidden w-full ${currentConversation?.id === conversation.id
                           ? isDarkMode ? "bg-white/10 border-white/20" : "bg-accent border-accent"
                           : isDarkMode ? "bg-transparent border-white/10 hover:bg-white/5" : "hover:bg-accent border-border"
                           }`}
