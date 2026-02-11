@@ -4,6 +4,7 @@ Migrated from app/api/chat/*/route.ts and app/api/rag/*/route.ts
 """
 from flask import Blueprint, request, jsonify
 from services import db_service, auth_service
+from datetime import datetime
 import sys
 import os
 import pathlib
@@ -209,9 +210,19 @@ def ai_response():
 
         # Update conversation with new message
         updated_history = conversation.get('messageHistory', [])
-        updated_history.append({"role": "user", "content": message})
+        # Persist accurate timestamps for both user and assistant messages
+        now_iso = datetime.now().isoformat()
+        updated_history.append({
+            "role": "user",
+            "content": message,
+            "timestamp": now_iso,
+        })
         if result.get('response'):
-            updated_history.append({"role": "assistant", "content": result['response']})
+            updated_history.append({
+                "role": "assistant",
+                "content": result['response'],
+                "timestamp": datetime.now().isoformat(),
+            })
         
         db_service.update_rag_conversation(session_id, {
             "messageHistory": updated_history,
