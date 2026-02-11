@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { FileText, FolderOpen, Users, Calendar, Download, ExternalLink } from "lucide-react"
 import type { Class } from "@/lib/types"
@@ -226,26 +226,35 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
               </h2>
               <p className={isDarkMode ? "text-gray-400" : "text-gray-600"}>{selectedClass.description}</p>
 
-              {/* Tab bar: Assignments | Resources (like faculty portal) */}
-              <Tabs value={activeView} onValueChange={(v) => setActiveView(v as "assignments" | "resources")} className="mt-4">
-                <TabsList className={`h-10 ${isDarkMode ? "bg-gray-800 border border-gray-700" : "bg-gray-100"}`}>
-                  <TabsTrigger
-                    value="assignments"
-                    className={`gap-2 ${isDarkMode ? "data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" : "data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"}`}
+              <div className="mt-4">
+                <Select
+                  value={activeView}
+                  onValueChange={(v) => setActiveView(v as "assignments" | "resources")}
+                >
+                  <SelectTrigger
+                    className={`w-64 ${isDarkMode ? "bg-gray-700 border-gray-600 text-gray-100" : ""}`}
                   >
-                    <FileText className="h-4 w-4" />
-                    Assignments
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="resources"
-                    className={`gap-2 ${isDarkMode ? "data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" : "data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"}`}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    Resources
-                  </TabsTrigger>
-                </TabsList>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className={isDarkMode ? "bg-gray-800 border-gray-700 text-gray-100" : ""}>
+                    <SelectItem value="assignments" className={isDarkMode ? "focus:bg-gray-700 focus:text-gray-100" : ""}>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        <span>Assignments</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="resources" className={isDarkMode ? "focus:bg-gray-700 focus:text-gray-100" : ""}>
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="h-4 w-4" />
+                        <span>Resources</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-                <TabsContent value="assignments" className="mt-4 m-0">
+            {activeView === "assignments" && (
               <Card className={isDarkMode ? "bg-gray-800 border-gray-700" : ""}>
                 <CardHeader>
                   <CardTitle className={isDarkMode ? "text-gray-100" : ""}>Assignments</CardTitle>
@@ -307,9 +316,9 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                   )}
                 </CardContent>
               </Card>
-                </TabsContent>
+            )}
 
-                <TabsContent value="resources" className="mt-4 m-0">
+            {activeView === "resources" && (
               <Card className={isDarkMode ? "bg-gray-800 border-gray-700" : ""}>
                 <CardHeader>
                   <CardTitle className={isDarkMode ? "text-gray-100" : ""}>Resources</CardTitle>
@@ -369,8 +378,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                   )}
                 </CardContent>
               </Card>
-                </TabsContent>
-              </Tabs>
+            )}
           </div>
         )}
       </div>
