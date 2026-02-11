@@ -391,57 +391,44 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     }
   }, [selectedClassId, chatType])
 
-  // Check if selected class has PDFs uploaded
+  // Check if selected class has PDFs uploaded (use Flask API so chat box enables in production)
   const checkCorpusPdfs = async () => {
     if (!selectedClassId || selectedClassId === 'entire-corpus') {
-      // Entire corpus always allows chat (it's a merged corpus)
       setHasCorpusPdfs(true)
       return
     }
 
     setIsCheckingCorpus(true)
     try {
-      const userId = localStorage.getItem("userId")
-      const url = `/api/corpus/stats?classId=${selectedClassId}&materialType=${chatType}${userId ? `&studentId=${userId}` : ''}`
-      const response = await fetch(url)
+      const userId = localStorage.getItem("userId") ?? undefined
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      const data = await corpusApi.getClassCorpusStats(selectedClassId, chatType, userId)
 
-      if (response.ok) {
-        const data = await response.json()
+      const canChat = data.canChat !== undefined
+        ? data.canChat
+        : (data.hasIndexedFiles !== undefined
+          ? data.hasIndexedFiles
+          : ((data.pdfCount || 0) > 0 || (data.chunkCount || 0) > 0))
 
-        // Use canChat from API if available (most accurate), otherwise check hasIndexedFiles or fallback to chunk count
-        const canChat = data.canChat !== undefined
-          ? data.canChat
-          : (data.hasIndexedFiles !== undefined
-            ? data.hasIndexedFiles
-            : ((data.pdfCount || 0) > 0 || (data.chunkCount || 0) > 0))
+      console.log(`[Student Chat] Corpus check for class ${selectedClassId} (${chatType}):`, {
+        pdfCount: data.pdfCount,
+        chunkCount: data.chunkCount,
+        isEnrolled: data.isEnrolled,
+        hasIndexedFiles: data.hasIndexedFiles,
+        canChat: data.canChat,
+        calculatedCanChat: canChat,
+        className: classes.find(c => c.id === selectedClassId)?.name || 'Unknown'
+      })
 
-        console.log(`[Student Chat] Corpus check for class ${selectedClassId} (${chatType}):`, {
-          pdfCount: data.pdfCount,
-          chunkCount: data.chunkCount,
-          isEnrolled: data.isEnrolled,
-          hasIndexedFiles: data.hasIndexedFiles,
-          canChat: data.canChat,
-          calculatedCanChat: canChat,
-          className: classes.find(c => c.id === selectedClassId)?.name || 'Unknown'
-        })
-
-        // If student is not enrolled, disable chat
-        if (userId && data.isEnrolled === false) {
-          console.warn(`[Student Chat] Student ${userId} is not enrolled in class ${selectedClassId}`)
-          setHasCorpusPdfs(false)
-          return
-        }
-
-        setHasCorpusPdfs(canChat)
-      } else {
-        // If API fails, disable chat to be safe (require explicit confirmation of enrollment and indexed files)
-        const errorText = await response.text().catch(() => 'Unknown error')
-        console.warn(`[Student Chat] Corpus check API failed (${response.status}):`, errorText, '- disabling chat for safety')
+      if (userId && data.isEnrolled === false) {
+        console.warn(`[Student Chat] Student ${userId} is not enrolled in class ${selectedClassId}`)
         setHasCorpusPdfs(false)
+        return
       }
+
+      setHasCorpusPdfs(canChat)
     } catch (error) {
       console.error('[Student Chat] Failed to check corpus PDFs:', error)
-      // On error, disable chat to be safe (require explicit confirmation of enrollment and indexed files)
       setHasCorpusPdfs(false)
     } finally {
       setIsCheckingCorpus(false)
