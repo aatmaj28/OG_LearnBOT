@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
+import { flushSync } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -1412,22 +1413,28 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                       accumulatedResponse += sanitizedChunk
 
                       // Update the last message (assistant) with new content
-                      setCurrentConversation(prev => {
-                        if (!prev) return prev
-                        const messages = [...(prev.messageHistory || [])]
-                        if (messages.length > 0) {
-                          const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
-                          messages[messages.length - 1] = {
-                            ...messages[messages.length - 1],
-                            content: accumulatedResponse,
-                            metadata: {
-                              ...messages[messages.length - 1].metadata,
-                              timeToFirstToken: ttft
+                      // Use flushSync to force immediate render for streaming effect
+                      flushSync(() => {
+                        setCurrentConversation(prev => {
+                          if (!prev) return prev
+                          const messages = [...(prev.messageHistory || [])]
+                          if (messages.length > 0) {
+                            const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
+                            messages[messages.length - 1] = {
+                              ...messages[messages.length - 1],
+                              content: accumulatedResponse,
+                              metadata: {
+                                ...messages[messages.length - 1].metadata,
+                                timeToFirstToken: ttft
+                              }
                             }
                           }
-                        }
-                        return { ...prev, messageHistory: messages }
+                          return { ...prev, messageHistory: messages }
+                        })
                       })
+                      
+                      // Small delay to allow React to render before processing next chunk
+                      await new Promise(resolve => setTimeout(resolve, 0))
 
                       // Auto-scroll only if user is at bottom - always check position during streaming
                       if (scrollRef.current) {
