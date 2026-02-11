@@ -4,7 +4,7 @@ Migrated from app/api/analytics/*/route.ts
 """
 from flask import Blueprint, request, jsonify
 from services import db_service
-from datetime import datetime
+from datetime import datetime, timedelta
 
 bp = Blueprint("analytics", __name__)
 
@@ -129,15 +129,54 @@ def class_summary():
             reverse=True
         )[:5]
         
-        # Activity over time (simplified)
+        # Activity over time: last 7 days, sessions and minutes per day for all students in class
+        def _parse_date(ts):
+            if ts is None:
+                return None
+            if hasattr(ts, 'date'):
+                return ts.date()
+            try:
+                s = str(ts).replace('Z', '+00:00')
+                dt = datetime.fromisoformat(s)
+                return dt.date()
+            except Exception:
+                return None
+
         activity_over_time = []
-        today = datetime.now()
+        today = datetime.now().date()
         for i in range(6, -1, -1):
-            date = today.replace(day=today.day - i) if today.day > i else today
+            day_date = today - timedelta(days=i)
+            day_sessions = 0
+            day_minutes = 0.0
+            for s in student_activities:
+                for conv in s.get('conversations', []):
+                    messages = conv.get('messageHistory', [])
+                    if not messages:
+                        continue
+                    last_ts = messages[-1].get('timestamp') or conv.get('updatedAt')
+                    conv_date = _parse_date(last_ts)
+                    if conv_date is None or conv_date != day_date:
+                        continue
+                    day_sessions += 1
+                    if len(messages) >= 2:
+                        user_msgs = [m for m in messages if m.get('role') == 'user']
+                        asst_msgs = [m for m in messages if m.get('role') == 'assistant']
+                        if user_msgs and asst_msgs:
+                            try:
+                                t0 = datetime.fromisoformat(str(user_msgs[0].get('timestamp', '')).replace('Z', '+00:00'))
+                                t1 = datetime.fromisoformat(str(asst_msgs[-1].get('timestamp', '')).replace('Z', '+00:00'))
+                                mins = (t1 - t0).total_seconds() / 60.0
+                                day_minutes += max(0, mins)
+                            except Exception:
+                                day_minutes += 5
+                        else:
+                            day_minutes += 5
+                    else:
+                        day_minutes += 5
             activity_over_time.append({
-                'date': date.strftime('%b %d'),
-                'sessions': 0,  # Simplified
-                'minutes': 0
+                'date': day_date.strftime('%b %d'),
+                'sessions': day_sessions,
+                'minutes': round(day_minutes, 1)
             })
         
         # Student engagement
