@@ -318,17 +318,46 @@ def merge_all():
 
 @bp.route("/stats", methods=["GET"])
 def stats():
-    """Stats endpoint - migrated from app/api/corpus/stats/route.ts"""
+    """Stats endpoint - supports classId (for student chat) or collectionName (legacy)."""
     try:
+        class_id = request.args.get("classId")
+        material_type = request.args.get("materialType", "class_material")
+        student_id = request.args.get("studentId")
+
+        # Class-based stats (for student portal "has PDFs" check)
+        if class_id:
+            cls = db_service.get_class_by_id(class_id)
+            if not cls:
+                return jsonify({"error": "Class not found"}), 404
+
+            # Optional: check student enrollment
+            is_enrolled = True
+            if student_id:
+                student_ids = cls.get("studentIds") or []
+                is_enrolled = student_id in [str(s) for s in student_ids]
+
+            files = db_service.get_corpus_files_by_class(class_id, material_type)
+            indexed = [f for f in files if f.get("isIndexed")]
+            pdf_count = len(indexed)
+            chunk_count = sum(int(f.get("chunkCount") or 0) for f in indexed)
+            has_indexed_files = pdf_count > 0
+            can_chat = has_indexed_files and is_enrolled
+
+            return jsonify({
+                "pdfCount": pdf_count,
+                "chunkCount": chunk_count,
+                "isEnrolled": is_enrolled if student_id else None,
+                "hasIndexedFiles": has_indexed_files,
+                "canChat": can_chat,
+            })
+
+        # Legacy: collectionName (e.g. for corpus management)
         collection_name = request.args.get("collectionName")
         if not collection_name:
-            return jsonify({"error": "Collection name is required"}), 400
-        
-        # Get stats from Qdrant
-        # This would require Qdrant client - for now return placeholder
+            return jsonify({"error": "classId or collectionName is required"}), 400
         return jsonify({
             "totalChunks": 0,
-            "collectionName": collection_name
+            "collectionName": collection_name,
         })
     except Exception as error:
         print(f"[CORPUS] STATS ERROR: {error}")
