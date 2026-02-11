@@ -249,7 +249,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [isDarkModeInternal, setIsDarkModeInternal] = useState(false)
   const isDarkMode = isDarkModeProp ?? isDarkModeInternal
   const effectiveShowHeader = showHeader
-  const [sidebarWidth, setSidebarWidth] = useState(288) // Default 288px so chat cards fit without overflow
+  const SIDEBAR_MIN_WIDTH = 280
+  const SIDEBAR_MAX_WIDTH = 500
+  const [sidebarWidth, setSidebarWidth] = useState(300) // Fixed default so chat cards never overflow
   const [isResizing, setIsResizing] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true) // Track if we should auto-scroll
@@ -312,12 +314,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       setIsSidebarCollapsed(savedSidebarState === "true")
     }
 
-    // Load sidebar width from localStorage
+    // Load sidebar width from localStorage (clamp to min so cards never overflow)
     const savedWidth = localStorage.getItem("studentSidebarWidth")
     if (savedWidth !== null) {
       const width = parseInt(savedWidth, 10)
-      if (width >= 200 && width <= 500) { // Valid range
-        setSidebarWidth(width)
+      if (!isNaN(width)) {
+        setSidebarWidth(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)))
       }
     }
 
@@ -1579,11 +1581,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       if (!isResizing) return
 
       const newWidth = e.clientX
-      // Constrain width between 200px and 500px
-      if (newWidth >= 200 && newWidth <= 500) {
-        setSidebarWidth(newWidth)
-        localStorage.setItem("studentSidebarWidth", String(newWidth))
-      }
+      const clamped = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, newWidth))
+      setSidebarWidth(clamped)
+      localStorage.setItem("studentSidebarWidth", String(clamped))
     }
 
     const handleMouseUp = () => {
@@ -1895,12 +1895,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           </div>
         )}
 
-        {/* Sidebar - ChatGPT Style - flex-shrink-0 so it never shrinks and clips content */}
+        {/* Sidebar - fixed boundary: flex-shrink-0, min width so cards stay inside */}
         {!isSidebarCollapsed && (
           <div
             ref={sidebarRef}
-            className={`flex-shrink-0 border-r transition-all duration-200 ease-in-out overflow-hidden ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} flex flex-col relative`}
-            style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '500px' }}
+            className={`flex-shrink-0 border-r transition-all duration-200 ease-in-out overflow-hidden ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} flex flex-col relative w-full`}
+            style={{ width: `${sidebarWidth}px`, minWidth: `${SIDEBAR_MIN_WIDTH}px`, maxWidth: `${SIDEBAR_MAX_WIDTH}px` }}
           >
             {/* Resize Handle */}
             <div
@@ -1924,6 +1924,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
               <PanelLeftClose className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-700'}`} />
             </Button>
 
+            {/* Fixed-width content area so cards never overflow */}
+            <div className="flex flex-1 flex-col min-w-0 w-full overflow-x-hidden">
             {sidebarLayout === 'full' && (
             <div className={`min-w-0 p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
               <div className="space-y-2">
@@ -2066,6 +2068,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                   )}
                 </div>
               </ScrollArea>
+            </div>
             </div>
           </div>
         )}
