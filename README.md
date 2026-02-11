@@ -2,6 +2,8 @@
 
 A Next.js application that provides AI-powered chat assistance for students and faculty management tools.
 
+<!-- deployment trigger -->
+
 ## Features
 
 - 🤖 **AI Chat Interface** - RAG-powered chat system for students
