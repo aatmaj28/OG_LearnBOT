@@ -258,12 +258,11 @@ def ai_response():
                             item_type, item_data = chunk_queue.get(timeout=0.1)
                             
                             if item_type == 'chunk':
-                                # Yield SSE-formatted chunk immediately
+                                # Yield SSE-formatted chunk as bytes (Gunicorn sync worker expects bytes)
                                 sse_data = json.dumps({"content": item_data}, ensure_ascii=False)
                                 chunk_line = f"data: {sse_data}\n\n"
                                 print(f"[CHAT] YIELDED CHUNK ({len(item_data)} chars): {item_data[:50]}...", flush=True)
-                                yield chunk_line
-                                # Force flush to ensure chunk is sent immediately
+                                yield chunk_line.encode('utf-8')
                                 sys.stdout.flush()
                             elif item_type == 'done':
                                 # Streaming complete, break to handle final result
@@ -279,7 +278,7 @@ def ai_response():
                     
                     if result_container['error']:
                         error_data = json.dumps({"error": "Streaming failed", "message": result_container['error']}, ensure_ascii=False)
-                        yield f"data: {error_data}\n\n"
+                        yield f"data: {error_data}\n\n".encode('utf-8')
                         return
                     
                     # Get final result
@@ -311,7 +310,7 @@ def ai_response():
                         "checkpointState": result.get('checkpoint_state', conversation.get('checkpointState', {}))
                     })
                     
-                    # Send final done event
+                    # Send final done event (bytes for Gunicorn)
                     done_data = json.dumps({
                         "done": True,
                         "content": final_response,
@@ -320,7 +319,7 @@ def ai_response():
                         "contentFound": result.get('content_found', False),
                         "timeTaken": result.get('time_taken', 0)
                     }, ensure_ascii=False)
-                    yield f"data: {done_data}\n\n"
+                    yield f"data: {done_data}\n\n".encode('utf-8')
                     print(f"[CHAT] STREAMING COMPLETE", flush=True)
                     
                 except Exception as stream_error:
@@ -328,7 +327,7 @@ def ai_response():
                     import traceback
                     traceback.print_exc()
                     error_data = json.dumps({"error": "Streaming failed", "message": str(stream_error)}, ensure_ascii=False)
-                    yield f"data: {error_data}\n\n"
+                    yield f"data: {error_data}\n\n".encode('utf-8')
             
             # Return streaming response
             response = Response(
