@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MessageSquare, Send, Plus, Bot, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Paperclip, File, Brain, X } from "lucide-react"
 import type { RAGConversation, Class, ModelBackend, ChatAttachment } from "@/lib/types"
+import { getConversationCardTitle } from "@/lib/utils"
 import { ChatMessage } from "@/components/chat-message"
 import { speechToText } from "@/lib/speech-to-text"
 import { VoiceWave } from "@/components/voice-wave"
@@ -309,6 +310,9 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
   // Helper function to sanitize content chunks during streaming (optimized character whitelist)
   const sanitizeContentChunk = (content: string): string => {
     if (!content) return content
+
+    // Replace literal <br/>, <br>, <br /> with newlines so they don't show as raw text
+    content = content.replace(/<br\s*\/?>/gi, '\n')
 
     // Fast path: check if all ASCII (most common case)
     let hasNonASCII = false
@@ -1551,9 +1555,9 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0 pr-2">
-                        <p className="font-medium text-sm truncate w-full">{conversation.title}</p>
+                        <p className="font-medium text-sm truncate w-full">{getConversationCardTitle(conversation)}</p>
                         <p className="text-xs text-muted-foreground mt-1 truncate">
-                          {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory.length} messages
+                          {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory?.length ?? 0} messages
                         </p>
                         {conversation.currentTopic && (
                           <p className="text-xs text-indigo-600 mt-1 truncate">Topic: {conversation.currentTopic}</p>
@@ -1799,8 +1803,11 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   </div>
                 )}
 
-                <div className="flex gap-2 items-end">
-                  {/* File Upload Button - Pin Icon */}
+                {/* Chat input pill - same design as student portal */}
+                <div className={`flex items-center gap-4 px-5 py-3.5 rounded-3xl ${isDarkMode
+                  ? 'bg-white/5 border border-white/10 hover:border-white/20'
+                  : 'bg-gray-50 border border-gray-200'
+                  } shadow-lg transition-all duration-300 ease-out focus-within:shadow-2xl ${isDarkMode ? 'focus-within:border-white/30 focus-within:bg-white/[0.07]' : 'focus-within:border-blue-500'}`}>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1815,20 +1822,19 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     size="icon"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={loading || hasCorpusPdfs === false || attachments.length >= 5}
-                    className="h-10 w-10"
+                    className={`h-8 w-8 ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
                     title="Attach file or image"
                   >
                     <Paperclip className="h-4 w-4" />
                   </Button>
 
-                  {/* Deep Thinking Mode - Brain Icon */}
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
                     onClick={toggleDeepThinking}
                     disabled={loading || hasCorpusPdfs === false}
-                    className={`h-10 w-10 ${deepThinking ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300' : ''}`}
+                    className={`h-8 w-8 ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
                     title="Deep thinking mode"
                   >
                     <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
@@ -1836,26 +1842,25 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
                   <Textarea
                     ref={textareaRef}
-                    placeholder={hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? "No PDFs uploaded for this class..." : "Type your message... (Shift+Enter for new line)"}
+                    placeholder={hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? "No PDFs uploaded for this class..." : "Message LearnBOT..."}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyPress}
                     disabled={loading || hasCorpusPdfs === false}
-                    className="flex-1 min-h-[44px] max-h-[200px] resize-none overflow-y-auto"
+                    className={`flex-1 min-h-[40px] max-h-[200px] resize-none overflow-y-auto border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base py-2.5 ${isDarkMode ? 'text-white placeholder:text-white/50' : 'text-gray-900 placeholder:text-gray-500'}`}
                     rows={1}
                   />
 
-                  {/* Voice Input Button */}
                   {isVoiceSupported && (
                     <div className="flex items-center gap-2">
-                      {isRecording && <VoiceWave isActive={isRecording} className="text-red-500" />}
+                      {isRecording && <VoiceWave isActive={isRecording} className={isDarkMode ? "text-red-400" : "text-red-500"} />}
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         onClick={isRecording ? stopVoiceInput : startVoiceInput}
                         disabled={loading || hasCorpusPdfs === false}
-                        className={`h-10 w-10 ${isRecording ? 'text-red-500' : ''}`}
+                        className={`h-8 w-8 ${isRecording ? 'text-red-500' : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
                         title={isRecording ? "Stop recording" : "Start voice input"}
                       >
                         {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -1863,10 +1868,25 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     </div>
                   )}
 
-                  <Button onClick={sendMessage} disabled={loading || (!input.trim() && attachments.length === 0) || hasCorpusPdfs === false} className="h-[44px]">
+                  <Button
+                    onClick={sendMessage}
+                    disabled={loading || (!input.trim() && attachments.length === 0) || hasCorpusPdfs === false}
+                    size="icon"
+                    className={`rounded-full w-10 h-10 flex items-center justify-center transition-all duration-300 ease-out ${loading || (!input.trim() && attachments.length === 0)
+                      ? isDarkMode
+                        ? 'bg-white/5 text-white/30 cursor-not-allowed'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : isDarkMode
+                        ? 'bg-white text-black hover:bg-white/95 hover:scale-105 shadow-lg hover:shadow-xl'
+                        : 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:scale-105 shadow-lg hover:shadow-xl'
+                      }`}
+                  >
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
+                <p className={`text-xs text-center mt-3 ${isDarkMode ? 'text-white/50' : 'text-gray-500'}`}>
+                  Press Enter to send • LearnBOT can make mistakes
+                </p>
               </div>
             </div>
           </>
