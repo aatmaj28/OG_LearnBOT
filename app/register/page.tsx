@@ -231,7 +231,7 @@ function RegisterContent() {
   }
 
   const handleGoToLogin = () => {
-    router.push(role === "faculty" ? "/login?role=faculty" : "/login")
+    router.push(role === "faculty" ? "/login?role=faculty" : "/login?role=student")
   }
 
   return (
@@ -540,15 +540,6 @@ function RegisterContent() {
               >
                 {loading ? "Creating account..." : "Register"}
               </Button>
-
-              <div className="text-center pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-600">
-                  Demo credentials:{" "}
-                  <span className="font-mono text-xs text-gray-500">
-                    {role === "student" ? "student@northeastern.edu / student123" : "faculty@northeastern.edu / faculty123"}
-                  </span>
-                </p>
-              </div>
               </form>
             )}
 
@@ -643,7 +634,7 @@ function RegisterContent() {
                 <p className="text-sm text-gray-600">
                   Already have an account?{" "}
                   <Link
-                    href={searchParams.get("role") === "faculty" ? "/login?role=faculty" : "/login"}
+                    href={searchParams.get("role") === "faculty" ? "/login?role=faculty" : "/login?role=student"}
                     className="text-blue-600 hover:text-blue-700 font-medium"
                   >
                     Login here

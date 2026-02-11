@@ -663,20 +663,15 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     if (!userId) return
 
     try {
-      const response = await fetch(`/api/classes?studentId=${userId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setClasses(data.classes || [])
-        // Auto-select first class if available
-        if (data.classes && data.classes.length > 0) {
-          setSelectedClassId(data.classes[0].id)
-        }
-      } else {
-        console.error("[v0] Failed to load classes:", response.status, response.statusText)
-        setClasses([])
+      const { classesApi } = await import("@/lib/flask-api-client")
+      const data = (await classesApi.getClasses(undefined, userId)) as { classes?: Class[] }
+      setClasses(data.classes || [])
+      // Auto-select first class if available
+      if (data.classes && data.classes.length > 0) {
+        setSelectedClassId(data.classes[0].id)
       }
     } catch (error) {
-      console.error("[v0] Failed to load classes:", error)
+      console.error("[Student Chat] Failed to load classes:", error)
       setClasses([])
     }
   }

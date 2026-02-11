@@ -26,8 +26,8 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
       console.log("[v0] AUTHGUARD: Retrieved from localStorage - sessionId:", sessionId, "userRole:", userRole)
 
       if (!sessionId) {
-        console.log("[v0] AUTHGUARD: No sessionId found, redirecting to login")
-        router.push("/login")
+        console.log("[v0] AUTHGUARD: No sessionId found, redirecting to home")
+        router.push("/")
         return
       }
 
@@ -44,7 +44,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
         // Check role if required
         if (requiredRole && data.user.role !== requiredRole) {
           console.error("[v0] AUTHGUARD: Role mismatch:", data.user.role, "expected:", requiredRole)
-          router.push("/login")
+          router.push("/")
           return
         }
 
@@ -53,7 +53,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
       } catch (error) {
         console.error("[v0] AUTHGUARD: Auth check error:", error)
         localStorage.clear()
-        router.push("/login")
+        router.push("/")
       }
     }
 

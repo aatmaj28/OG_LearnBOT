@@ -208,15 +208,6 @@ function LoginContent() {
                   Forgot password?
                 </Link>
               </div>
-
-              <div className="text-center pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-600">
-                  Demo credentials:{" "}
-                  <span className="font-mono text-xs text-gray-500">
-                    {role === "student" ? "student@northeastern.edu / student123" : "faculty@northeastern.edu / faculty123"}
-                  </span>
-                </p>
-              </div>
             </form>
 
             {/* Register Link */}
