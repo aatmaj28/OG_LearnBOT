@@ -1895,11 +1895,11 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           </div>
         )}
 
-        {/* Sidebar - ChatGPT Style */}
+        {/* Sidebar - ChatGPT Style - flex-shrink-0 so it never shrinks and clips content */}
         {!isSidebarCollapsed && (
           <div
             ref={sidebarRef}
-            className={`border-r transition-all duration-200 ease-in-out overflow-hidden ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} flex flex-col relative`}
+            className={`flex-shrink-0 border-r transition-all duration-200 ease-in-out overflow-hidden ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} flex flex-col relative`}
             style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '500px' }}
           >
             {/* Resize Handle */}
@@ -1925,7 +1925,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             </Button>
 
             {sidebarLayout === 'full' && (
-            <div className={`p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
+            <div className={`min-w-0 p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
               <div className="space-y-2">
                 <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
                   <Zap className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
@@ -1996,7 +1996,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             )}
 
             {/* New Chat Button - ChatGPT Style */}
-            <div className={`p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
+            <div className={`min-w-0 p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
               <Button
                 onClick={createNewConversation}
                 className={`w-full justify-start gap-3 h-9 ${isDarkMode ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' : 'bg-white hover:bg-gray-50 text-gray-900 border border-gray-200'}`}
