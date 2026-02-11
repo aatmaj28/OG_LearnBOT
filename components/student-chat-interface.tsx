@@ -1340,12 +1340,16 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
       clearTimeout(timeoutId)
       console.log("[v0] Fetch request started, status:", response.status)
+      console.log("[v0] Response headers:", Object.fromEntries(response.headers.entries()))
+      console.log("[v0] Content-Type:", response.headers.get('content-type'))
+      console.log("[v0] Content-Length:", response.headers.get('content-length'))
 
       if (response.ok) {
         // Check if response is streaming (SSE)
         const contentType = response.headers.get('content-type')
+        console.log("[v0] Checking content type for streaming:", contentType)
         if (contentType?.includes('text/event-stream')) {
-          console.log("[v0] Streaming response detected")
+          console.log("[v0] ✅ Streaming response detected (text/event-stream)")
 
           // Create placeholder for assistant message - use the same timestamp we sent to backend
           const assistantMessageObj = {
@@ -1373,20 +1377,28 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
           if (reader) {
             let accumulatedResponse = ''
+            let chunkCount = 0
 
             while (true) {
               const { done, value } = await reader.read()
-              if (done) break
+              if (done) {
+                console.log(`[v0] Stream reader done. Total chunks received: ${chunkCount}`)
+                break
+              }
 
               const chunk = decoder.decode(value)
+              console.log(`[v0] 📦 Raw chunk received (${chunk.length} bytes):`, chunk.substring(0, 100))
               const lines = chunk.split('\n').filter(line => line.trim() !== '')
 
               for (const line of lines) {
                 if (line.startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.slice(6))
+                    console.log(`[v0] 📨 Parsed SSE data:`, data)
 
                     if (data.content) {
+                      chunkCount++
+                      console.log(`[v0] ✅ Content chunk #${chunkCount}:`, data.content.substring(0, 50))
                       // Sanitize content immediately to remove corrupted emojis
                       const sanitizedChunk = sanitizeContentChunk(data.content)
 
@@ -1524,6 +1536,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
         } else {
           // Non-streaming response (fallback)
+          console.log("[v0] ⚠️ Non-streaming response detected (Content-Type:", contentType, ")")
+          console.log("[v0] ⚠️ Expected 'text/event-stream' but got:", contentType)
           const responseData = await response.json()
           console.log("[v0] Non-streaming AI response received:", responseData)
 
