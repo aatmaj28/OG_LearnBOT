@@ -1667,10 +1667,10 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     />
                   ))
                 )}
-                {isDeepThinking && (
+                {loading && deepThinking && (
                   <DeepThinkingAnimation isDarkMode={isDarkMode} />
                 )}
-                {loading && !isDeepThinking && (
+                {loading && !deepThinking && (
                   <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex-shrink-0">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isDarkMode
