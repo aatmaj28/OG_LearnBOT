@@ -914,8 +914,10 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       if (useStreaming) {
         // For streaming, use direct fetch
         const sessionId = localStorage.getItem('sessionId')
-        const fetchHeaders: HeadersInit = {
-          "Content-Type": "application/json",
+        const fetchHeaders: HeadersInit = {}
+        // Only set Content-Type for JSON; omit for FormData so browser sets multipart/form-data with boundary
+        if (messageAttachments.length === 0) {
+          fetchHeaders["Content-Type"] = "application/json"
         }
         if (sessionId) {
           fetchHeaders['X-Session-Id'] = sessionId
@@ -974,8 +976,9 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
         // Fallback to fetch if API client doesn't handle it
         const sessionId = localStorage.getItem('sessionId')
-        const fetchHeaders: HeadersInit = {
-          "Content-Type": "application/json",
+        const fetchHeaders: HeadersInit = {}
+        if (messageAttachments.length === 0) {
+          fetchHeaders["Content-Type"] = "application/json"
         }
         if (sessionId) {
           fetchHeaders['X-Session-Id'] = sessionId
