@@ -1126,18 +1126,12 @@ ${conversationText}
 
 Summary:`
 
-    // Use Remote Blackwell (vLLM) first, fallback to Remote A6000 Ollama
+    // Primary: Blackwell/vLLM (same URL/model as chat). Fallback: regex/n-gram (generateEnhancedSummary).
     const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.224.226:8000/v1/chat/completions'
     const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
-    const a6000Url = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
-    const a6000Model = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
     
-    let response: Response | null = null
-    let responseData: any = null
-    
-    // Try Blackwell first
     try {
-      response = await fetch(blackwellUrl, {
+      const response = await fetch(blackwellUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1154,46 +1148,15 @@ Summary:`
       })
       
       if (response.ok) {
-        responseData = await response.json()
+        const responseData = await response.json()
         const summary = responseData.choices?.[0]?.message?.content?.trim() || ''
         if (summary) {
           return summary.split('\n')[0].trim() // Take first line only
         }
       }
+      // Blackwell unavailable or empty response → fall through to generateEnhancedSummary
     } catch (blackwellError) {
-      // Blackwell failed, try A6000 as fallback
-    }
-    
-    // Fallback to A6000 Ollama
-    try {
-      response = await fetch(a6000Url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: a6000Model,
-          prompt: prompt,
-          stream: false,
-          options: {
-            temperature: 0.3,
-            top_p: 0.9,
-            num_predict: 150 // Limit summary length
-          }
-        }),
-        signal: AbortSignal.timeout(30000) // 30s timeout
-      })
-      
-      if (response.ok) {
-        responseData = await response.json()
-        const summary = responseData.response?.trim() || ''
-        if (summary) {
-          return summary.split('\n')[0].trim() // Take first line only
-        }
-      }
-    } catch (a6000Error) {
-      // Both failed, will use fallback summary below
-      throw new Error('Both Blackwell and A6000 unavailable')
+      // Blackwell failed → use regex/n-gram fallback below
     }
   } catch (error) {
     // Silently fail - will use fallback summary below
@@ -1255,48 +1218,40 @@ Respond in JSON format:
   ]
 }`
 
-    // Use Claude API for topic extraction
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    const claudeModel = process.env.CLAUDE_MODEL_ID || 'claude-haiku-4-5-20251001'
+    // Primary: Blackwell/vLLM (same URL/model as chat). Fallback: keyword/regex (calculateEnhancedSentiment, extractEnhancedTopics).
+    const blackwellUrl = process.env.REMOTE_BLACKWELL_URL || 'http://129.10.224.226:8000/v1/chat/completions'
+    const blackwellModel = process.env.REMOTE_BLACKWELL_MODEL || 'google/gemma-3-12b-it'
     let responseText = ''
     
-    // Try Claude API first
-    if (apiKey && !apiKey.includes('your-anthropic-api-key')) {
-      console.log(`[Analytics] Calling Claude API (${claudeModel}) for topic extraction...`)
-      try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01'
-          },
-          body: JSON.stringify({
-            model: claudeModel,
-            max_tokens: 1000,
-            system: 'You are an expert at analyzing student conversations and extracting key topics and sentiment.',
-            messages: [
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.3
-          }),
-          signal: AbortSignal.timeout(30000) // 30s timeout
-        })
-        
-        if (response.ok) {
-          const responseData = await response.json()
-          responseText = responseData.content?.[0]?.text || ''
-          console.log(`[Analytics] Claude API response received (${responseText.length} chars)`)
-        } else {
-          const errorText = await response.text().catch(() => 'Unknown error')
-          console.error(`[Analytics] Claude API error: HTTP ${response.status} - ${errorText.substring(0, 200)}`)
-        }
-      } catch (claudeError) {
-        // Claude failed, will use regex fallback below
-        console.error('[Analytics] Claude API call failed, using regex fallback:', claudeError instanceof Error ? claudeError.message : String(claudeError))
+    try {
+      console.log(`[Analytics] Calling Blackwell vLLM (${blackwellModel}) for sentiment/topic extraction...`)
+      const response = await fetch(blackwellUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: blackwellModel,
+          messages: [
+            { role: 'system', content: 'You are an expert at analyzing student conversations and extracting key topics and sentiment.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 1000
+        }),
+        signal: AbortSignal.timeout(30000) // 30s timeout
+      })
+      
+      if (response.ok) {
+        const responseData = await response.json()
+        responseText = responseData.choices?.[0]?.message?.content?.trim() || ''
+        console.log(`[Analytics] Blackwell vLLM response received (${responseText.length} chars)`)
+      } else {
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.error(`[Analytics] Blackwell vLLM error: HTTP ${response.status} - ${errorText.substring(0, 200)}`)
       }
-    } else {
-      console.log('[Analytics] Claude API key not configured, using regex fallback')
+    } catch (blackwellError) {
+      console.error('[Analytics] Blackwell vLLM call failed, using keyword/regex fallback:', blackwellError instanceof Error ? blackwellError.message : String(blackwellError))
     }
 
     if (responseText) {

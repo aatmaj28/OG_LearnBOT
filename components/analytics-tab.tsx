@@ -18,7 +18,8 @@ import {
   Legend,
 } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Clock, MessageSquare, TrendingUp, BookOpen } from "lucide-react"
+import { Clock, MessageSquare, TrendingUp, BookOpen, RefreshCw } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { Class } from "@/lib/types"
 
 interface AnalyticsData {
@@ -37,6 +38,7 @@ export function AnalyticsTab() {
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [selectedStudent, setSelectedStudent] = useState<string>("")
+  const [refreshing, setRefreshing] = useState(false)
 
   const loadClasses = async () => {
     const facultyId = localStorage.getItem("userId")
@@ -85,18 +87,35 @@ export function AnalyticsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analytics])
 
-  // Auto-refresh analytics every 15 minutes (matching background worker interval)
+  // Auto-refresh analytics every 15 minutes
   useEffect(() => {
     if (!selectedClassId) return
 
-    // Set up interval to refresh analytics every 15 minutes
     const refreshInterval = setInterval(() => {
       loadAnalytics()
-    }, 15 * 60 * 1000) // 15 minutes = 900,000 ms
+    }, 15 * 60 * 1000) // 15 minutes
 
-    // Cleanup interval on unmount or when class changes
     return () => clearInterval(refreshInterval)
   }, [selectedClassId, loadAnalytics])
+
+  const handleRefreshStats = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      const res = await fetch("/api/analytics/refresh", { method: "POST" })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `Refresh failed: ${res.status}`)
+      }
+      await loadAnalytics()
+    } catch (error) {
+      console.error("[Analytics] Refresh stats failed:", error)
+      // Still refetch to show current state
+      await loadAnalytics()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const SENTIMENT_COLORS = {
     Positive: "#10b981", // Green
@@ -137,7 +156,7 @@ export function AnalyticsTab() {
         </div>
       ) : (
         <>
-          <div className="mb-6">
+          <div className="mb-6 flex flex-row items-center justify-between gap-4">
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
               <SelectTrigger className="w-[300px]">
                 <SelectValue placeholder="Select a class" />
@@ -150,6 +169,16 @@ export function AnalyticsTab() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefreshStats}
+              disabled={refreshing}
+              className="shrink-0"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh Stats
+            </Button>
           </div>
 
           {/* Summary Cards */}
