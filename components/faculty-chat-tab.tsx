@@ -152,14 +152,13 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       const { authApi, usersApi } = await import("@/lib/flask-api-client")
       const data = await authApi.getSession(sessionId)
       setUserName(data.user.name)
-      // Load TA mode if available
+      // Load TA mode if available (per faculty - applies to all classes they teach)
       const userId = localStorage.getItem("userId")
       if (userId) {
         try {
           const taModeData = await usersApi.getTaMode(userId)
           setTaMode(taModeData.taMode || 'normal')
         } catch {
-          // If TA mode not available, use default
           setTaMode('normal')
         }
       }

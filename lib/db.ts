@@ -69,6 +69,13 @@ export const initializeDatabase = async () => {
     } catch (error) {
       console.log('syllabus_vector_store_folder column already exists or could not be added')
     }
+
+    // Add ta_mode column to classes table for per-class TA mode (lenient, normal, strict); null = use faculty default
+    try {
+      await client.query('ALTER TABLE classes ADD COLUMN IF NOT EXISTS ta_mode VARCHAR(20) DEFAULT NULL')
+    } catch (error) {
+      console.log('classes.ta_mode column already exists or could not be added')
+    }
     
     // Add ta_mode column to users table for faculty TA mode preference (lenient, normal, strict)
     try {
