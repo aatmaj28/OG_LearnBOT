@@ -6,7 +6,8 @@
     "build": "next build",
     "dev": "next dev -p 3000",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "migrate:ta-mode": "node scripts/migrate-add-class-ta-mode.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
