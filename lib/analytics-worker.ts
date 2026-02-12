@@ -1,7 +1,7 @@
 /**
  * Background Analytics Worker
- * Processes all conversations continuously to keep analytics up-to-date
- * Runs every 15 minutes to analyze all student chats and update analytics
+ * Processes all conversations to keep analytics up-to-date.
+ * Runs once at startup (after 10s) and then every 4 hours.
  */
 
 import { pool } from './db'
@@ -17,11 +17,11 @@ let analyticsInterval: NodeJS.Timeout | null = null
  */
 async function processConversation(conversation: RAGConversation, forceUpdate: boolean = false): Promise<void> {
   try {
-    // Skip if already processed recently (within last 1 hour) unless forced
+    // Skip if already processed recently (within last 4 hours) unless forced
     // On startup (forceUpdate=true), always process to ensure topics are extracted
     if (!forceUpdate && conversation.analyticsLastUpdated) {
       const minutesSinceUpdate = (Date.now() - conversation.analyticsLastUpdated.getTime()) / (1000 * 60)
-      if (minutesSinceUpdate < 60) { // Changed from 15 minutes to 1 hour
+      if (minutesSinceUpdate < 4 * 60) {
         return
       }
     }
@@ -165,15 +165,13 @@ async function processAllConversations(forceUpdate: boolean = false): Promise<vo
 
 /**
  * Start background analytics processing (non-blocking)
- * Runs immediately on startup (with forceUpdate=true), then every 1 hour continuously
+ * Runs once on startup (with forceUpdate=true), then every 4 hours
  * Call this on server startup
  */
 export function startAnalyticsWorker(): void {
-  console.log('[Analytics Worker] 🚀 Starting analytics worker - will run on startup and every hour')
-  
+  console.log('[Analytics Worker] 🚀 Starting analytics worker - will run on startup and every 4 hours')
+
   // Run initial processing after a delay to let RAG initialize first
-  // RAG initialization is prioritized for better user experience
-  // Use forceUpdate=true to process all conversations on startup
   setTimeout(() => {
     console.log('[Analytics Worker] 🔄 Running initial analysis on startup (forceUpdate=true)...')
     processAllConversations(true).then(() => {
@@ -181,19 +179,20 @@ export function startAnalyticsWorker(): void {
     }).catch(error => {
       console.error('[Analytics Worker] ❌ Fatal error in initial run:', error)
     })
-  }, 10000) // Start after 10 seconds (increased to give RAG more time)
+  }, 10000) // Start after 10 seconds
 
-  // Schedule recurring processing every 1 hour (changed from 15 minutes)
+  // Schedule recurring processing every 4 hours
+  const FOUR_HOURS_MS = 4 * 60 * 60 * 1000
   analyticsInterval = setInterval(() => {
-    console.log('[Analytics Worker] 🔄 Running scheduled hourly analysis...')
+    console.log('[Analytics Worker] 🔄 Running scheduled 4-hour analysis...')
     processAllConversations(false).then(() => {
-      console.log('[Analytics Worker] ✅ Hourly analysis complete')
+      console.log('[Analytics Worker] ✅ Scheduled analysis complete')
     }).catch(error => {
       console.error('[Analytics Worker] ❌ Fatal error in scheduled run:', error)
     })
-  }, 60 * 60 * 1000) // 1 hour = 3,600,000 ms (changed from 15 minutes)
+  }, FOUR_HOURS_MS)
 
-  console.log('[Analytics Worker] ✅ Analytics worker started - will run every hour')
+  console.log('[Analytics Worker] ✅ Analytics worker started - will run every 4 hours')
 }
 
 /**
