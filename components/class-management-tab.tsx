@@ -59,6 +59,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   const [previewResourceIndex, setPreviewResourceIndex] = useState<number | null>(null)
   const [isDownloadingResource, setIsDownloadingResource] = useState(false)
   const [previewResourceBlobUrl, setPreviewResourceBlobUrl] = useState<string | null>(null)
+  const [previewResourceError, setPreviewResourceError] = useState<string | null>(null)
   const [assignments, setAssignments] = useState<Array<{ id: string; name: string; pdfUrl: string; dueDate: string; canvasLink: string; createdAt: Date | string }>>([])
   const [showAddAssignmentDialog, setShowAddAssignmentDialog] = useState(false)
   const [newAssignment, setNewAssignment] = useState({ name: "", dueDate: "", canvasLink: "" })
@@ -597,6 +598,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     setPreviewResourceIndex(index)
     setShowResourcePreviewDialog(true)
     setPreviewResourceBlobUrl(null) // Clear previous blob URL
+    setPreviewResourceError(null) // Clear previous error
     
     // Fetch the file as a blob and create an object URL for preview
     try {
@@ -604,8 +606,12 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       const blob = await classesApi.downloadResource(selectedClass.id, resources[index].name)
       const blobUrl = URL.createObjectURL(blob)
       setPreviewResourceBlobUrl(blobUrl)
-    } catch (error) {
+      setPreviewResourceError(null)
+    } catch (error: any) {
       console.error("[v0] Failed to load resource for preview:", error)
+      const errorMessage = error?.message || "Failed to load resource for preview"
+      setPreviewResourceError(errorMessage)
+      toast.error(errorMessage)
     }
   }
 
@@ -1470,27 +1476,19 @@ mike.johnson@northeastern.edu`}
                                 variant="outline"
                                 size="sm"
                                 onClick={async () => {
-                                  const userId = localStorage.getItem("userId")
-                                  if (!userId) {
-                                    toast.error("User not authenticated")
-                                    return
-                                  }
+                                  if (!selectedClass) return
                                   try {
-                                    const response = await fetch(`${assignment.pdfUrl}&userId=${userId}`)
-                                    if (response.ok) {
-                                      const blob = await response.blob()
-                                      const url = window.URL.createObjectURL(blob)
-                                      const link = document.createElement('a')
-                                      link.href = url
-                                      link.download = assignment.name.replace(/[^a-zA-Z0-9_.-]/g, '_') + '.pdf'
-                                      document.body.appendChild(link)
-                                      link.click()
-                                      document.body.removeChild(link)
-                                      window.URL.revokeObjectURL(url)
-                                    } else {
-                                      const errorData = await response.json()
-                                      toast.error(errorData.error || "Failed to download assignment")
-                                    }
+                                    const { classesApi } = await import("@/lib/flask-api-client")
+                                    const blob = await classesApi.downloadAssignment(selectedClass.id, assignment.id)
+                                    const url = window.URL.createObjectURL(blob)
+                                    const link = document.createElement('a')
+                                    link.href = url
+                                    link.download = assignment.name.replace(/[^a-zA-Z0-9_.-]/g, '_') + '.pdf'
+                                    document.body.appendChild(link)
+                                    link.click()
+                                    document.body.removeChild(link)
+                                    window.URL.revokeObjectURL(url)
+                                    toast.success("Download started")
                                   } catch (error) {
                                     console.error("[v0] Failed to download assignment:", error)
                                     toast.error("Failed to download assignment")
@@ -1739,6 +1737,7 @@ mike.johnson@northeastern.edu`}
                 URL.revokeObjectURL(previewResourceBlobUrl)
                 setPreviewResourceBlobUrl(null)
               }
+              setPreviewResourceError(null)
               setShowResourcePreviewDialog(false)
               setPreviewResourceIndex(null)
             }
@@ -1755,7 +1754,7 @@ mike.johnson@northeastern.edu`}
               <div className="flex-1 flex flex-col min-h-0 px-6 overflow-hidden">
                 {/* PDF Preview */}
                 <div className="flex-1 border rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-900 min-h-0" style={{ height: 'calc(95vh - 200px)' }}>
-                  {resources[previewResourceIndex] && previewResourceBlobUrl && (
+                  {resources[previewResourceIndex] && previewResourceBlobUrl && !previewResourceError && (
                     <iframe
                       src={previewResourceBlobUrl}
                       className="w-full h-full"
@@ -1763,11 +1762,19 @@ mike.johnson@northeastern.edu`}
                       style={{ border: 'none', minHeight: '600px' }}
                     />
                   )}
-                  {resources[previewResourceIndex] && !previewResourceBlobUrl && (
+                  {resources[previewResourceIndex] && !previewResourceBlobUrl && !previewResourceError && (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
                         <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Loading preview...</p>
+                      </div>
+                    </div>
+                  )}
+                  {previewResourceError && (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <p className={`text-lg font-semibold mb-2 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>Error loading preview</p>
+                        <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{previewResourceError}</p>
                       </div>
                     </div>
                   )}

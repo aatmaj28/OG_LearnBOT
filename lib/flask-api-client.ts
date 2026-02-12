@@ -304,8 +304,12 @@ export const classesApi = {
   },
 
   downloadResource: async (classId: string, fileName: string) => {
-    return fetch(`${FLASK_API_URL}/api/classes/resources/download?classId=${classId}&fileName=${encodeURIComponent(fileName)}`)
-      .then(res => res.blob())
+    const response = await fetch(`${FLASK_API_URL}/api/classes/resources/download?classId=${classId}&fileName=${encodeURIComponent(fileName)}`)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: `Failed to download resource: ${response.statusText}` }))
+      throw new Error(errorData.error || `Failed to download resource: ${response.statusText}`)
+    }
+    return response.blob()
   },
 
   sendReminder: async (emails: string[], className: string, facultyName?: string) => {
