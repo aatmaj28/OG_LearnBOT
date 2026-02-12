@@ -1142,7 +1142,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       }
     }, 0)
 
-    // If Deep Thinking Mode is enabled, show animation and delay
+    // If Deep Thinking Mode is enabled, show animation
     if (deepThinking) {
       setIsDeepThinking(true)
       // Scroll to show the animation immediately
@@ -1159,22 +1159,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           }, 500)
         }
       }, 200) // Small delay to ensure animation component is rendered
-      // Wait 3 seconds before starting the request
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      setIsDeepThinking(false)
-      // Scroll again after animation completes to ensure we're at the bottom
-      setTimeout(() => {
-        if (scrollRef.current) {
-          isScrollingProgrammaticallyRef.current = true
-          scrollRef.current.scrollTo({
-            top: scrollRef.current.scrollHeight,
-            behavior: 'smooth'
-          })
-          setTimeout(() => {
-            isScrollingProgrammaticallyRef.current = false
-          }, 500)
-        }
-      }, 100)
     }
 
     // Define streaming mode - always use streaming for better UX
@@ -1391,6 +1375,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         firstTokenTimestamp = Date.now()
                         const ttft = firstTokenTimestamp - sendTimestamp
                         console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
+                        // Hide Deep Thinking animation when stream starts
+                        setIsDeepThinking(false)
                       }
 
                       accumulatedResponse += sanitizedChunk
@@ -1533,6 +1519,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           // Non-streaming response (fallback)
           console.log("[v0] ⚠️ Non-streaming response detected (Content-Type:", contentType, ")")
           console.log("[v0] ⚠️ Expected 'text/event-stream' but got:", contentType)
+          setIsDeepThinking(false)
           const responseData = await response.json()
           console.log("[v0] Non-streaming AI response received:", responseData)
 
@@ -1543,6 +1530,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           console.log("[v0] Conversation reloaded successfully")
         }
       } else {
+        setIsDeepThinking(false)
         console.error("[v0] Failed to get AI response:", response.status, response.statusText)
         const errorText = await response.text()
         console.error("[v0] Error response body:", errorText)
@@ -1554,6 +1542,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       }
     } finally {
       setLoading(false)
+      setIsDeepThinking(false)
     }
   }
 
