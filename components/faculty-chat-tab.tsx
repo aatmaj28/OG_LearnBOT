@@ -757,7 +757,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     // Reset auto-scroll when sending a new message
     shouldAutoScrollRef.current = true
 
-    // If Deep Thinking Mode is enabled, show animation and delay
+    // If Deep Thinking Mode is enabled, show animation
     if (deepThinking) {
       setIsDeepThinking(true)
       // Scroll to show the animation immediately
@@ -774,22 +774,6 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           }, 500)
         }
       }, 100) // Small delay to ensure user message is rendered
-      // Wait 3 seconds before starting the request
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      setIsDeepThinking(false)
-      // Scroll again after animation completes to ensure we're at the bottom
-      setTimeout(() => {
-        if (scrollRef.current) {
-          isScrollingProgrammaticallyRef.current = true
-          scrollRef.current.scrollTo({
-            top: scrollRef.current.scrollHeight,
-            behavior: 'smooth'
-          })
-          setTimeout(() => {
-            isScrollingProgrammaticallyRef.current = false
-          }, 500)
-        }
-      }, 100)
     }
 
     // Track time to first token (TTFT)
@@ -1048,6 +1032,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                         firstTokenTimestamp = Date.now()
                         const ttft = firstTokenTimestamp - sendTimestamp
                         console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
+                        // Hide Deep Thinking animation when stream starts
+                        setIsDeepThinking(false)
                       }
 
                       accumulatedResponse += sanitizedChunk
@@ -1180,6 +1166,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
         } else {
           // Non-streaming response (fallback)
+          setIsDeepThinking(false)
           const responseData = await response.json()
           console.log("[v0] Non-streaming AI response received:", responseData)
 
@@ -1190,6 +1177,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           console.log("[v0] Conversation reloaded successfully")
         }
       } else {
+        setIsDeepThinking(false)
         console.error("[v0] Failed to get AI response:", response.status, response.statusText)
         const errorText = await response.text()
         console.error("[v0] Error response body:", errorText)
@@ -1201,6 +1189,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       }
     } finally {
       setLoading(false)
+      setIsDeepThinking(false)
     }
   }
 
