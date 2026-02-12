@@ -135,8 +135,9 @@ def ai_response():
         spec.loader.exec_module(rag_module)
         process_query = rag_module.process_query
         
-        # Handle both JSON and FormData
-        if request.content_type and 'multipart/form-data' in request.content_type:
+        # Handle both JSON and FormData (never call get_json() on multipart/binary body)
+        content_type = (request.content_type or "").strip().lower()
+        if "multipart/form-data" in content_type:
             message = request.form.get("message")
             user_id = request.form.get("userId")
             session_id = request.form.get("sessionId")
@@ -146,7 +147,7 @@ def ai_response():
             stream_param = request.form.get("stream", "true")  # Default to "true" string
             stream = stream_param.lower() == "true" if stream_param else True  # Default to True
             deep_thinking = request.form.get("deepThinking") == "true"
-        else:
+        elif "application/json" in content_type:
             data = request.get_json()
             if not data:
                 return jsonify({"error": "Request body is required"}), 400
@@ -159,6 +160,10 @@ def ai_response():
             preferred_model = data.get("preferredModel", "remote-a6000")
             stream = data.get("stream", True)  # Default to streaming for better UX
             deep_thinking = data.get("deepThinking", False)
+        else:
+            return jsonify({
+                "error": "Request must be application/json or multipart/form-data (for file attachments)."
+            }), 400
         
         if not message:
             return jsonify({"error": "Message is required"}), 400

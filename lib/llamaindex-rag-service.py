@@ -1266,6 +1266,39 @@ def call_guard_llm(prompt, system_prompt, timeout=30):
         return None
 
 
+def summarize_with_blackwell(document_text, max_input_chars=6000, timeout=30):
+    """Summarize document text using Blackwell/Gemma vLLM. Returns 2-4 sentence summary or None on failure."""
+    if not document_text or not document_text.strip():
+        return None
+    text = (document_text[:max_input_chars] + ("..." if len(document_text) > max_input_chars else "")).strip()
+    system_prompt = "You are a summarizer. Return only a short summary (2-4 sentences) of the following document. No preamble."
+    user_content = f"Summarize this document in 2-4 sentences:\n\n{text}"
+    try:
+        response = blackwell_session.post(
+            REMOTE_BLACKWELL_URL,
+            json={
+                "model": REMOTE_BLACKWELL_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 300
+            },
+            timeout=timeout
+        )
+        if response.status_code == 200:
+            result = response.json()
+            summary = (result.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+            if summary:
+                print(f"📄 [PYTHON] Document summarized via Blackwell ({len(summary)} chars)", file=sys.stderr)
+                return summary
+        return None
+    except Exception as e:
+        print(f"⚠️ Blackwell summarization failed: {e}", file=sys.stderr)
+        return None
+
+
 def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=None):
     """Call LLM with fallback logic (non-streaming)"""
     import time
@@ -2181,6 +2214,8 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         # Falls back to regex if LLM is unavailable
         query = mask_pii(query)
         print(f"🔒 PII stripping applied to query", file=sys.stderr)
+        document_ack_summary = None  # Set when we summarize an attached document for response prefix
+        document_ack_type = None
         
         conversation_id = request_data['conversation_id']
         user_id = request_data['user_id']
@@ -2407,9 +2442,32 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                 except Exception as e:
                     print(f"⚠️ Error processing attachment: {e}", file=sys.stderr)
             
-            # Append attachment text to query (for non-image attachments or when not using Claude)
+            # Summarize document with Gemma when using Blackwell, then combine summary + query for RAG; else append full text
+            document_ack_summary = None
+            document_ack_type = "document"
+            if document_attachments:
+                first_doc = document_attachments[0]
+                ft = (first_doc.get("type") or "").lower()
+                if "pdf" in ft:
+                    document_ack_type = "PDF"
+                elif "csv" in ft or "spreadsheet" in ft:
+                    document_ack_type = "CSV"
+                elif "word" in ft or "msword" in ft or "document" in ft:
+                    document_ack_type = "Word document"
+            
             if attachment_text:
-                query = query + "\n\n" + attachment_text
+                original_query = query
+                if document_attachments and preferred_model == 'remote-blackwell' and len(attachment_text.strip()) > 100:
+                    summary = summarize_with_blackwell(attachment_text)
+                    if summary:
+                        query = original_query + "\n\n[Attached document summary]: " + summary
+                        document_ack_summary = summary
+                        print(f"✅ [PYTHON] Using document summary for RAG context ({len(summary)} chars)", file=sys.stderr)
+                    else:
+                        query = original_query + "\n\n" + attachment_text
+                        print(f"✅ [PYTHON] Summarization failed or skipped; appending full attachment text ({len(attachment_text)} chars)", file=sys.stderr)
+                else:
+                    query = original_query + "\n\n" + attachment_text
                 attachment_text_length = len(attachment_text)
                 print(f"✅ [PYTHON] Attachment text content appended to query ({attachment_text_length} chars total)", file=sys.stderr)
                 if attachment_text_length > 500:
@@ -2984,6 +3042,15 @@ before and after. This is MANDATORY, not optional.
                     print(f"[EMOJI DEBUG] Formatted response snippet (first 300 chars): {repr(teaching_response[:300])}", file=sys.stderr)
                 else:
                     print(f"[FORMATTING] No formatting changes detected (response may already be formatted)", file=sys.stderr)
+            
+            # Prepend acknowledgement when user uploaded a document and we summarized it
+            if document_ack_summary and document_ack_type:
+                ack_type = document_ack_type if document_ack_type else "document"
+                teaching_response = (
+                    f"You had uploaded a {ack_type} and it seems to have the following content: {document_ack_summary}\n\n"
+                    + teaching_response
+                )
+                print(f"📎 [PYTHON] Prefixed response with document acknowledgement ({ack_type})", file=sys.stderr)
             
             time_taken = int(llm_time_ms)
         
