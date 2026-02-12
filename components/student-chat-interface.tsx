@@ -2008,10 +2008,10 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
               </Button>
             </div>
 
-            {/* Conversations List - ChatGPT Style - pr-4 keeps text clear of scrollbar */}
+            {/* Conversations List - pr-8 insets cards from the right so they fit clear of scrollbar */}
             <div className="flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
               <ScrollArea className="flex-1 h-full w-full min-w-0 overflow-x-hidden">
-                <div className="px-2 pt-2 pb-2 pr-4 space-y-2 min-w-0 max-w-full">
+                <div className="pl-2 pr-8 pt-2 pb-2 space-y-2 min-w-0 max-w-full">
                   {!selectedClassId ? (
                     <div className="text-center py-8 px-4">
                       <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
