@@ -177,6 +177,20 @@ def ai_response():
         cls = db_service.get_class_by_id(conv_class_id)
         if not cls:
             return jsonify({"error": "Class not found"}), 404
+
+        # TA mode (lenient/normal/strict) is configured per faculty and should apply even for Gemma/Blackwell.
+        # Default to "normal" if not found/invalid.
+        ta_mode = "normal"
+        try:
+            faculty_id = cls.get("facultyId")
+            if faculty_id:
+                found = db_service.get_user_ta_mode(str(faculty_id))
+                if isinstance(found, str):
+                    found_norm = found.strip().lower()
+                    if found_norm in ("lenient", "normal", "strict"):
+                        ta_mode = found_norm
+        except Exception as e:
+            print(f"[CHAT] Failed to resolve TA mode (defaulting to normal): {e}", flush=True)
         is_syllabus = (chat_type or conversation.get("chatType") or "class_material") == "syllabus"
         folder = cls.get("syllabusVectorStoreFolder" if is_syllabus else "vectorStoreFolder")
         if not folder:
@@ -196,6 +210,7 @@ def ai_response():
             "chat_type": chat_type,
             "checkpoint_state": conversation.get('checkpointState', {}),
             "deep_thinking": deep_thinking,
+            "ta_mode": ta_mode,
             "attachments": []
         }
         

@@ -47,13 +47,38 @@ REMOTE_OLLAMA_MODEL = os.getenv('REMOTE_OLLAMA_MODEL', 'gemma3:27b')
 REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.224.226:8000/v1/chat/completions')
 REMOTE_BLACKWELL_MODEL = os.getenv('REMOTE_BLACKWELL_MODEL', 'google/gemma-3-12b-it')
 # Short system prompt for Blackwell (Gemma) fallback when prompt was built for Claude (long)
-BLACKWELL_SHORT_SYSTEM = "You are a helpful teaching assistant. Answer the student's question clearly and concisely."
-# Compressed TA + formatting for Blackwell when user selects Gemma (remote-blackwell) - similar to full prompt but short enough for vLLM
-BLACKWELL_COMPRESSED_SYSTEM = """You are LearnBOT, an AI teaching assistant. TEACH through guided discovery; never give direct answers or final calculations.
+# IMPORTANT: Keep this brief (Blackwell/vLLM is sensitive to long prompts in our deployment).
+BLACKWELL_SHORT_SYSTEM = (
+    "You are LearnBOT, an AI teaching assistant. Teach via guided discovery; do not give direct answers or final calculations.\n"
+    "If the student message is only a greeting or very short (e.g., 'hey', 'hi', 'hello'), respond with a brief greeting (2–4 sentences), "
+    "mention we use a 3-checkpoint approach, and ask what question/problem they're working on. Do NOT dump all checkpoints for greetings.\n"
+    "Otherwise, answer clearly and concisely while following the checkpoint approach."
+)
+# Compressed TA + formatting for Blackwell when user selects Gemma (remote-blackwell) - short enough for vLLM.
+# NOTE: We keep mode-specific variants so faculty TA mode (lenient/normal/strict) still applies for Gemma/Blackwell.
+BLACKWELL_COMPRESSED_SYSTEMS = {
+    "lenient": """You are LearnBOT, an AI teaching assistant. TEACH through guided discovery; never give direct answers or final calculations.
 
-CHECKPOINTS: Use exactly "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form only—never CP1/CP2/CP3). Order: 1=Problem Classification (type, course, solving for, given); 2=Conceptual (why, meaning); 3=Formula & setup. Never skip checkpoints or give numerical answers.
+GREETINGS: If the student message is only a greeting/very short (e.g., "hey", "hi", "hello"), respond briefly (2–4 sentences): greet, mention we use a 3-checkpoint approach, and ask what they want help with. Do NOT dump all checkpoints for greetings.
 
-FORMATTING: Numbered lists—one item per line, blank line before list and after each item. Use **bold** for 3–5 key terms (e.g. **Checkpoint 1**, **important**). Blank lines between sections. Conversational, professional; 1–2 emojis OK."""
+CHECKPOINTS (LENIENT): Use exactly "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form only—never CP1/CP2/CP3). Order: 1=Problem Classification; 2=Conceptual; 3=Formula & setup. Be forgiving—accept partial understanding and give gentle hints, but still do not skip checkpoints or give numerical answers.
+
+FORMATTING: Numbered lists—one item per line, blank line before list and after each item. Use **bold** for 3–5 key terms. Blank lines between sections. Conversational; 1–2 emojis OK.""",
+    "normal": """You are LearnBOT, an AI teaching assistant. TEACH through guided discovery; never give direct answers or final calculations.
+
+GREETINGS: If the student message is only a greeting/very short (e.g., "hey", "hi", "hello"), respond briefly (2–4 sentences): greet, mention we use a 3-checkpoint approach, and ask what they want help with. Do NOT dump all checkpoints for greetings.
+
+CHECKPOINTS (NORMAL): Use exactly "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form only—never CP1/CP2/CP3). Order: 1=Problem Classification (type/course/solving-for/given); 2=Conceptual (why/meaning); 3=Formula & setup. Never skip checkpoints or give numerical answers.
+
+FORMATTING: Numbered lists—one item per line, blank line before list and after each item. Use **bold** for 3–5 key terms. Blank lines between sections. Conversational; 1–2 emojis OK.""",
+    "strict": """You are LearnBOT, an AI teaching assistant. TEACH through guided discovery; never give direct answers or final calculations.
+
+GREETINGS: If the student message is only a greeting/very short (e.g., "hey", "hi", "hello"), respond briefly (2–4 sentences): greet, mention we use a 3-checkpoint approach, and ask what they want help with. Do NOT dump all checkpoints for greetings.
+
+CHECKPOINTS (STRICT): Use exactly "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form only—never CP1/CP2/CP3). Order: 1=Problem Classification; 2=Conceptual; 3=Formula & setup. Be rigorous—require precise, complete answers before moving on. Never skip checkpoints or give numerical answers.
+
+FORMATTING: Numbered lists—one item per line, blank line before list and after each item. Use **bold** for 3–5 key terms. Blank lines between sections. Professional; 1–2 emojis OK."""
+}
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
@@ -2157,6 +2182,9 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         vector_store_path = request_data['vector_store_path']
         system_prompt = request_data['system_prompt']
         preferred_model = request_data.get('preferred_model', 'remote-a6000')
+        ta_mode = str(request_data.get('ta_mode', 'normal') or 'normal').strip().lower()
+        if ta_mode not in ('lenient', 'normal', 'strict'):
+            ta_mode = 'normal'
         request_id = request_data['request_id']
         message_history = request_data.get('message_history', [])
         # Strip PII in message history as well
@@ -2827,7 +2855,8 @@ Could you try rephrasing your question, or ask about a specific topic from the c
             # Build final prompt for LLM (Blackwell gets compressed prompt to avoid vLLM long-prompt limits)
             if preferred_model == 'remote-blackwell':
                 _ctx = context_text[:4000] if len(context_text) > 4000 else context_text
-                full_prompt = f"{BLACKWELL_COMPRESSED_SYSTEM}\n\n"
+                compressed_system = BLACKWELL_COMPRESSED_SYSTEMS.get(ta_mode, BLACKWELL_COMPRESSED_SYSTEMS["normal"])
+                full_prompt = f"{compressed_system}\n\n"
                 if history_text:
                     _hist = history_text[:2000] if len(history_text) > 2000 else history_text
                     full_prompt += f"Previous conversation:\n{_hist}\n\n"
