@@ -79,6 +79,11 @@ CHECKPOINTS (STRICT): Use exactly "Checkpoint 1", "Checkpoint 2", "Checkpoint 3"
 
 FORMATTING: Numbered lists—one item per line, blank line before list and after each item. Use **bold** for 3–5 key terms. Blank lines between sections. Professional; 1–2 emojis OK."""
 }
+# Short Deep Thinking add-on for Blackwell (Gemma) — reason step-by-step, in-depth but concise; keep vLLM-friendly.
+BLACKWELL_DEEP_THINKING_SUFFIX = (
+    "\n\n[DEEP THINKING MODE] Reason step-by-step (outline your reasoning). Give informative, in-depth responses: "
+    "explain the why and how, not just the what; break down concepts; connect to context. Stay concise enough to fit vLLM limits."
+)
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
@@ -2856,6 +2861,9 @@ Could you try rephrasing your question, or ask about a specific topic from the c
             if preferred_model == 'remote-blackwell':
                 _ctx = context_text[:4000] if len(context_text) > 4000 else context_text
                 compressed_system = BLACKWELL_COMPRESSED_SYSTEMS.get(ta_mode, BLACKWELL_COMPRESSED_SYSTEMS["normal"])
+                if deep_thinking:
+                    compressed_system = compressed_system + BLACKWELL_DEEP_THINKING_SUFFIX
+                    print(f"🧠 Deep thinking mode enabled for Blackwell (Gemma) — reasoning + in-depth, vLLM-friendly", file=sys.stderr)
                 full_prompt = f"{compressed_system}\n\n"
                 if history_text:
                     _hist = history_text[:2000] if len(history_text) > 2000 else history_text

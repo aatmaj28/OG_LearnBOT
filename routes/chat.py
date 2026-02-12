@@ -9,6 +9,7 @@ import sys
 import os
 import pathlib
 import json
+import base64
 import queue
 import threading
 
@@ -213,6 +214,64 @@ def ai_response():
             "ta_mode": ta_mode,
             "attachments": []
         }
+        
+        # Populate attachments from FormData (base64) and detect images for non-Claude early-return
+        has_image_attachment = False
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            files = request.files.getlist('attachments') or []
+            attachments_list = []
+            for f in files:
+                ct = (getattr(f, 'content_type') or '').strip() or 'application/octet-stream'
+                name = (getattr(f, 'filename') or '').strip() or 'attachment'
+                raw = f.read()
+                data_b64 = base64.b64encode(raw).decode('utf-8')
+                attachments_list.append({"type": ct, "data": data_b64, "name": name})
+                if ct.lower().startswith('image/'):
+                    has_image_attachment = True
+            request_data["attachments"] = attachments_list
+        preferred_model_norm = (preferred_model or '').strip().lower()
+        image_unsupported_msg = (
+            "This model doesn't support image attachments as input. Please switch to Claude to use images."
+        )
+        if has_image_attachment and preferred_model_norm != 'claude':
+            updated_history = list(conversation.get('messageHistory', []))
+            now_iso = datetime.now().isoformat()
+            updated_history.append({"role": "user", "content": message, "timestamp": now_iso})
+            updated_history.append({
+                "role": "assistant",
+                "content": image_unsupported_msg,
+                "timestamp": now_iso,
+            })
+            db_service.update_rag_conversation(session_id, {"messageHistory": updated_history})
+            if stream:
+                def early_stream():
+                    sse_content = json.dumps({"content": image_unsupported_msg}, ensure_ascii=False)
+                    yield f"data: {sse_content}\n\n".encode('utf-8')
+                    done_data = json.dumps({
+                        "done": True,
+                        "content": image_unsupported_msg,
+                        "modelUsed": preferred_model,
+                        "mode": "rag",
+                        "contentFound": False,
+                        "timeTaken": 0
+                    }, ensure_ascii=False)
+                    yield f"data: {done_data}\n\n".encode('utf-8')
+                return Response(
+                    stream_with_context(early_stream()),
+                    mimetype='text/event-stream',
+                    headers={
+                        'Cache-Control': 'no-cache',
+                        'X-Accel-Buffering': 'no',
+                        'Connection': 'keep-alive'
+                    }
+                )
+            return jsonify({
+                "response": image_unsupported_msg,
+                "mode": "rag",
+                "contentFound": False,
+                "modelUsed": preferred_model,
+                "timeTaken": 0
+            })
         
         # Handle streaming vs non-streaming responses
         if stream:
