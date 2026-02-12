@@ -249,6 +249,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [isDarkModeInternal, setIsDarkModeInternal] = useState(false)
   const isDarkMode = isDarkModeProp ?? isDarkModeInternal
   const effectiveShowHeader = showHeader
+  const isEmbeddedLayout = !effectiveShowHeader && sidebarLayout === 'full'
   const SIDEBAR_MIN_WIDTH = 300
   const SIDEBAR_MAX_WIDTH = 500
   const [sidebarWidth, setSidebarWidth] = useState(320) // Wide enough so "2 messages" and card text stay visible
@@ -1834,8 +1835,10 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     URL.revokeObjectURL(url)
   }
 
+  const rootHeightClass = isEmbeddedLayout ? 'h-full' : 'h-screen'
+
   return (
-    <div className={`h-screen flex flex-col overflow-hidden ${isDarkMode ? 'dark bg-gradient-to-br from-gray-900 to-blue-950' : 'bg-gradient-to-br from-gray-50 to-blue-50/20'}`}>
+    <div className={`${rootHeightClass} flex flex-col overflow-hidden ${isDarkMode ? 'dark bg-gradient-to-br from-gray-900 to-blue-950' : 'bg-gradient-to-br from-gray-50 to-blue-50/20'}`}>
       {effectiveShowHeader && (
       <header className={`border-b shadow-sm ${isDarkMode ? 'bg-gray-800/90 border-gray-700' : 'bg-white/80'} backdrop-blur-sm`}>
         <div className="flex items-center justify-between p-4">
@@ -1992,7 +1995,10 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             <div className={`min-w-0 p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
               <Button
                 onClick={createNewConversation}
-                className={`w-full justify-start gap-3 h-9 ${isDarkMode ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' : 'bg-white hover:bg-gray-50 text-gray-900 border border-gray-200'}`}
+                className={`w-full justify-start gap-3 h-9 text-sm font-medium ${isDarkMode
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
               >
                 <Plus className="h-4 w-4" />
                 <span className="text-sm font-medium">New chat</span>
@@ -2186,7 +2192,10 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         size="lg"
                         onClick={createNewConversation}
                         disabled={!selectedClassId || hasCorpusPdfs === false}
-                        className={isDarkMode ? 'bg-white text-black hover:bg-white/90' : ''}
+                        className={isDarkMode
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }
                       >
                         <Plus className="h-5 w-5 mr-2" />
                         New Chat
