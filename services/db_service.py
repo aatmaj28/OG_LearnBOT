@@ -489,7 +489,7 @@ def get_class_by_id(class_id: str) -> Optional[Dict]:
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
             WHERE c.id = %s
-            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, 
+            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
         """, (class_id,))
         
@@ -531,7 +531,7 @@ def get_classes_by_faculty(faculty_id: str) -> List[Dict]:
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
             WHERE c.faculty_id = %s
-            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, 
+            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
             ORDER BY c.created_at DESC
         """, (faculty_id,))
@@ -570,7 +570,7 @@ def get_classes_by_student(student_id: str) -> List[Dict]:
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
             WHERE cs.student_id = %s
-            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, 
+            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
             ORDER BY c.created_at DESC
         """, (student_id,))

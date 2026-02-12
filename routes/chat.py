@@ -184,8 +184,7 @@ def ai_response():
         if not cls:
             return jsonify({"error": "Class not found"}), 404
 
-        # TA mode (lenient/normal/strict) is configured per faculty and should apply even for Gemma/Blackwell.
-        # Default to "normal" if not found/invalid.
+        # TA mode (lenient/normal/strict) is configured per faculty and applies to all classes they teach.
         ta_mode = "normal"
         try:
             faculty_id = cls.get("facultyId")
