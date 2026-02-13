@@ -1,7 +1,12 @@
 """
 Database connection and initialization
 Python equivalent of lib/db.ts
+
+Pool size: DB_POOL_MAX (default 2) per process. Total DB connections from Flask
+= Gunicorn workers × DB_POOL_MAX. Must stay under Postgres max_connections;
+gunicorn_config.py caps workers using POSTGRES_MAX_CONNECTIONS and DB_POOL_MAX.
 """
+import os
 import psycopg2
 from psycopg2 import pool
 from config import Config
@@ -14,10 +19,11 @@ def init_pool():
     global connection_pool
     if connection_pool is None:
         try:
-            # Keep max low so multiple workers (Gunicorn) + prod/uat don't exhaust PostgreSQL
+            pool_max = int(os.getenv("DB_POOL_MAX", "2"))
+            # Keep max low so (Gunicorn workers × pool_max) doesn't exceed PostgreSQL max_connections
             connection_pool = psycopg2.pool.SimpleConnectionPool(
                 1,  # min connections
-                2,  # max per process (e.g. 4 workers × 2 = 8 per app; avoids "too many clients already")
+                max(pool_max, 1),  # max per process
                 host=Config.DB_HOST,
                 port=Config.DB_PORT,
                 database=Config.DB_NAME,
