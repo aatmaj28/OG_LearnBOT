@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Clock, MessageSquare, TrendingUp, Eye } from "lucide-react"
 import type { Class, User, ChatSession, ChatMessage } from "@/lib/types"
+import { getConversationCardTitle } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
@@ -104,7 +105,9 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
         createdAt: conv.createdAt,
         updatedAt: conv.updatedAt,
         status: conv.status,
-        messageCount: conv.messageHistory?.length || 0
+        messageCount: conv.messageHistory?.length || 0,
+        messageHistory: conv.messageHistory,
+        titleSnippet: conv.titleSnippet
       }))
       setStudentSessions(sessions)
     } catch (error) {
@@ -284,7 +287,7 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
                               onClick={() => viewSessionMessages(session)}
                             >
                               <div className="flex items-start justify-between mb-2">
-                                <p className="font-medium text-sm">{session.title}</p>
+                                <p className="font-medium text-sm truncate flex-1 min-w-0 pr-2">{getConversationCardTitle(session)}</p>
                                 <Button variant="ghost" size="sm">
                                   <Eye className="h-4 w-4" />
                                 </Button>
@@ -316,7 +319,7 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
           style={{ maxWidth: '90vw', width: '90vw', maxHeight: '90vh' }}
         >
           <DialogHeader>
-            <DialogTitle>{selectedSession?.title}</DialogTitle>
+            <DialogTitle>{selectedSession ? getConversationCardTitle(selectedSession) : "Chat"}</DialogTitle>
             <DialogDescription>
               {selectedStudent?.name} • {new Date(selectedSession?.updatedAt || "").toLocaleString()}
             </DialogDescription>
