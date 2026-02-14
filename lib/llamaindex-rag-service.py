@@ -86,6 +86,10 @@ BLACKWELL_DEEP_THINKING_SUFFIX = (
 )
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
+# When true: regex-only PII + heuristic-only Input Guard for 1-3s TTFT (no LLM calls before Teaching LLM)
+FAST_TTFT = os.getenv('FAST_TTFT', 'false').lower() == 'true'
+if FAST_TTFT:
+    print("⚡ FAST_TTFT enabled: regex-only PII + heuristic Input Guard for 1-3s TTFT", file=sys.stderr)
 # Output Guard: only treat as "leak" (and replace response) if Gemma returns leak_detected AND confidence >= this (avoid over-flagging)
 OUTPUT_GUARD_CONFIDENCE_THRESHOLD = float(os.getenv('OUTPUT_GUARD_CONFIDENCE_THRESHOLD', '0.60'))
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
@@ -1128,8 +1132,8 @@ def mask_pii(text):
     if not text or not isinstance(text, str):
         return text
     
-    # Blackwell only (no Claude); if it fails, fall back to regex
-    enable_llm_pii_stripping = os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true'
+    # FAST_TTFT: skip LLM PII for 1-3s TTFT; else Blackwell then regex
+    enable_llm_pii_stripping = not FAST_TTFT and (os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true')
     
     if enable_llm_pii_stripping:
         cleaned = strip_pii_with_blackwell(text, timeout=2)
@@ -1324,14 +1328,14 @@ Rules:
             "requires_formula": requires_formula
         }
 
-    if not ENABLE_LLM_GUARDS:
+    if not ENABLE_LLM_GUARDS or FAST_TTFT:
         guard_result = _heuristic_guard()
         guard_time = time.time() - guard_start
         return guard_result, guard_time
 
     guard_prompt = f"Analyze this student query: '{query}'"
-    # Shorter timeout (5s) for TTFT - fall back to heuristic quickly
-    guard_response = call_guard_llm(guard_prompt, guard_system_prompt, timeout=5)
+    # 1s timeout for TTFT target 1-3s: fall back to heuristic quickly if guard is slow
+    guard_response = call_guard_llm(guard_prompt, guard_system_prompt, timeout=1)
     if guard_response:
         try:
             json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', guard_response)
@@ -2311,22 +2315,40 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
     
     # Ensure embedding model is warm on first request (avoids 2s lazy load inside load_vector_store_index)
     global embedder
+    preload_s = 0.0
     if embedder is None or Settings.embed_model is None:
+        _t0 = time.time()
         preload_models()
+        preload_s = time.time() - _t0
+        if preload_s > 0.1:
+            print(f"⏱️ Embedding preload (first request): {preload_s:.3f}s", file=sys.stderr)
     
     try:
-        query = request_data['query']
-        # Strip PII from query before processing
-        # This uses LOCAL remote LLM (Blackwell) to ensure PII never leaves our infrastructure
-        # Falls back to regex if LLM is unavailable
-        query = mask_pii(query)
+        query_raw = request_data['query']
+        vector_store_path = request_data['vector_store_path']
+        # Run PII and vector load in parallel for TTFT (saves min(pii_time, load_time); target 1-3s)
+        def _pii_timed(q):
+            t0 = time.time()
+            r = mask_pii(q)
+            return (r, time.time() - t0)
+        def _load_timed(path):
+            t0 = time.time()
+            r = load_vector_store_index(path)
+            return (r, time.time() - t0)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_pii = executor.submit(_pii_timed, query_raw)
+            fut_load = executor.submit(_load_timed, vector_store_path)
+            (query, pii_time) = fut_pii.result()
+            (store_data, load_time) = fut_load.result()
         print(f"🔒 PII stripping applied to query", file=sys.stderr)
+        if pii_time > 0.2:
+            print(f"⏱️ PII stripping time: {pii_time:.3f}s", file=sys.stderr)
         document_ack_summary = None  # Set when we summarize an attached document for response prefix
         document_ack_type = None
         
         conversation_id = request_data['conversation_id']
         user_id = request_data['user_id']
-        vector_store_path = request_data['vector_store_path']
         system_prompt = request_data['system_prompt']
         preferred_model = request_data.get('preferred_model', 'remote-a6000')
         ta_mode = str(request_data.get('ta_mode', 'normal') or 'normal').strip().lower()
@@ -2591,19 +2613,12 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
             top_k_final = TOP_K_FINAL
         # No truncation - preserve full chunk content to avoid information loss
         
-        # Run vector store load and Input Guard in parallel to reduce TTFT (time to first token)
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        parallel_start = time.time()
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_store = executor.submit(load_vector_store_index, vector_store_path)
-            future_guard = executor.submit(_run_input_guard, query)
-            store_data = future_store.result()
-            guard_result, guard_time = future_guard.result()
-        load_time = time.time() - parallel_start
+        # Input Guard (store_data already from parallel PII+load above)
+        guard_result, guard_time = _run_input_guard(query)
         index = store_data["index"]
         metadata = store_data["metadata"]
-        print(f"⏱️ Vector store load time: {load_time:.3f}s (parallel with guard)", file=sys.stderr)
-        print(f"⏱️ Input Guard time: {guard_time:.3f}s (LLM: {ENABLE_LLM_GUARDS})", file=sys.stderr)
+        print(f"⏱️ Vector store load time: {load_time:.3f}s (was parallel with PII)", file=sys.stderr)
+        print(f"⏱️ Input Guard time: {guard_time:.3f}s (LLM: {ENABLE_LLM_GUARDS}, 1s timeout)", file=sys.stderr)
         
         # Save original user query for Output Guard (compare response to what user actually asked)
         original_user_query = query
@@ -3185,6 +3200,17 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
         print(f"{'='*80}", file=sys.stderr)
         print(f"", file=sys.stderr)
         print(f"📊 4-STAGE RAG PIPELINE BREAKDOWN:", file=sys.stderr)
+        print(f"", file=sys.stderr)
+        before_stage1 = preload_s
+        # PII and vector load run in parallel, so wall clock for that block = max(pii_time, load_time)
+        pii_load_wall = max(pii_time, load_time)
+        if before_stage1 > 0.05:
+            print(f"   Before Stage 1 (preload): {before_stage1:.3f}s", file=sys.stderr)
+        print(f"   PII+load (parallel) wall: {pii_load_wall:.3f}s", file=sys.stderr)
+        print(f"", file=sys.stderr)
+        # Backend TTFT ≈ preload + max(PII, load) + guard + retrieval + LLM first token
+        backend_ttft_est = before_stage1 + pii_load_wall + guard_time + embed_time + search_time + rerank_time + 0.05
+        print(f"   ⏱️ Estimated backend TTFT: ~{backend_ttft_est:.2f}s  (UI TTFT = this + network + Flask route)", file=sys.stderr)
         print(f"", file=sys.stderr)
         print(f"   Stage 1 (Input Guard): {guard_time:.3f}s", file=sys.stderr)
         print(f"", file=sys.stderr)
