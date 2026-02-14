@@ -1126,23 +1126,13 @@ Rules: Replace PII with placeholders like [NAME], [AGE], [EMAIL]. Preserve the c
 
 def mask_pii(text):
     """
-    Mask or remove PII from text to prevent bias and protect student privacy
-    Uses Claude API with 2s timeout, falls back to regex if slow/unavailable
+    Mask or remove PII from text to prevent bias and protect student privacy.
+    Regex-only (no vLLM/Blackwell).
     """
     if not text or not isinstance(text, str):
         return text
     
-    # FAST_TTFT: skip LLM PII for 1-3s TTFT; else Blackwell then regex
-    enable_llm_pii_stripping = not FAST_TTFT and (os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true')
-    
-    if enable_llm_pii_stripping:
-        cleaned = strip_pii_with_blackwell(text, timeout=2)
-        if cleaned:
-            print(f"🔒 PII stripped using Blackwell (Gemma)", file=sys.stderr)
-            return cleaned
-        # Fallback to regex if Blackwell fails
-    
-    # Regex-based fallback (original implementation)
+    # Regex-based PII stripping only
     import re
     masked = text
     
@@ -1211,33 +1201,6 @@ def mask_pii(text):
     return masked
 
 
-def mask_pii_in_history(messages):
-    """
-    Mask PII in message history to prevent bias in conversation context.
-    Uses Blackwell only; falls back to regex if Blackwell fails.
-    """
-    if not messages:
-        return messages
-    
-    enable_llm_pii_stripping = os.getenv('ENABLE_LLM_PII_STRIPPING', 'true').lower() == 'true'
-    
-    masked_messages = []
-    for msg in messages:
-        if msg.get('role') == 'user':
-            content = msg.get('content', '')
-            if enable_llm_pii_stripping:
-                cleaned = strip_pii_with_blackwell(content, timeout=2)
-                if cleaned:
-                    masked_messages.append({**msg, 'content': cleaned})
-                    continue
-            # Fallback to regex if Blackwell fails
-            masked_messages.append({**msg, 'content': mask_pii(content)})
-        else:
-            masked_messages.append(msg)
-    
-    return masked_messages
-
-
 def call_guard_llm(prompt, system_prompt, timeout=30):
     """Call guard LLM to analyze query intent (uses Gemma/Blackwell vLLM)"""
     try:
@@ -1290,37 +1253,116 @@ Rules:
 - teaching_query: Rephrase if needed to focus on learning, otherwise keep original"""
 
     def _heuristic_guard():
-        query_lower = query.lower()
+        query_lower = query.lower().strip()
+        q = query.strip()
+
+        # Numbers: digits, decimals, percentages (e.g. 5%, 10.5%)
         has_specific_numbers = bool(re.search(r'\d+', query))
         extracted_numbers = re.findall(r'\d+(?:\.\d+)?', query)
-        is_homework_question = any(word in query_lower for word in ["quiz", "test", "exam", "homework", "assessment"])
-        requires_formula = any(word in query_lower for word in ["formula", "calculate", "compute", "solve", "equation"])
-        bypass_phrases = [
-            "ignore previous", "ignore all", "disregard", "forget", "override",
-            "pretend you are", "act as", "you are now", "switch to",
-            "just give me the answer", "tell me the answer", "what's the answer",
-            "give me the solution", "solve this for me", "do this for me",
-            "skip the checkpoints", "bypass", "skip ahead", "just tell me",
-            "developer mode", "system override", "admin mode", "debug mode",
-            "forget your instructions", "ignore your role", "stop being",
-            "you're not a ta", "you're not a teacher", "don't teach",
-            "be helpful instead", "just help me", "be direct"
+        pct = re.findall(r'\d+(?:\.\d+)?\s*%', query)
+        if pct:
+            extracted_numbers.extend(re.findall(r'\d+(?:\.\d+)?', ' '.join(pct)))
+        extracted_numbers = list(dict.fromkeys(extracted_numbers))  # dedupe, preserve order
+
+        # Homework / assessment
+        homework_keywords = [
+            "quiz", "quizzes", "test", "exam", "midterm", "final exam", "assessment",
+            "homework", "assignment", "due date", "due tonight", "submit", "submission",
+            "graded", "grade", "points", "credit", "get full credit", "worth points",
+            "question 1", "question 2", "q1", "q2", "problem 1", "problem 2", "exercise 1",
+            "task 1", "part a", "part b", "part c", "number 1", "number 2",
+            "correct answer", "right answer", "answer for question", "answer for problem",
+            "answer key", "solution manual", "key for"
         ]
+        is_homework_question = any(w in query_lower for w in homework_keywords)
+
+        # Bypass / jailbreak / direct-answer attempts (expanded)
+        bypass_phrases = [
+            "ignore previous", "ignore all", "ignore above", "ignore everything", "disregard",
+            "forget that", "forget everything", "forget your", "override", "overwrite",
+            "pretend you are", "pretend we", "act as", "act like", "you are now", "you're now",
+            "switch to", "switch mode", "roleplay", "role play", "new instructions",
+            "just give me the answer", "tell me the answer", "what's the answer", "what is the answer",
+            "give me the solution", "solve this for me", "do this for me", "do it for me",
+            "skip the checkpoints", "skip checkpoints", "bypass", "skip ahead", "just tell me",
+            "developer mode", "system override", "admin mode", "debug mode", "jailbreak",
+            "forget your instructions", "ignore your role", "ignore your instructions",
+            "stop being a", "stop being so", "you're not a ta", "you're not a teacher",
+            "don't teach", "don't explain", "no explanation", "just the answer",
+            "be helpful instead", "just help me", "be direct", "without explaining",
+            "output as", "respond as", "answer as", "no restrictions", "no guidelines",
+            "without guidelines", "no rules", "break the rules", "circumvent", "trick you",
+            "help me cheat", "give answers", "give me answers", "solve it for me",
+            "write the answer", "show the answer", "show me the answer", "give me the answer",
+            "direct answer", "straight answer", "short answer", "just answer",
+            "don't show work", "without showing work", "only the answer", "only answer",
+            "my friend asked", "my friend needs", "for a friend", "hypothetically",
+            "ditch the socratic", "stop socratic", "no socratic", "skip the teaching",
+            "dan mode", "do anything now", "no limits", "unfiltered"
+        ]
+        bypass_attempt = any(phrase in query_lower for phrase in bypass_phrases)
+
+        # Obvious off-topic (narrow list to avoid false positives)
+        off_topic_phrases = [
+            "what's the weather", "what is the weather", "tell me a joke",
+            "recipe for", "how do i cook", "sports score", "game result",
+            "who won the", "movie review", "song lyrics", "translate to "
+        ]
+        is_off_topic = any(phrase in query_lower for phrase in off_topic_phrases) and not is_homework_question
+
+        # Intent: bypass > homework > off_topic > conceptual_learning
+        if bypass_attempt:
+            intent = "bypass_attempt"
+        elif is_homework_question:
+            intent = "homework_question"
+        elif is_off_topic:
+            intent = "off_topic"
+        else:
+            intent = "conceptual_learning"
+
+        # Formula / calculation
+        formula_keywords = [
+            "formula", "formulas", "calculate", "compute", "solve", "equation", "equations",
+            "math", "numerical", "plug in", "value of", "calculation", "calculations",
+            "step by step solution", "work out", "derive", "expression", "rate", "percentage",
+            "percent", "npv", "irr", "pv", "fv", "pmt", "yield", "wacc", "capm"
+        ]
+        requires_formula = any(w in query_lower for w in formula_keywords)
+
+        # Problem type (finance)
         problem_type = "unknown"
-        if any(w in query_lower for w in ["present value", "pv", "deposit now", "invest today"]):
+        pv_keywords = ["present value", "pv ", " pv", "deposit now", "invest today", "lump sum", "discount back"]
+        fv_keywords = ["future value", "fv ", " fv", "how much will", "grow to", "compounding", "compound interest"]
+        annuity_keywords = ["annuity", "annuities", "payment", "monthly payment", "annual payment", "pmt", "ordinary annuity", "annuity due"]
+        loan_keywords = ["loan", "loans", "mortgage", "borrow", "interest rate", "apr", "amortization", "repay", "borrowing"]
+        if any(w in query_lower for w in pv_keywords):
             problem_type = "present_value"
-        elif any(w in query_lower for w in ["future value", "fv", "how much will", "grow to"]):
+        elif any(w in query_lower for w in fv_keywords):
             problem_type = "future_value"
-        elif any(w in query_lower for w in ["annuity", "payment", "monthly", "annual payment"]):
+        elif any(w in query_lower for w in annuity_keywords):
             problem_type = "annuity"
-        elif any(w in query_lower for w in ["loan", "mortgage", "borrow", "interest rate"]):
+        elif any(w in query_lower for w in loan_keywords):
             problem_type = "loan"
+
+        # Checkpoint response: short reply with option/choice patterns (no conversation context, so conservative)
+        option_style = any(p in query_lower for p in [
+            "option a", "option b", "option c", "option d",
+            " a)", " b)", " c)", " d)", " (a)", " (b)", " (c)", " (d)",
+            "the first", "the second", "the third", "first one", "second one"
+        ])
+        yes_no_short = len(q) < 50 and re.search(r'^\s*(yes|no|true|false)\s*[.!?]*\s*$', query_lower)
+        is_checkpoint_response = (
+            len(q) < 100 and
+            (option_style or yes_no_short) and
+            not re.search(r'\b(why|how|what|explain|describe|difference|meaning)\b', query_lower)
+        )
+
         return {
-            "intent": "homework_question" if is_homework_question else "conceptual_learning",
-            "is_checkpoint_response": False,
+            "intent": intent,
+            "is_checkpoint_response": is_checkpoint_response,
             "has_specific_numbers": has_specific_numbers,
             "is_homework_question": is_homework_question,
-            "bypass_attempt": any(phrase in query_lower for phrase in bypass_phrases),
+            "bypass_attempt": bypass_attempt,
             "extracted_numbers": extracted_numbers,
             "original_query": query,
             "teaching_query": query,
