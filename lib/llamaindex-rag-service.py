@@ -3025,6 +3025,7 @@ before and after. This is MANDATORY, not optional.
             time_taken = int(llm_time_ms)
         
         # Output Guard (always on): Gemma/vLLM verifies response vs question; only block if confident leak
+        import re as _re  # use _re throughout to avoid shadowing from inner 'import re' elsewhere in process_query
         output_guard_start = time.time()
         leak_detected = False
         # Compare response to the original user question (before bypass rephrase)
@@ -3052,7 +3053,7 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
         output_guard_response = call_guard_llm(output_guard_prompt, "You are an output guard. Compare question and response; return JSON with leak_detected and confidence.", timeout=15)
         if output_guard_response:
             try:
-                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', output_guard_response)
+                json_match = _re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', output_guard_response)
                 if json_match:
                     guard_result_json = json.loads(json_match.group())
                     llm_leak = guard_result_json.get("leak_detected", False)
@@ -3073,7 +3074,6 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
 
         # Pattern-based fallback if Gemma call failed or didn't run
         if not leak_detected:
-            import re as _re  # use _re to avoid shadowing from inner 'import re' elsewhere in process_query
             response_lower = teaching_response.lower()
             leak_patterns = [
                 "the answer is",
