@@ -3073,6 +3073,7 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
 
         # Pattern-based fallback if Gemma call failed or didn't run
         if not leak_detected:
+            import re as _re  # use _re to avoid shadowing from inner 'import re' elsewhere in process_query
             response_lower = teaching_response.lower()
             leak_patterns = [
                 "the answer is",
@@ -3099,14 +3100,14 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
                 r"solution: \$"
             ]
             pattern_matched = any(
-                re.search(p, response_lower) if '\\' in p else p in response_lower
+                _re.search(p, response_lower) if '\\' in p else p in response_lower
                 for p in leak_patterns
             )
             if pattern_matched:
                 # Pattern fallback: only flag if we're confident (e.g. multiple strong phrases); single weak match can be OK
                 strong_patterns = ["the answer is", "correct answer", "final answer is", "solution is", "therefore ="]
                 strong_matches = sum(1 for p in strong_patterns if p in response_lower)
-                if strong_matches >= 1 or (pattern_matched and re.search(r'= \$?\d+\.\d+', response_lower)):
+                if strong_matches >= 1 or (pattern_matched and _re.search(r'= \$?\d+\.\d+', response_lower)):
                     leak_detected = True
 
         if leak_detected:
