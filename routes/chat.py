@@ -18,6 +18,31 @@ bp = Blueprint("chat", __name__)
 # Create separate blueprint for RAG routes (for /api/rag compatibility)
 rag_bp = Blueprint("rag", __name__)
 
+# Cache the loaded RAG module so we only import once (used by ai_response and by startup preload)
+_rag_module = None
+
+def load_rag_module():
+    """Load the RAG service module (llamaindex-rag-service.py). Called at startup to trigger preload thread, and by ai_response to get process_query."""
+    global _rag_module
+    if _rag_module is not None:
+        return _rag_module
+    import importlib.util
+    backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    rag_service_path = os.path.join(backend_root, 'lib', 'llamaindex-rag-service.py')
+    if not os.path.isfile(rag_service_path):
+        return None
+    spec = importlib.util.spec_from_file_location("llamaindex_rag_service", rag_service_path)
+    _rag_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_rag_module)
+    return _rag_module
+
+def trigger_rag_preload_at_startup():
+    """Call once at Flask app startup to load the RAG module and start embedding/vector-store preload in the background."""
+    try:
+        load_rag_module()
+    except Exception as e:
+        print(f"[CHAT] RAG preload at startup failed (non-fatal): {e}", flush=True)
+
 def get_requesting_user():
     """Gets requesting user from session"""
     session_id = request.headers.get("X-Session-Id")
@@ -124,15 +149,10 @@ def conversation_detail(conversation_id):
 def ai_response():
     """AI response endpoint - migrated from app/api/chat/ai-response/route.ts"""
     try:
-        # RAG service lives in backend lib/ as llamaindex-rag-service.py (hyphen; use importlib)
-        backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        rag_service_path = os.path.join(backend_root, 'lib', 'llamaindex-rag-service.py')
-        if not os.path.isfile(rag_service_path):
+        # RAG service lives in backend lib/ as llamaindex-rag-service.py (loaded once, cached)
+        rag_module = load_rag_module()
+        if rag_module is None:
             return jsonify({"error": "RAG service not found (lib/llamaindex-rag-service.py). Deploy may be incomplete."}), 500
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("llamaindex_rag_service", rag_service_path)
-        rag_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(rag_module)
         process_query = rag_module.process_query
         
         # Handle both JSON and FormData (never call get_json() on multipart/binary body)

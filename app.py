@@ -62,6 +62,9 @@ try:
     # Register RAG endpoints under /api/rag for backward compatibility
     if hasattr(chat, 'rag_bp'):
         app.register_blueprint(chat.rag_bp, url_prefix="/api/rag")
+    # Load RAG module at startup so embedding + vector store preload start immediately (reduces first-request TTFT)
+    if hasattr(chat, 'trigger_rag_preload_at_startup'):
+        chat.trigger_rag_preload_at_startup()
 except ImportError:
     pass
 
