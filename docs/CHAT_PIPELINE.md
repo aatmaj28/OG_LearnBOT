@@ -9,9 +9,9 @@ This document describes the full pipeline from when a user sends a message in th
 | # | Stage | What Happens |
 |---|--------|----------------|
 | 1 | User sends message | Frontend sends the question (and optional attachments) to the backend. |
-| 2 | PII stripping (query) | Current query is cleaned of PII: Blackwell → regex fallback. |
+| 2 | PII + vector store load | Run **in parallel**: PII on query (Blackwell → regex) and load Qdrant vector store. Wall clock = max(PII, load). |
 | 3 | Attachment handling | If present, PDFs/docs are processed and text is appended to the query. |
-| 4 | Vector store load + Input Guard | Run **in parallel**: load Qdrant vector store + embedding model; Input Guard classifies intent via Gemma/Blackwell. |
+| 4 | Input Guard | Classifies intent via Gemma/Blackwell (1s timeout; fallback to heuristics). |
 | 5 | Bypass handling | If bypass detected: rephrase with Gemma (on-topic) or fixed teaching question; set flag for acknowledgement. |
 | 6 | RAG retrieval | Query is embedded, Qdrant is searched, optional rerank; top chunks become context. |
 | 7 | Prompt build | System prompt + RAG context + **message history** + current query (+ bypass acknowledgement instruction if needed). |
@@ -47,11 +47,12 @@ This document describes the full pipeline from when a user sends a message in th
 
 ---
 
-### 4. Vector Store Load + Input Guard (Parallel)
+### 4. PII + Vector Store Load (Parallel), Then Input Guard
 
-- **Purpose:** Reduce time-to-first-token by doing two independent steps at once.
-- **Vector store load:** The embedding model is loaded if needed (or reused); the Qdrant vector store for the class is loaded and the index is ready for retrieval. Stores are cached so repeat requests are fast.
-- **Input Guard:** A separate Gemma/Blackwell vLLM call classifies the user message:
+- **Purpose:** Reduce TTFT by running PII and vector load in parallel (wall clock = max of the two).
+- **Vector store load:** The embedding model is loaded if needed (or reused); the Qdrant vector store for the class is loaded. Stores are cached so repeat requests see ~0s load after preload.
+- **PII:** Query is stripped of PII (Blackwell or regex). Runs in parallel with vector load.
+- **Input Guard (after parallel):** A Gemma/Blackwell vLLM call classifies the user message (1s timeout; fallback to heuristics):
   - **Intent:** e.g. conceptual_learning, homework_question, bypass_attempt, off_topic.
   - **Flags:** is_checkpoint_response, has_specific_numbers, is_homework_question, bypass_attempt, problem_type, requires_formula.
   - **teaching_query:** Optional rephrase from the guard (less used now; see Bypass handling).
@@ -148,6 +149,7 @@ This document describes the full pipeline from when a user sends a message in th
 
 | Variable | Purpose | Default |
 |----------|---------|--------|
+| `FAST_TTFT` | 1-3s TTFT: regex-only PII + heuristic-only Input Guard | `false` |
 | `ENABLE_LLM_PII_STRIPPING` | Use Blackwell for PII on query; when false, regex only | `true` |
 | `ENABLE_LLM_GUARDS` | Use LLM for Input Guard; when false, heuristic only | `true` |
 | `OUTPUT_GUARD_CONFIDENCE_THRESHOLD` | Min confidence to treat Output Guard as “leak” and replace response | `0.60` |
@@ -172,6 +174,16 @@ This document describes the full pipeline from when a user sends a message in th
 3. **PII:** Blackwell-only for PII on the query (no Claude); short timeouts so regex fallback is quick.
 4. **Bypass:** Gemma rephrases bypass attempts into an on-topic teaching question so RAG and the teaching response stay relevant.
 5. **Output Guard:** Gemma compares response to the **original** user question with a confidence threshold (default 0.60) to avoid over-blocking normal teaching responses.
+6. **TTFT 1–3s:** PII and vector load run in parallel; Input Guard has 1s timeout; optional `FAST_TTFT=true` uses regex PII + heuristic guard only for fastest path.
+
+---
+
+## Target TTFT 1–3 seconds
+
+- **Preload at startup:** Flask loads the RAG module on startup so embedding + vector stores preload in the background; first request often sees vector load ~0s.
+- **PII + load in parallel:** Wall clock = max(PII time, load time) instead of PII + load.
+- **Input Guard 1s timeout:** If the guard LLM doesn’t respond in 1s, we use heuristics so we don’t add more than 1s before the Teaching LLM.
+- **FAST_TTFT=true:** Set in env for fastest TTFT: regex-only PII (~0.05s) and heuristic-only Input Guard (~0s). No LLM calls before the Teaching LLM. Bypass/intent detection is keyword-based only.
 
 ---
 
