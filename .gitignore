@@ -62,6 +62,5 @@ __pycache__/
 # Reference clone (do not push)
 EssayBot-UI/
 
-# Documentation files (keep README.md)
-*.md
-!README.md
+# Documentation (local only – do not push)
+documentation/
