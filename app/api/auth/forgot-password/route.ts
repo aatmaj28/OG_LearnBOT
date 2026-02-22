@@ -130,8 +130,11 @@ export async function POST(request: NextRequest) {
       message: "If an account exists with this email, a reset link has been sent.",
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error("[FORGOT-PASSWORD] Error:", message, error)
+    const err = error instanceof Error ? error : new Error(String(error))
+    const message = err.message
+    const stack = err instanceof Error ? err.stack : undefined
+    console.error("[FORGOT-PASSWORD] Error:", message)
+    if (stack) console.error("[FORGOT-PASSWORD] Stack:", stack)
     return NextResponse.json(
       { error: "Something went wrong. Please try again later." },
       { status: 500 }
