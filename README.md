@@ -89,6 +89,19 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+### 7. (Optional) Run the Flask backend locally
+Login and other auth use the Flask API. To run it locally:
+
+```bash
+cd LearnBot-Backend
+# Create a virtualenv and install deps (see LearnBot-Backend README)
+pip install -r requirements.txt
+# Set DB and other env (or use same .env.local from repo root)
+python app.py   # or: flask run (typically port 5000)
+```
+
+Keep this running in a separate terminal. Set `NEXT_PUBLIC_FLASK_API_URL=http://localhost:5000` in `.env.local` (see `env.local.example`).
+
 ## Project Structure
 
 ```
@@ -112,10 +125,39 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `DB_USER` | PostgreSQL username | `postgres` |
-| `DB_HOST` | Supabase database host | `your-project.supabase.co` |
+| `DB_HOST` | Database host | `localhost` or Supabase host |
 | `DB_NAME` | Database name | `postgres` |
-| `DB_PASSWORD` | Supabase database password | (from Supabase dashboard) |
-| `DB_PORT` | Database port | `5432` |
+| `DB_PASSWORD` | Database password | (from Supabase or your DB) |
+| `DB_PORT` | Database port | `5432` or `5433` (if tunnelled) |
+| `GMAIL_USER` | Gmail address (for OTP & password reset emails) | `your@gmail.com` |
+| `GMAIL_APP_PASSWORD` | Gmail app password (16-char) | See `env.local.example` |
+| `NEXT_PUBLIC_APP_URL` | Full URL of this app (for reset links in email) | `http://localhost:3000` (local) |
+| `NEXT_PUBLIC_FLASK_API_URL` | Flask backend URL (for login, etc.) | `http://localhost:5000` (local) |
+
+## Running and testing locally (before production)
+
+**Minimal run (UI only):**
+1. Copy env: `cp env.local.example .env.local` and fill in at least `DB_*` (and optionally `GMAIL_*`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_FLASK_API_URL`).
+2. Install and run:
+   ```bash
+   npm install
+   npm run dev
+   ```
+3. Open **http://localhost:3000**.  
+   - If the Flask backend is not running, **login will fail**, but you can still test the **Forgot password** flow (dialog, request reset, and reset page).
+
+**Full run (login + forgot password end-to-end):**
+1. **Database**: Ensure PostgreSQL is reachable (local or SSH tunnel to Supabase). Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` in `.env.local`.
+2. **Next.js**: `npm install` then `npm run dev` (port 3000).
+3. **Flask backend** (for login): Run from `LearnBot-Backend/` on port 5000; set `NEXT_PUBLIC_FLASK_API_URL=http://localhost:5000` in `.env.local`.
+4. **Forgot password emails**: In `.env.local` set `GMAIL_USER` and `GMAIL_APP_PASSWORD` (see `env.local.example`). If these are missing, the reset link is only printed in the server console.
+5. **Reset link URL**: Set `NEXT_PUBLIC_APP_URL=http://localhost:3000` so the link in the email points to your local app.
+
+**Quick test – Forgot password (no email):**
+- Run Next.js and ensure DB is connected.
+- Go to http://localhost:3000/login (or `?role=faculty`).
+- Click **Forgot password?** → enter an email that exists in your `users` table → **Send reset link**.
+- If Gmail is not configured, check the **terminal** where `npm run dev` is running; the reset URL is logged there. Open that URL in the browser, set a new password, then log in (Flask must be running for login).
 
 ## Deployment
 

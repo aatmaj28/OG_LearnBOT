@@ -321,6 +321,23 @@ export const initializeDatabase = async () => {
       ON pending_registrations(otp_expires_at)
     `)
 
+    // Create password_reset_tokens table for forgot-password flow
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token VARCHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)
+    `)
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at)
+    `)
+
     // Create assignments table
     await client.query(`
       CREATE TABLE IF NOT EXISTS assignments (

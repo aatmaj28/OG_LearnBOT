@@ -8,6 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { GraduationCap, Users, Bot, Brain, Target, Zap, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
@@ -31,6 +39,11 @@ function LoginContent() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState("")
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotSuccess, setForgotSuccess] = useState(false)
+  const [forgotError, setForgotError] = useState("")
 
   // Read role from URL params client-side only to avoid hydration errors
   useEffect(() => {
@@ -73,9 +86,45 @@ function LoginContent() {
       }
     } catch (err) {
       console.error("[v0] FRONTEND: Login error:", err)
-      setError("An error occurred. Please try again.")
+      const message = err instanceof Error ? err.message : "An error occurred. Please try again."
+      setError(
+        message.includes("Cannot connect") || message === "Failed to fetch"
+          ? "Cannot connect to the login server. Make sure the backend is running (e.g. LearnBot-Backend on port 5000)."
+          : message
+      )
       setLoading(false)
     }
+  }
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setForgotLoading(true)
+    setForgotSuccess(false)
+    setForgotError("")
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setForgotError(data.error || "Something went wrong.")
+        return
+      }
+      setForgotSuccess(true)
+    } catch {
+      setForgotError("Something went wrong. Please try again.")
+    } finally {
+      setForgotLoading(false)
+    }
+  }
+
+  const closeForgotDialog = () => {
+    setForgotOpen(false)
+    setForgotSuccess(false)
+    setForgotEmail("")
+    setForgotError("")
   }
 
   return (
@@ -204,11 +253,71 @@ function LoginContent() {
               </Button>
 
               <div className="text-center">
-                <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                <button
+                  type="button"
+                  onClick={() => setForgotOpen(true)}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                >
                   Forgot password?
-                </Link>
+                </button>
               </div>
             </form>
+
+            {/* Forgot password dialog */}
+            <Dialog open={forgotOpen} onOpenChange={(open) => !open && closeForgotDialog()}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Reset password</DialogTitle>
+                  <DialogDescription>
+                    {forgotSuccess
+                      ? "Check your email."
+                      : "Enter your account email."}
+                  </DialogDescription>
+                </DialogHeader>
+                {forgotSuccess ? (
+                  <p className="text-sm text-gray-600 py-1">
+                    If an account exists, we've sent a reset link.
+                  </p>
+                ) : (
+                  <form onSubmit={handleForgotSubmit} className="space-y-4">
+                    {forgotError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{forgotError}</AlertDescription>
+                      </Alert>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="forgot-email">Email</Label>
+                      <Input
+                        id="forgot-email"
+                        type="email"
+                        placeholder="yourname@northeastern.edu"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        required
+                        className="h-11 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
+                      />
+                    </div>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={closeForgotDialog}
+                        className="rounded-lg"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={forgotLoading}
+                        className="bg-gray-900 hover:bg-gray-800 text-white rounded-lg"
+                      >
+                        {forgotLoading ? "Sending…" : "Send reset link"}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                )}
+              </DialogContent>
+            </Dialog>
 
             {/* Register Link */}
             <div className="mt-4 text-center">

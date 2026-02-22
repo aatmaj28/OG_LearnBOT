@@ -181,6 +181,17 @@ ON pending_registrations(email);
 CREATE INDEX IF NOT EXISTS idx_pending_registrations_expires 
 ON pending_registrations(otp_expires_at);
 
+-- Password reset tokens (forgot-password flow)
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token VARCHAR(64) UNIQUE NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at);
+
 -- Insert sample data
 INSERT INTO users (email, password, name, role, nuid, degree, major) VALUES
 ('student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science'),

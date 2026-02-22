@@ -58,12 +58,15 @@ async function apiRequest<T>(
   } catch (error: any) {
     console.error(`[Flask API] Error calling ${endpoint}:`, error)
 
-    // Provide more helpful error messages
-    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+    // Provide more helpful error messages for network/connection failures
+    const msg = error?.message ?? ''
+    if (
+      msg === 'Failed to fetch' ||
+      msg.includes('Failed to fetch') ||
+      (error?.name === 'TypeError' && msg.toLowerCase().includes('fetch'))
+    ) {
       throw new Error(
-        `Cannot connect to Flask server at ${FLASK_API_URL}. ` +
-        `Please ensure Flask is running on port 5000. ` +
-        `Original error: ${error.message}`
+        `Cannot connect to the login server at ${FLASK_API_URL}. Make sure the backend is running (e.g. LearnBot-Backend on port 5000).`
       )
     }
 
