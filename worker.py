@@ -39,10 +39,11 @@ from services import redis_service, db_service
 # Configuration
 # ---------------------------------------------------------------------------
 
+NAMESPACE = os.getenv("NAMESPACE", "uat")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://learnbot:learnbot123@localhost:5672")
-QUEUE_NAME = os.getenv("RABBITMQ_QUEUE", "learnbot.chat.queue")
-EXCHANGE_NAME = os.getenv("RABBITMQ_EXCHANGE", "learnbot.chat")
-ROUTING_KEY = "learnbot.chat.request"
+EXCHANGE_NAME = os.getenv("RABBITMQ_EXCHANGE", f"learnbot.{NAMESPACE}.chat")
+QUEUE_NAME = os.getenv("RABBITMQ_QUEUE", f"learnbot.{NAMESPACE}.chat.queue")
+ROUTING_KEY = f"learnbot.{NAMESPACE}.chat.request"
 
 MAX_CONCURRENT = int(os.getenv("WORKER_MAX_CONCURRENT", "5"))
 TASK_TIMEOUT = int(os.getenv("WORKER_TASK_TIMEOUT", "120"))  # 2 minutes

@@ -16,11 +16,11 @@ import pika
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-
+_NAMESPACE = os.getenv("NAMESPACE", "uat")
 _RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://learnbot:learnbot123@localhost:5672")
-_EXCHANGE = os.getenv("RABBITMQ_EXCHANGE", "learnbot.chat")
-_QUEUE = os.getenv("RABBITMQ_QUEUE", "learnbot.chat.queue")
-_ROUTING_KEY = "learnbot.chat.request"
+_EXCHANGE = os.getenv("RABBITMQ_EXCHANGE", f"learnbot.{_NAMESPACE}.chat")
+_QUEUE = os.getenv("RABBITMQ_QUEUE", f"learnbot.{_NAMESPACE}.chat.queue")
+_ROUTING_KEY = f"learnbot.{_NAMESPACE}.chat.request"
 
 _connection: pika.BlockingConnection | None = None
 _channel: pika.adapters.blocking_connection.BlockingChannel | None = None

@@ -17,8 +17,9 @@ import redis
 # Connection
 # ---------------------------------------------------------------------------
 
+_NAMESPACE = os.getenv("NAMESPACE", "uat")
 _REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-_PREFIX = os.getenv("REDIS_KEY_PREFIX", "learnbot")
+_PREFIX = os.getenv("REDIS_KEY_PREFIX", f"learnbot_{_NAMESPACE}")
 _TASK_TTL = 3600  # Keys expire after 1 hour (auto-cleanup)
 
 _redis_client: redis.Redis | None = None
