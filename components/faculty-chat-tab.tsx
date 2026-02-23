@@ -981,7 +981,44 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       if (response.ok) {
         // Check if response is streaming (SSE)
         const contentType = response.headers.get('content-type')
-        if (contentType?.includes('text/event-stream')) {
+
+        // ── Queue Mode: API returned JSON with taskId ──────────────
+        if (contentType?.includes('application/json')) {
+          const jsonData = await response.json()
+
+          if (jsonData.taskId) {
+            console.log("[v0] 🚀 Queue mode: task", jsonData.taskId, "queued. Opening SSE stream...")
+
+            const streamController = new AbortController()
+            const streamTimeoutId = setTimeout(() => streamController.abort(), 150000)
+
+            const streamResponse = await fetch(`${FLASK_API_URL}/api/chat/stream/${jsonData.taskId}`, {
+              method: "GET",
+              headers: { 'Accept': 'text/event-stream' },
+              signal: streamController.signal,
+            })
+
+            clearTimeout(streamTimeoutId)
+
+            if (!streamResponse.ok) {
+              throw new Error(`Stream endpoint returned ${streamResponse.status}`)
+            }
+
+            // Re-assign response so the existing SSE parsing code below handles it
+            response = streamResponse
+          } else {
+            // Non-queued JSON response (sync fallback, non-streaming)
+            console.log("[v0] ⚠️ Non-streaming JSON response:", jsonData)
+            setIsDeepThinking(false)
+            await loadConversation(currentConversation.id)
+            await loadConversations()
+            setLoading(false)
+            return
+          }
+        }
+
+        // ── SSE Streaming (works for both queue-mode SSE and direct SSE) ──
+        if (response.headers.get('content-type')?.includes('text/event-stream')) {
           console.log("[v0] Streaming response detected")
 
           // Create placeholder for assistant message - use the same timestamp we sent to backend
@@ -1343,21 +1380,21 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 Select Model
               </label>
               <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-              <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
-                <SelectValue placeholder="Choose a model..." />
-              </SelectTrigger>
-              <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                <SelectItem
-                  value="claude"
-                  disabled
-                  className={`${isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100 text-gray-500' : 'text-gray-400'} cursor-not-allowed`}
-                >
-                  🧠 Claude (temporarily unavailable)
-                </SelectItem>
-                <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                  ⚡ Gemma (Blackwell)
-                </SelectItem>
-              </SelectContent>
+                <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
+                  <SelectValue placeholder="Choose a model..." />
+                </SelectTrigger>
+                <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                  <SelectItem
+                    value="claude"
+                    disabled
+                    className={`${isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100 text-gray-500' : 'text-gray-400'} cursor-not-allowed`}
+                  >
+                    🧠 Claude (temporarily unavailable)
+                  </SelectItem>
+                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    ⚡ Gemma (Blackwell)
+                  </SelectItem>
+                </SelectContent>
               </Select>
             </div>
 

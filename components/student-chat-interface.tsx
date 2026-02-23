@@ -1305,13 +1305,52 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       console.log("[v0] Fetch request started, status:", response.status)
       console.log("[v0] Response headers:", Object.fromEntries(response.headers.entries()))
       console.log("[v0] Content-Type:", response.headers.get('content-type'))
-      console.log("[v0] Content-Length:", response.headers.get('content-length'))
 
       if (response.ok) {
-        // Check if response is streaming (SSE)
         const contentType = response.headers.get('content-type')
         console.log("[v0] Checking content type for streaming:", contentType)
-        if (contentType?.includes('text/event-stream')) {
+
+        // ── Queue Mode: API returned JSON with taskId ──────────────
+        // When RabbitMQ workers are active, the POST returns instantly
+        // with { taskId, status: "queued" }. We then open an SSE 
+        // connection to /api/chat/stream/<taskId> to get the streamed response.
+        if (contentType?.includes('application/json')) {
+          const jsonData = await response.json()
+
+          if (jsonData.taskId) {
+            console.log("[v0] 🚀 Queue mode: task", jsonData.taskId, "queued. Opening SSE stream...")
+
+            // Open SSE connection to the stream endpoint
+            const streamController = new AbortController()
+            const streamTimeoutId = setTimeout(() => streamController.abort(), 150000) // 2.5 min
+
+            const streamResponse = await fetch(`${FLASK_API_URL}/api/chat/stream/${jsonData.taskId}`, {
+              method: "GET",
+              headers: { 'Accept': 'text/event-stream' },
+              signal: streamController.signal,
+            })
+
+            clearTimeout(streamTimeoutId)
+
+            if (!streamResponse.ok) {
+              throw new Error(`Stream endpoint returned ${streamResponse.status}`)
+            }
+
+            // Re-assign response so the existing SSE parsing code below handles it
+            response = streamResponse
+          } else {
+            // Non-queued JSON response (sync fallback, non-streaming)
+            console.log("[v0] ⚠️ Non-streaming JSON response:", jsonData)
+            setIsDeepThinking(false)
+            await loadConversation(currentConversation.id)
+            await loadConversations()
+            setLoading(false)
+            return
+          }
+        }
+
+        // ── SSE Streaming (works for both queue-mode SSE and direct SSE) ──
+        if (response.headers.get('content-type')?.includes('text/event-stream')) {
           console.log("[v0] ✅ Streaming response detected (text/event-stream)")
 
           // Create placeholder for assistant message - use the same timestamp we sent to backend
@@ -1345,175 +1384,175 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             let sseBuffer = ''
 
             try {
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) {
-                console.log(`[v0] Stream reader done. Total chunks received: ${chunkCount}`)
-                break
-              }
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) {
+                  console.log(`[v0] Stream reader done. Total chunks received: ${chunkCount}`)
+                  break
+                }
 
-              const chunk = decoder.decode(value, { stream: true })
-              sseBuffer += chunk
-              const lines = sseBuffer.split('\n')
-              sseBuffer = lines.pop() ?? ''
+                const chunk = decoder.decode(value, { stream: true })
+                sseBuffer += chunk
+                const lines = sseBuffer.split('\n')
+                sseBuffer = lines.pop() ?? ''
 
-              for (const line of lines) {
-                const trimmed = line.trim()
-                if (trimmed === '') continue
-                if (trimmed.startsWith('data: ')) {
-                  try {
-                    const data = JSON.parse(trimmed.slice(6))
-                    console.log(`[v0] 📨 Parsed SSE data:`, data)
+                for (const line of lines) {
+                  const trimmed = line.trim()
+                  if (trimmed === '') continue
+                  if (trimmed.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(trimmed.slice(6))
+                      console.log(`[v0] 📨 Parsed SSE data:`, data)
 
-                    if (data.content) {
-                      chunkCount++
-                      console.log(`[v0] ✅ Content chunk #${chunkCount}:`, data.content.substring(0, 50))
-                      // Sanitize content immediately to remove corrupted emojis
-                      const sanitizedChunk = sanitizeContentChunk(data.content)
+                      if (data.content) {
+                        chunkCount++
+                        console.log(`[v0] ✅ Content chunk #${chunkCount}:`, data.content.substring(0, 50))
+                        // Sanitize content immediately to remove corrupted emojis
+                        const sanitizedChunk = sanitizeContentChunk(data.content)
 
-                      // Track time to first token (only once)
-                      if (firstTokenTimestamp === null && sanitizedChunk.trim()) {
-                        firstTokenTimestamp = Date.now()
-                        const ttft = firstTokenTimestamp - sendTimestamp
-                        console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
-                        // Hide Deep Thinking animation when stream starts
-                        setIsDeepThinking(false)
+                        // Track time to first token (only once)
+                        if (firstTokenTimestamp === null && sanitizedChunk.trim()) {
+                          firstTokenTimestamp = Date.now()
+                          const ttft = firstTokenTimestamp - sendTimestamp
+                          console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
+                          // Hide Deep Thinking animation when stream starts
+                          setIsDeepThinking(false)
+                        }
+
+                        accumulatedResponse += sanitizedChunk
+
+                        // Update the last message (assistant) with new content
+                        // Use flushSync to force immediate render for streaming effect
+                        flushSync(() => {
+                          setCurrentConversation(prev => {
+                            if (!prev) return prev
+                            const messages = [...(prev.messageHistory || [])]
+                            if (messages.length > 0) {
+                              const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
+                              messages[messages.length - 1] = {
+                                ...messages[messages.length - 1],
+                                content: accumulatedResponse,
+                                metadata: {
+                                  ...messages[messages.length - 1].metadata,
+                                  timeToFirstToken: ttft
+                                }
+                              }
+                            }
+                            return { ...prev, messageHistory: messages }
+                          })
+                        })
+
+                        // Small delay to allow React to render before processing next chunk
+                        await new Promise(resolve => setTimeout(resolve, 0))
+
+                        // Auto-scroll only if user is at bottom - always check position during streaming
+                        if (scrollRef.current) {
+                          const element = scrollRef.current
+                          // Always check if user is at bottom - if they scrolled back down, resume auto-scroll
+                          if (isNearBottom(element)) {
+                            // Re-enable auto-scroll if user is back at bottom
+                            shouldAutoScrollRef.current = true
+                            requestAnimationFrame(() => {
+                              if (scrollRef.current && isNearBottom(scrollRef.current)) {
+                                isScrollingProgrammaticallyRef.current = true
+                                scrollRef.current.scrollTo({
+                                  top: scrollRef.current.scrollHeight,
+                                  behavior: 'smooth'
+                                })
+                                // Reset flag after smooth scroll animation
+                                setTimeout(() => {
+                                  isScrollingProgrammaticallyRef.current = false
+                                }, 500)
+                              }
+                            })
+                          } else {
+                            // User has scrolled up, disable auto-scroll
+                            shouldAutoScrollRef.current = false
+                          }
+                        }
                       }
 
-                      accumulatedResponse += sanitizedChunk
+                      if (data.done) {
+                        console.log("[v0] Streaming completed, modelUsed from done event:", data.modelUsed, "preferredModel:", preferredModel)
 
-                      // Update the last message (assistant) with new content
-                      // Use flushSync to force immediate render for streaming effect
-                      flushSync(() => {
+                        // Use the formatted response from the done event (includes emojis)
+                        // If data.content is provided, it's the final formatted response from Python
+                        const finalFormattedContent = data.content || accumulatedResponse
+
+                        console.log("[v0] Final formatted content length:", finalFormattedContent.length)
+                        console.log("[v0] Final formatted content preview:", finalFormattedContent.substring(0, 200))
+
+                        // Capture modelUsed from the done event and update metadata
+                        // Use modelUsed from done event if available, otherwise fallback to preferredModel
+                        const actualModelUsed = data.modelUsed || preferredModel
+                        console.log("[v0] Using modelUsed:", actualModelUsed)
+
                         setCurrentConversation(prev => {
                           if (!prev) return prev
                           const messages = [...(prev.messageHistory || [])]
-                          if (messages.length > 0) {
-                            const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
+                          if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
                             messages[messages.length - 1] = {
                               ...messages[messages.length - 1],
-                              content: accumulatedResponse,
+                              content: finalFormattedContent, // Use formatted response with emojis
                               metadata: {
                                 ...messages[messages.length - 1].metadata,
-                                timeToFirstToken: ttft
+                                modelUsed: actualModelUsed
                               }
                             }
                           }
                           return { ...prev, messageHistory: messages }
                         })
-                      })
-                      
-                      // Small delay to allow React to render before processing next chunk
-                      await new Promise(resolve => setTimeout(resolve, 0))
 
-                      // Auto-scroll only if user is at bottom - always check position during streaming
-                      if (scrollRef.current) {
-                        const element = scrollRef.current
-                        // Always check if user is at bottom - if they scrolled back down, resume auto-scroll
-                        if (isNearBottom(element)) {
-                          // Re-enable auto-scroll if user is back at bottom
-                          shouldAutoScrollRef.current = true
-                          requestAnimationFrame(() => {
-                            if (scrollRef.current && isNearBottom(scrollRef.current)) {
-                              isScrollingProgrammaticallyRef.current = true
-                              scrollRef.current.scrollTo({
-                                top: scrollRef.current.scrollHeight,
-                                behavior: 'smooth'
-                              })
-                              // Reset flag after smooth scroll animation
-                              setTimeout(() => {
-                                isScrollingProgrammaticallyRef.current = false
-                              }, 500)
-                            }
-                          })
-                        } else {
-                          // User has scrolled up, disable auto-scroll
-                          shouldAutoScrollRef.current = false
-                        }
+                        // Update accumulatedResponse for consistency
+                        accumulatedResponse = finalFormattedContent
+
+                        break
+                      }
+                    } catch (e) {
+                      console.error("[v0] Failed to parse SSE data:", e)
+                    }
+                  }
+                }
+              }
+
+              // Calculate total response time (send to last token)
+              const lastTokenTimestamp = Date.now()
+              const totalResponseTime = lastTokenTimestamp - sendTimestamp
+              const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
+              console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
+
+              // Capture modelUsed from the last message (set during done event)
+              let capturedModelUsed: string | undefined = undefined
+              setCurrentConversation(prev => {
+                if (!prev || !prev.messageHistory) return prev
+                const messages = [...prev.messageHistory]
+                if (messages.length > 0) {
+                  const lastMsg = messages[messages.length - 1]
+                  if (lastMsg.role === 'assistant') {
+                    capturedModelUsed = lastMsg.metadata?.modelUsed
+                    // Update metadata but preserve the original timestamp to prevent blink
+                    messages[messages.length - 1] = {
+                      ...lastMsg,
+                      // Content is already updated during streaming, just update metadata
+                      metadata: {
+                        ...lastMsg.metadata,
+                        timeToFirstToken: ttft,
+                        totalResponseTime: totalResponseTime,
+                        // Preserve modelUsed that was set during done event
+                        modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed || preferredModel
                       }
                     }
-
-                    if (data.done) {
-                      console.log("[v0] Streaming completed, modelUsed from done event:", data.modelUsed, "preferredModel:", preferredModel)
-
-                      // Use the formatted response from the done event (includes emojis)
-                      // If data.content is provided, it's the final formatted response from Python
-                      const finalFormattedContent = data.content || accumulatedResponse
-
-                      console.log("[v0] Final formatted content length:", finalFormattedContent.length)
-                      console.log("[v0] Final formatted content preview:", finalFormattedContent.substring(0, 200))
-
-                      // Capture modelUsed from the done event and update metadata
-                      // Use modelUsed from done event if available, otherwise fallback to preferredModel
-                      const actualModelUsed = data.modelUsed || preferredModel
-                      console.log("[v0] Using modelUsed:", actualModelUsed)
-
-                      setCurrentConversation(prev => {
-                        if (!prev) return prev
-                        const messages = [...(prev.messageHistory || [])]
-                        if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
-                          messages[messages.length - 1] = {
-                            ...messages[messages.length - 1],
-                            content: finalFormattedContent, // Use formatted response with emojis
-                            metadata: {
-                              ...messages[messages.length - 1].metadata,
-                              modelUsed: actualModelUsed
-                            }
-                          }
-                        }
-                        return { ...prev, messageHistory: messages }
-                      })
-
-                      // Update accumulatedResponse for consistency
-                      accumulatedResponse = finalFormattedContent
-
-                      break
-                    }
-                  } catch (e) {
-                    console.error("[v0] Failed to parse SSE data:", e)
                   }
                 }
-              }
-            }
+                return { ...prev, messageHistory: messages }
+              })
 
-          // Calculate total response time (send to last token)
-          const lastTokenTimestamp = Date.now()
-          const totalResponseTime = lastTokenTimestamp - sendTimestamp
-          const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
-          console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
-
-          // Capture modelUsed from the last message (set during done event)
-          let capturedModelUsed: string | undefined = undefined
-          setCurrentConversation(prev => {
-            if (!prev || !prev.messageHistory) return prev
-            const messages = [...prev.messageHistory]
-            if (messages.length > 0) {
-              const lastMsg = messages[messages.length - 1]
-              if (lastMsg.role === 'assistant') {
-                capturedModelUsed = lastMsg.metadata?.modelUsed
-                // Update metadata but preserve the original timestamp to prevent blink
-                messages[messages.length - 1] = {
-                  ...lastMsg,
-                  // Content is already updated during streaming, just update metadata
-                  metadata: {
-                    ...lastMsg.metadata,
-                    timeToFirstToken: ttft,
-                    totalResponseTime: totalResponseTime,
-                    // Preserve modelUsed that was set during done event
-                    modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed || preferredModel
-                  }
-                }
-              }
-            }
-            return { ...prev, messageHistory: messages }
-          })
-
-          // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
-          loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
+              // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
+              loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
             } catch (streamError: unknown) {
               console.error("[v0] Stream read error (often ERR_HTTP2_PROTOCOL_ERROR):", streamError)
               toast.error("Connection interrupted during response. Please try again.")
-              await loadConversation(currentConversation.id).catch(() => {})
+              await loadConversation(currentConversation.id).catch(() => { })
             }
           }
         } else {
@@ -1840,37 +1879,37 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   return (
     <div className={`${rootHeightClass} flex flex-col overflow-hidden ${isDarkMode ? 'dark bg-gradient-to-br from-gray-900 to-blue-950' : 'bg-gradient-to-br from-gray-50 to-blue-50/20'}`}>
       {effectiveShowHeader && (
-      <header className={`border-b shadow-sm ${isDarkMode ? 'bg-gray-800/90 border-gray-700' : 'bg-white/80'} backdrop-blur-sm`}>
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-3">
-            <img
-              src="/learnbot-logo.png"
-              alt="LearnBOT Logo"
-              className="h-12 w-12 object-contain"
-            />
-            <div>
-              <h1 className={`font-semibold text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>LearnBOT</h1>
-              <p className={`text-sm ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>Welcome, {userName}</p>
+        <header className={`border-b shadow-sm ${isDarkMode ? 'bg-gray-800/90 border-gray-700' : 'bg-white/80'} backdrop-blur-sm`}>
+          <div className="flex items-center justify-between p-4">
+            <div className="flex items-center gap-3">
+              <img
+                src="/learnbot-logo.png"
+                alt="LearnBOT Logo"
+                className="h-12 w-12 object-contain"
+              />
+              <div>
+                <h1 className={`font-semibold text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>LearnBOT</h1>
+                <p className={`text-sm ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>Welcome, {userName}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={toggleDarkMode}
+                className={`rounded-lg ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-100'}`}
+                title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {isDarkMode ? (
+                  <Sun className={`h-5 w-5 ${isDarkMode ? 'text-white/60' : 'text-yellow-400'}`} />
+                ) : (
+                  <Moon className="h-5 w-5 text-gray-700" />
+                )}
+              </Button>
+              <LogoutButton />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={toggleDarkMode}
-              className={`rounded-lg ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-100'}`}
-              title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {isDarkMode ? (
-                <Sun className={`h-5 w-5 ${isDarkMode ? 'text-white/60' : 'text-yellow-400'}`} />
-              ) : (
-                <Moon className="h-5 w-5 text-gray-700" />
-              )}
-            </Button>
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
+        </header>
       )}
 
       <div className="flex-1 flex overflow-hidden">
@@ -1920,152 +1959,152 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
             {/* Fixed-width content area so cards never overflow */}
             <div className="flex flex-1 flex-col min-w-0 w-full overflow-x-hidden">
-            {sidebarLayout === 'full' && (
-            <div className={`min-w-0 p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
-              <div className="space-y-2">
-                <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
-                  <Zap className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
-                  Select Model
-                </label>
-                <Select value={preferredModel} onValueChange={(v) => setPreferredModel(v as ModelBackend)}>
-                  <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                    <SelectItem
-                      value="claude"
-                      disabled
-                      className={`${isDarkMode ? 'focus:bg-white/10 focus:text-white text-white/40' : 'text-gray-400'} cursor-not-allowed`}
-                    >
-                      🧠 Claude (temporarily unavailable)
-                    </SelectItem>
-                    <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                      ⚡ Gemma (Blackwell)
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
-                  <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
-                  Select Class
-                </label>
-                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                  <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
-                    <SelectValue placeholder="Select class..." />
-                  </SelectTrigger>
-                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                    <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                      <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
-                    </SelectItem>
-                    {classes.map((c) => (
-                      <SelectItem key={c.id} value={c.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">{c.name}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>Chat Type</label>
-                <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
-                  <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                    <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                      <div className="flex items-center gap-2">
-                        <BookOpen className="h-3 w-3" />
-                        <span className="text-sm">Class Material</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-3 w-3" />
-                        <span className="text-sm">Syllabus</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            )}
-
-            {/* New Chat Button - ChatGPT Style */}
-            <div className={`min-w-0 p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
-              <Button
-                onClick={createNewConversation}
-                className={`w-full justify-start gap-3 h-9 text-sm font-medium ${isDarkMode
-                  ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-                  }`}
-              >
-                <Plus className="h-4 w-4" />
-                <span className="text-sm font-medium">New chat</span>
-              </Button>
-            </div>
-
-            {/* Conversations List - pr-8 insets cards from the right so they fit clear of scrollbar */}
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
-              <ScrollArea className="flex-1 h-full w-full min-w-0 overflow-x-hidden">
-                <div className="pl-2 pr-8 pt-2 pb-2 space-y-2 min-w-0 max-w-full">
-                  {!selectedClassId ? (
-                    <div className="text-center py-8 px-4">
-                      <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                      <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Select a class to start</p>
-                    </div>
-                  ) : !conversations || conversations.length === 0 ? (
-                    <div className="text-center py-8 px-4">
-                      <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                      <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>No conversations yet</p>
-                    </div>
-                  ) : (
-                    conversations.map((conversation) => (
-                      <Card
-                        key={conversation.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => loadConversation(conversation.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            loadConversation(conversation.id)
-                          }
-                        }}
-                        className={`p-3 cursor-pointer transition-colors group min-w-0 max-w-full overflow-hidden w-full ${currentConversation?.id === conversation.id
-                          ? isDarkMode ? "bg-white/10 border-white/20" : "bg-accent border-accent"
-                          : isDarkMode ? "bg-transparent border-white/10 hover:bg-white/5" : "hover:bg-accent border-border"
-                          }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0 pr-2">
-                            <p className={`font-medium text-sm truncate w-full ${currentConversation?.id === conversation.id ? isDarkMode ? "text-white" : "text-gray-900" : isDarkMode ? "text-white/90" : "text-gray-800"}`}>
-                              {getConversationCardTitle(conversation)}
-                            </p>
-                            <p className={`text-xs mt-1 truncate ${isDarkMode ? "text-white/50" : "text-muted-foreground"}`}>
-                              {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory?.length ?? 0} messages
-                            </p>
+              {sidebarLayout === 'full' && (
+                <div className={`min-w-0 p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
+                  <div className="space-y-2">
+                    <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
+                      <Zap className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
+                      Select Model
+                    </label>
+                    <Select value={preferredModel} onValueChange={(v) => setPreferredModel(v as ModelBackend)}>
+                      <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                        <SelectItem
+                          value="claude"
+                          disabled
+                          className={`${isDarkMode ? 'focus:bg-white/10 focus:text-white text-white/40' : 'text-gray-400'} cursor-not-allowed`}
+                        >
+                          🧠 Claude (temporarily unavailable)
+                        </SelectItem>
+                        <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          ⚡ Gemma (Blackwell)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
+                      <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
+                      Select Class
+                    </label>
+                    <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                      <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
+                        <SelectValue placeholder="Select class..." />
+                      </SelectTrigger>
+                      <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                        <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
+                        </SelectItem>
+                        {classes.map((c) => (
+                          <SelectItem key={c.id} value={c.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                            <span className="text-sm">{c.name}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>Chat Type</label>
+                    <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+                      <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
+                        <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          <div className="flex items-center gap-2">
+                            <BookOpen className="h-3 w-3" />
+                            <span className="text-sm">Class Material</span>
                           </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className={`h-6 w-6 p-0 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${isDarkMode ? "hover:bg-red-500/20 text-red-400 hover:text-red-300" : "hover:bg-red-100 text-red-600 hover:text-red-700"}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              deleteConversation(conversation.id)
-                            }}
-                            title="Delete conversation"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </Card>
-                    ))
-                  )}
+                        </SelectItem>
+                        <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-3 w-3" />
+                            <span className="text-sm">Syllabus</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </ScrollArea>
-            </div>
+              )}
+
+              {/* New Chat Button - ChatGPT Style */}
+              <div className={`min-w-0 p-3 border-b ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
+                <Button
+                  onClick={createNewConversation}
+                  className={`w-full justify-start gap-3 h-9 text-sm font-medium ${isDarkMode
+                    ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="text-sm font-medium">New chat</span>
+                </Button>
+              </div>
+
+              {/* Conversations List - pr-8 insets cards from the right so they fit clear of scrollbar */}
+              <div className="flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
+                <ScrollArea className="flex-1 h-full w-full min-w-0 overflow-x-hidden">
+                  <div className="pl-2 pr-8 pt-2 pb-2 space-y-2 min-w-0 max-w-full">
+                    {!selectedClassId ? (
+                      <div className="text-center py-8 px-4">
+                        <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
+                        <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Select a class to start</p>
+                      </div>
+                    ) : !conversations || conversations.length === 0 ? (
+                      <div className="text-center py-8 px-4">
+                        <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
+                        <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>No conversations yet</p>
+                      </div>
+                    ) : (
+                      conversations.map((conversation) => (
+                        <Card
+                          key={conversation.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => loadConversation(conversation.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              loadConversation(conversation.id)
+                            }
+                          }}
+                          className={`p-3 cursor-pointer transition-colors group min-w-0 max-w-full overflow-hidden w-full ${currentConversation?.id === conversation.id
+                            ? isDarkMode ? "bg-white/10 border-white/20" : "bg-accent border-accent"
+                            : isDarkMode ? "bg-transparent border-white/10 hover:bg-white/5" : "hover:bg-accent border-border"
+                            }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0 pr-2">
+                              <p className={`font-medium text-sm truncate w-full ${currentConversation?.id === conversation.id ? isDarkMode ? "text-white" : "text-gray-900" : isDarkMode ? "text-white/90" : "text-gray-800"}`}>
+                                {getConversationCardTitle(conversation)}
+                              </p>
+                              <p className={`text-xs mt-1 truncate ${isDarkMode ? "text-white/50" : "text-muted-foreground"}`}>
+                                {new Date(conversation.updatedAt).toLocaleDateString()} • {conversation.messageHistory?.length ?? 0} messages
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className={`h-6 w-6 p-0 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${isDarkMode ? "hover:bg-red-500/20 text-red-400 hover:text-red-300" : "hover:bg-red-100 text-red-600 hover:text-red-700"}`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                deleteConversation(conversation.id)
+                              }}
+                              title="Delete conversation"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </Card>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
             </div>
           </div>
         )}
