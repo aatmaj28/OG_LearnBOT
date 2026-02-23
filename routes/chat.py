@@ -12,6 +12,15 @@ import json
 import base64
 import queue
 import threading
+import time
+
+# RabbitMQ + Redis for async worker architecture
+try:
+    from services import rabbitmq_service, redis_service
+    _QUEUE_AVAILABLE = True
+except ImportError:
+    _QUEUE_AVAILABLE = False
+    print("[CHAT] WARNING: rabbitmq_service/redis_service not available. Queue mode disabled.", flush=True)
 
 bp = Blueprint("chat", __name__)
 
@@ -297,7 +306,43 @@ def ai_response():
                 "timeTaken": 0
             })
         
-        # Handle streaming vs non-streaming responses
+        # ── RabbitMQ Queue Mode ──────────────────────────────────────────
+        # If RabbitMQ is available, publish to queue and return taskId instantly.
+        # Workers will process the request and stream results via Redis pub/sub.
+        # This frees Gunicorn workers to handle other requests (login, etc.).
+        use_queue = (
+            _QUEUE_AVAILABLE
+            and rabbitmq_service.is_rabbitmq_available()
+            and redis_service.is_redis_available()
+        )
+        
+        if use_queue:
+            try:
+                task_id = rabbitmq_service.generate_task_id()
+                
+                # Create task in Redis (status: queued)
+                redis_service.create_task(task_id, request_data)
+                
+                # Publish to RabbitMQ queue
+                published = rabbitmq_service.publish_chat_task(task_id, request_data)
+                if not published:
+                    raise RuntimeError("Failed to publish to RabbitMQ")
+                
+                print(f"[CHAT] Task {task_id} queued (session={session_id})", flush=True)
+                
+                # Return taskId immediately — frontend will open SSE to /stream/<taskId>
+                return jsonify({
+                    "taskId": task_id,
+                    "status": "queued",
+                    "message": "Task queued for processing",
+                })
+                
+            except Exception as queue_err:
+                print(f"[CHAT] Queue mode failed, falling back to sync: {queue_err}", flush=True)
+                # Fall through to synchronous processing below
+        
+        # ── Synchronous Fallback ───────────────────────────────────────
+        # Handle streaming vs non-streaming responses (original behavior)
         if stream:
             print(f"[CHAT] STREAMING MODE ENABLED (session_id={session_id}, class_id={conv_class_id})", flush=True)
             
@@ -490,6 +535,118 @@ def ai_response():
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Internal server error"}), 500
+
+
+# ---------------------------------------------------------------------------
+# RabbitMQ Worker Streaming Endpoints
+# ---------------------------------------------------------------------------
+
+@bp.route("/stream/<task_id>", methods=["GET"])
+def stream_task(task_id):
+    """
+    SSE endpoint for streaming worker results to the frontend.
+    
+    Frontend opens this after POSTing to /ai-response and receiving a taskId.
+    Subscribes to Redis pub/sub channel learnbot:stream:<task_id> and yields
+    each chunk as an SSE event.
+    """
+    if not _QUEUE_AVAILABLE:
+        return jsonify({"error": "Queue mode not available"}), 503
+    
+    def generate():
+        """Generator that yields SSE events from Redis pub/sub."""
+        ps = None
+        try:
+            ps = redis_service.subscribe_to_stream(task_id)
+            
+            # Check if task already completed/failed before we subscribed
+            status = redis_service.get_task_status(task_id)
+            if status and status.get("status") in ("completed", "failed"):
+                # Task already done — send the result directly
+                if status.get("status") == "completed":
+                    result = status.get("result", {})
+                    done_data = json.dumps({
+                        "done": True,
+                        "content": result.get("response", ""),
+                        "modelUsed": result.get("modelUsed", ""),
+                        "timeTaken": result.get("timeTaken", 0),
+                    }, ensure_ascii=False)
+                    yield f"data: {done_data}\n\n".encode("utf-8")
+                else:
+                    error_data = json.dumps({
+                        "error": "Processing failed",
+                        "message": status.get("error", "Unknown error"),
+                    }, ensure_ascii=False)
+                    yield f"data: {error_data}\n\n".encode("utf-8")
+                return
+            
+            # Listen for messages with timeout
+            timeout = 150  # 2.5 min total timeout (task timeout + buffer)
+            start = time.time()
+            
+            for message in ps.listen():
+                # Check timeout
+                if time.time() - start > timeout:
+                    error_data = json.dumps({
+                        "error": "Stream timeout",
+                        "message": "Task took too long to complete",
+                    }, ensure_ascii=False)
+                    yield f"data: {error_data}\n\n".encode("utf-8")
+                    return
+                
+                if message["type"] != "message":
+                    continue
+                
+                try:
+                    data = json.loads(message["data"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                
+                # Forward as SSE event (same format as current streaming)
+                sse_data = json.dumps(data, ensure_ascii=False)
+                yield f"data: {sse_data}\n\n".encode("utf-8")
+                
+                # If this is the done event, stop streaming
+                if data.get("done") or data.get("error"):
+                    return
+                    
+        except Exception as e:
+            print(f"[CHAT] SSE stream error for task {task_id}: {e}", flush=True)
+            error_data = json.dumps({
+                "error": "Stream error",
+                "message": str(e),
+            }, ensure_ascii=False)
+            yield f"data: {error_data}\n\n".encode("utf-8")
+        finally:
+            if ps:
+                try:
+                    ps.unsubscribe()
+                    ps.close()
+                except Exception:
+                    pass
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@bp.route("/task-status/<task_id>", methods=["GET"])
+def task_status(task_id):
+    """Get the status of a queued/processing/completed task."""
+    if not _QUEUE_AVAILABLE:
+        return jsonify({"error": "Queue mode not available"}), 503
+    
+    status = redis_service.get_task_status(task_id)
+    if status is None:
+        return jsonify({"error": "Task not found"}), 404
+    
+    return jsonify({"taskId": task_id, **status})
 
 @bp.route("/messages", methods=["GET", "POST"])
 def messages():

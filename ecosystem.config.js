@@ -18,7 +18,7 @@ module.exports = {
 
       // Load environment variables from .env file (PM2 will merge these)
       env_file: '.env',
-      
+
       // Default = UAT (when you do NOT pass --env production)
       // Dynamic port from environment (K8s-compliant)
       env: {
@@ -46,6 +46,40 @@ module.exports = {
       min_uptime: '10s',
       max_restarts: 10,
       kill_timeout: 5000,
+      listen_timeout: 10000,
+    },
+
+    // ── LearnBOT Chat Workers (RabbitMQ consumers) ──────────────
+    // 10 workers × 5 threads/worker = 50 concurrent LLM requests
+    {
+      name:
+        process.env.NAMESPACE === 'prod' ? 'learnbot-worker' : 'learnbot-worker-uat',
+      cwd: process.cwd(),
+      interpreter: 'venv/bin/python',
+      script: 'worker.py',
+      instances: 10,
+      exec_mode: 'fork',
+
+      namespace: process.env.NAMESPACE || 'uat',
+      env_file: '.env',
+
+      env: {
+        WORKER_MAX_CONCURRENT: '5',
+        WORKER_TASK_TIMEOUT: '120',
+      },
+
+      error_file: './logs/worker.err.log',
+      out_file: './logs/worker.out.log',
+      log_file: './logs/worker.combined.log',
+
+      time: true,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '512M',
+      restart_delay: 5000,
+      min_uptime: '10s',
+      max_restarts: 10,
+      kill_timeout: 30000,    // 30s to finish active tasks before SIGKILL
       listen_timeout: 10000,
     }
   ]
