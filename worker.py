@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Trigger comment for deployment reset - 2026-02-23
 """
 LearnBOT Chat Worker
 
