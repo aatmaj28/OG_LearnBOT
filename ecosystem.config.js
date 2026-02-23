@@ -68,6 +68,11 @@ module.exports = {
         WORKER_TASK_TIMEOUT: '120',
       },
 
+      // Overrides when you start with: `--env production`
+      env_production: {
+        NAMESPACE: 'prod',
+      },
+
       error_file: './logs/worker.err.log',
       out_file: './logs/worker.out.log',
       log_file: './logs/worker.combined.log',

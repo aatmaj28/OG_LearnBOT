@@ -117,4 +117,3 @@ def subscribe_to_stream(task_id: str):
     ps = r.pubsub()
     ps.subscribe(_stream_channel(task_id))
     return ps
-""", "EmptyFile": false
