@@ -1,0 +1,1391 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: scripts/k6-load-test.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 30 max VUs, 6m30s max duration (incl. graceful stop):
+              * default: Up to 30 looping VUs for 6m0s over 7 stages (gracefulRampDown: 30s, gracefulStop: 30s)
+
+
+running (0m01.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   0% ] 01/30 VUs  0m01.0s/6m00.0s
+
+running (0m02.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   1% ] 01/30 VUs  0m02.0s/6m00.0s
+
+running (0m03.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   1% ] 01/30 VUs  0m03.0s/6m00.0s
+
+running (0m04.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   1% ] 01/30 VUs  0m04.0s/6m00.0s
+
+running (0m05.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   1% ] 01/30 VUs  0m05.0s/6m00.0s
+
+running (0m06.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   2% ] 01/30 VUs  0m06.0s/6m00.0s
+
+running (0m07.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   2% ] 01/30 VUs  0m07.0s/6m00.0s
+
+running (0m08.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   2% ] 01/30 VUs  0m08.0s/6m00.0s
+
+running (0m09.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   2% ] 01/30 VUs  0m09.0s/6m00.0s
+
+running (0m10.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   3% ] 01/30 VUs  0m10.0s/6m00.0s
+
+running (0m11.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   3% ] 01/30 VUs  0m11.0s/6m00.0s
+
+running (0m12.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   3% ] 01/30 VUs  0m12.0s/6m00.0s
+
+running (0m13.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   4% ] 01/30 VUs  0m13.0s/6m00.0s
+
+running (0m14.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   4% ] 01/30 VUs  0m14.0s/6m00.0s
+
+running (0m15.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   4% ] 01/30 VUs  0m15.0s/6m00.0s
+
+running (0m16.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   4% ] 01/30 VUs  0m16.0s/6m00.0s
+
+running (0m17.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   5% ] 01/30 VUs  0m17.0s/6m00.0s
+
+running (0m18.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   5% ] 01/30 VUs  0m18.0s/6m00.0s
+
+running (0m19.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   5% ] 01/30 VUs  0m19.0s/6m00.0s
+
+running (0m20.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   6% ] 01/30 VUs  0m20.0s/6m00.0s
+
+running (0m21.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   6% ] 01/30 VUs  0m21.0s/6m00.0s
+
+running (0m22.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   6% ] 01/30 VUs  0m22.0s/6m00.0s
+time="2026-02-23T12:45:11-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=17210s duration=19154.8928ms" source=console
+
+running (0m23.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   6% ] 01/30 VUs  0m23.0s/6m00.0s
+
+running (0m24.0s), 01/30 VUs, 0 complete and 0 interrupted iterations
+default   [   7% ] 01/30 VUs  0m24.0s/6m00.0s
+
+running (0m25.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   7% ] 01/30 VUs  0m25.0s/6m00.0s
+
+running (0m26.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   7% ] 01/30 VUs  0m26.0s/6m00.0s
+
+running (0m27.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   7% ] 01/30 VUs  0m27.0s/6m00.0s
+
+running (0m28.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   8% ] 01/30 VUs  0m28.0s/6m00.0s
+
+running (0m29.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   8% ] 01/30 VUs  0m29.0s/6m00.0s
+
+running (0m30.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   8% ] 01/30 VUs  0m30.0s/6m00.0s
+
+running (0m31.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   9% ] 01/30 VUs  0m31.0s/6m00.0s
+
+running (0m32.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   9% ] 01/30 VUs  0m32.0s/6m00.0s
+
+running (0m33.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   9% ] 01/30 VUs  0m33.0s/6m00.0s
+
+running (0m34.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [   9% ] 01/30 VUs  0m34.0s/6m00.0s
+
+running (0m35.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  10% ] 01/30 VUs  0m35.0s/6m00.0s
+
+running (0m36.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  10% ] 01/30 VUs  0m36.0s/6m00.0s
+
+running (0m37.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  10% ] 01/30 VUs  0m37.0s/6m00.0s
+
+running (0m38.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  11% ] 01/30 VUs  0m38.0s/6m00.0s
+
+running (0m39.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  11% ] 01/30 VUs  0m39.0s/6m00.0s
+
+running (0m40.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  11% ] 01/30 VUs  0m40.0s/6m00.0s
+
+running (0m41.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  11% ] 01/30 VUs  0m41.0s/6m00.0s
+
+running (0m42.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  12% ] 01/30 VUs  0m42.0s/6m00.0s
+
+running (0m43.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  12% ] 01/30 VUs  0m43.0s/6m00.0s
+time="2026-02-23T12:45:32-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=14490s duration=16395.5512ms" source=console
+
+running (0m44.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  12% ] 01/30 VUs  0m44.0s/6m00.0s
+
+running (0m45.0s), 01/30 VUs, 1 complete and 0 interrupted iterations
+default   [  12% ] 01/30 VUs  0m45.0s/6m00.0s
+
+running (0m46.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  13% ] 02/30 VUs  0m46.0s/6m00.0s
+
+running (0m47.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  13% ] 02/30 VUs  0m47.0s/6m00.0s
+
+running (0m48.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  13% ] 02/30 VUs  0m48.0s/6m00.0s
+
+running (0m49.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  14% ] 02/30 VUs  0m49.0s/6m00.0s
+
+running (0m50.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  14% ] 02/30 VUs  0m50.0s/6m00.0s
+
+running (0m51.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  14% ] 02/30 VUs  0m51.0s/6m00.0s
+
+running (0m52.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  14% ] 02/30 VUs  0m52.0s/6m00.0s
+
+running (0m53.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  15% ] 02/30 VUs  0m53.0s/6m00.0s
+
+running (0m54.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  15% ] 02/30 VUs  0m54.0s/6m00.0s
+
+running (0m55.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  15% ] 02/30 VUs  0m55.0s/6m00.0s
+
+running (0m56.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  16% ] 02/30 VUs  0m56.0s/6m00.0s
+
+running (0m57.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  16% ] 02/30 VUs  0m57.0s/6m00.0s
+
+running (0m58.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  16% ] 02/30 VUs  0m58.0s/6m00.0s
+
+running (0m59.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  16% ] 02/30 VUs  0m59.0s/6m00.0s
+
+running (1m00.0s), 02/30 VUs, 2 complete and 0 interrupted iterations
+default   [  17% ] 02/30 VUs  1m00.0s/6m00.0s
+
+running (1m01.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  17% ] 03/30 VUs  1m01.0s/6m00.0s
+
+running (1m02.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  17% ] 03/30 VUs  1m02.0s/6m00.0s
+
+running (1m03.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  17% ] 03/30 VUs  1m03.0s/6m00.0s
+
+running (1m04.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  18% ] 03/30 VUs  1m04.0s/6m00.0s
+
+running (1m05.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  18% ] 03/30 VUs  1m05.0s/6m00.0s
+
+running (1m06.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  18% ] 03/30 VUs  1m06.0s/6m00.0s
+
+running (1m07.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  19% ] 03/30 VUs  1m07.0s/6m00.0s
+time="2026-02-23T12:45:56-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=17641s duration=19583.9258ms" source=console
+
+running (1m08.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  19% ] 03/30 VUs  1m08.0s/6m00.0s
+time="2026-02-23T12:45:57-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=18577s duration=20514.6113ms" source=console
+
+running (1m09.0s), 03/30 VUs, 2 complete and 0 interrupted iterations
+default   [  19% ] 03/30 VUs  1m09.0s/6m00.0s
+
+running (1m10.0s), 03/30 VUs, 3 complete and 0 interrupted iterations
+default   [  19% ] 03/30 VUs  1m10.0s/6m00.0s
+
+running (1m11.0s), 03/30 VUs, 4 complete and 0 interrupted iterations
+default   [  20% ] 03/30 VUs  1m11.0s/6m00.0s
+
+running (1m12.0s), 03/30 VUs, 4 complete and 0 interrupted iterations
+default   [  20% ] 03/30 VUs  1m12.0s/6m00.0s
+
+running (1m13.0s), 03/30 VUs, 4 complete and 0 interrupted iterations
+default   [  20% ] 03/30 VUs  1m13.0s/6m00.0s
+
+running (1m14.0s), 03/30 VUs, 4 complete and 0 interrupted iterations
+default   [  21% ] 03/30 VUs  1m14.0s/6m00.0s
+
+running (1m15.0s), 03/30 VUs, 4 complete and 0 interrupted iterations
+default   [  21% ] 03/30 VUs  1m15.0s/6m00.0s
+
+running (1m16.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  21% ] 04/30 VUs  1m16.0s/6m00.0s
+
+running (1m17.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  21% ] 04/30 VUs  1m17.0s/6m00.0s
+
+running (1m18.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  22% ] 04/30 VUs  1m18.0s/6m00.0s
+
+running (1m19.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  22% ] 04/30 VUs  1m19.0s/6m00.0s
+
+running (1m20.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  22% ] 04/30 VUs  1m20.0s/6m00.0s
+
+running (1m21.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  22% ] 04/30 VUs  1m21.0s/6m00.0s
+
+running (1m22.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  23% ] 04/30 VUs  1m22.0s/6m00.0s
+time="2026-02-23T12:46:10-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=17336s duration=19298.7284ms" source=console
+
+running (1m23.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  23% ] 04/30 VUs  1m23.0s/6m00.0s
+
+running (1m24.0s), 04/30 VUs, 4 complete and 0 interrupted iterations
+default   [  23% ] 04/30 VUs  1m24.0s/6m00.0s
+
+running (1m25.0s), 04/30 VUs, 5 complete and 0 interrupted iterations
+default   [  24% ] 04/30 VUs  1m25.0s/6m00.0s
+
+running (1m26.0s), 04/30 VUs, 5 complete and 0 interrupted iterations
+default   [  24% ] 04/30 VUs  1m26.0s/6m00.0s
+
+running (1m27.0s), 04/30 VUs, 5 complete and 0 interrupted iterations
+default   [  24% ] 04/30 VUs  1m27.0s/6m00.0s
+
+running (1m28.0s), 04/30 VUs, 5 complete and 0 interrupted iterations
+default   [  24% ] 04/30 VUs  1m28.0s/6m00.0s
+time="2026-02-23T12:46:17-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=13326s duration=15545.4701ms" source=console
+
+running (1m29.0s), 04/30 VUs, 5 complete and 0 interrupted iterations
+default   [  25% ] 04/30 VUs  1m29.0s/6m00.0s
+
+running (1m30.0s), 04/30 VUs, 5 complete and 0 interrupted iterations
+default   [  25% ] 04/30 VUs  1m30.0s/6m00.0s
+
+running (1m31.0s), 05/30 VUs, 5 complete and 0 interrupted iterations
+default   [  25% ] 05/30 VUs  1m31.0s/6m00.0s
+time="2026-02-23T12:46:20-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=16994s duration=19219.6527ms" source=console
+
+running (1m32.0s), 05/30 VUs, 6 complete and 0 interrupted iterations
+default   [  26% ] 05/30 VUs  1m32.0s/6m00.0s
+
+running (1m33.0s), 05/30 VUs, 6 complete and 0 interrupted iterations
+default   [  26% ] 05/30 VUs  1m33.0s/6m00.0s
+
+running (1m34.0s), 05/30 VUs, 7 complete and 0 interrupted iterations
+default   [  26% ] 05/30 VUs  1m34.0s/6m00.0s
+
+running (1m35.0s), 05/30 VUs, 7 complete and 0 interrupted iterations
+default   [  26% ] 05/30 VUs  1m35.0s/6m00.0s
+
+running (1m36.0s), 05/30 VUs, 7 complete and 0 interrupted iterations
+default   [  27% ] 05/30 VUs  1m36.0s/6m00.0s
+
+running (1m37.0s), 05/30 VUs, 7 complete and 0 interrupted iterations
+default   [  27% ] 05/30 VUs  1m37.0s/6m00.0s
+time="2026-02-23T12:46:25-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=17391s duration=19366.2222ms" source=console
+
+running (1m38.0s), 05/30 VUs, 7 complete and 0 interrupted iterations
+default   [  27% ] 05/30 VUs  1m38.0s/6m00.0s
+
+running (1m39.0s), 05/30 VUs, 7 complete and 0 interrupted iterations
+default   [  27% ] 05/30 VUs  1m39.0s/6m00.0s
+
+running (1m40.0s), 05/30 VUs, 8 complete and 0 interrupted iterations
+default   [  28% ] 05/30 VUs  1m40.0s/6m00.0s
+
+running (1m41.0s), 05/30 VUs, 8 complete and 0 interrupted iterations
+default   [  28% ] 05/30 VUs  1m41.0s/6m00.0s
+
+running (1m42.0s), 05/30 VUs, 8 complete and 0 interrupted iterations
+default   [  28% ] 05/30 VUs  1m42.0s/6m00.0s
+
+running (1m43.0s), 06/30 VUs, 8 complete and 0 interrupted iterations
+default   [  29% ] 06/30 VUs  1m43.0s/6m00.0s
+
+running (1m44.0s), 06/30 VUs, 8 complete and 0 interrupted iterations
+default   [  29% ] 06/30 VUs  1m44.0s/6m00.0s
+
+running (1m45.0s), 06/30 VUs, 8 complete and 0 interrupted iterations
+default   [  29% ] 06/30 VUs  1m45.0s/6m00.0s
+time="2026-02-23T12:46:33-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=16388s duration=18379.2612ms" source=console
+
+running (1m46.0s), 06/30 VUs, 8 complete and 0 interrupted iterations
+default   [  29% ] 06/30 VUs  1m46.0s/6m00.0s
+
+running (1m47.0s), 06/30 VUs, 8 complete and 0 interrupted iterations
+default   [  30% ] 06/30 VUs  1m47.0s/6m00.0s
+
+running (1m48.0s), 06/30 VUs, 9 complete and 0 interrupted iterations
+default   [  30% ] 06/30 VUs  1m48.0s/6m00.0s
+
+running (1m49.0s), 06/30 VUs, 9 complete and 0 interrupted iterations
+default   [  30% ] 06/30 VUs  1m49.0s/6m00.0s
+
+running (1m50.0s), 06/30 VUs, 9 complete and 0 interrupted iterations
+default   [  31% ] 06/30 VUs  1m50.0s/6m00.0s
+
+running (1m51.0s), 06/30 VUs, 9 complete and 0 interrupted iterations
+default   [  31% ] 06/30 VUs  1m51.0s/6m00.0s
+time="2026-02-23T12:46:40-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=17130s duration=19127.1899ms" source=console
+
+running (1m52.0s), 06/30 VUs, 9 complete and 0 interrupted iterations
+default   [  31% ] 06/30 VUs  1m52.0s/6m00.0s
+
+running (1m53.0s), 06/30 VUs, 9 complete and 0 interrupted iterations
+default   [  31% ] 06/30 VUs  1m53.0s/6m00.0s
+time="2026-02-23T12:46:42-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=17661s duration=19647.8227ms" source=console
+
+running (1m54.0s), 06/30 VUs, 10 complete and 0 interrupted iterations
+default   [  32% ] 06/30 VUs  1m54.0s/6m00.0s
+
+running (1m55.0s), 07/30 VUs, 10 complete and 0 interrupted iterations
+default   [  32% ] 07/30 VUs  1m55.0s/6m00.0s
+
+running (1m56.0s), 07/30 VUs, 11 complete and 0 interrupted iterations
+default   [  32% ] 07/30 VUs  1m56.0s/6m00.0s
+time="2026-02-23T12:46:45-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=17868s duration=20137.2499ms" source=console
+
+running (1m57.0s), 07/30 VUs, 11 complete and 0 interrupted iterations
+default   [  32% ] 07/30 VUs  1m57.0s/6m00.0s
+
+running (1m58.0s), 07/30 VUs, 11 complete and 0 interrupted iterations
+default   [  33% ] 07/30 VUs  1m58.0s/6m00.0s
+
+running (1m59.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  33% ] 07/30 VUs  1m59.0s/6m00.0s
+
+running (2m00.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  33% ] 07/30 VUs  2m00.0s/6m00.0s
+
+running (2m01.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  34% ] 07/30 VUs  2m01.0s/6m00.0s
+
+running (2m02.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  34% ] 07/30 VUs  2m02.0s/6m00.0s
+
+running (2m03.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  34% ] 07/30 VUs  2m03.0s/6m00.0s
+
+running (2m04.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  34% ] 07/30 VUs  2m04.0s/6m00.0s
+time="2026-02-23T12:46:52-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=20175s duration=22155.6962ms" source=console
+
+running (2m05.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  35% ] 07/30 VUs  2m05.0s/6m00.0s
+
+running (2m06.0s), 07/30 VUs, 12 complete and 0 interrupted iterations
+default   [  35% ] 07/30 VUs  2m06.0s/6m00.0s
+time="2026-02-23T12:46:54-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=19356s duration=21326.9343ms" source=console
+
+running (2m07.0s), 08/30 VUs, 13 complete and 0 interrupted iterations
+default   [  35% ] 08/30 VUs  2m07.0s/6m00.0s
+
+running (2m08.0s), 08/30 VUs, 13 complete and 0 interrupted iterations
+default   [  36% ] 08/30 VUs  2m08.0s/6m00.0s
+time="2026-02-23T12:46:57-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=16329s duration=18295.1127ms" source=console
+
+running (2m09.0s), 08/30 VUs, 14 complete and 0 interrupted iterations
+default   [  36% ] 08/30 VUs  2m09.0s/6m00.0s
+
+running (2m10.0s), 08/30 VUs, 14 complete and 0 interrupted iterations
+default   [  36% ] 08/30 VUs  2m10.0s/6m00.0s
+
+running (2m11.0s), 08/30 VUs, 15 complete and 0 interrupted iterations
+default   [  36% ] 08/30 VUs  2m11.0s/6m00.0s
+
+running (2m12.0s), 08/30 VUs, 15 complete and 0 interrupted iterations
+default   [  37% ] 08/30 VUs  2m12.0s/6m00.0s
+
+running (2m13.0s), 08/30 VUs, 15 complete and 0 interrupted iterations
+default   [  37% ] 08/30 VUs  2m13.0s/6m00.0s
+
+running (2m14.0s), 08/30 VUs, 15 complete and 0 interrupted iterations
+default   [  37% ] 08/30 VUs  2m14.0s/6m00.0s
+time="2026-02-23T12:47:03-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=15978s duration=17946.9126ms" source=console
+
+running (2m15.0s), 08/30 VUs, 15 complete and 0 interrupted iterations
+default   [  37% ] 08/30 VUs  2m15.0s/6m00.0s
+
+running (2m16.0s), 08/30 VUs, 15 complete and 0 interrupted iterations
+default   [  38% ] 08/30 VUs  2m16.0s/6m00.0s
+time="2026-02-23T12:47:04-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=16159s duration=18293.9078ms" source=console
+time="2026-02-23T12:47:05-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=18047s duration=20021.0801ms" source=console
+
+running (2m17.0s), 08/30 VUs, 16 complete and 0 interrupted iterations
+default   [  38% ] 08/30 VUs  2m17.0s/6m00.0s
+
+running (2m18.0s), 08/30 VUs, 16 complete and 0 interrupted iterations
+default   [  38% ] 08/30 VUs  2m18.0s/6m00.0s
+
+running (2m19.0s), 09/30 VUs, 18 complete and 0 interrupted iterations
+default   [  39% ] 09/30 VUs  2m19.0s/6m00.0s
+
+running (2m20.0s), 09/30 VUs, 18 complete and 0 interrupted iterations
+default   [  39% ] 09/30 VUs  2m20.0s/6m00.0s
+
+running (2m21.0s), 09/30 VUs, 18 complete and 0 interrupted iterations
+default   [  39% ] 09/30 VUs  2m21.0s/6m00.0s
+
+running (2m22.0s), 09/30 VUs, 18 complete and 0 interrupted iterations
+default   [  39% ] 09/30 VUs  2m22.0s/6m00.0s
+time="2026-02-23T12:47:11-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=19543s duration=21527.0305ms" source=console
+
+running (2m23.0s), 09/30 VUs, 18 complete and 0 interrupted iterations
+default   [  40% ] 09/30 VUs  2m23.0s/6m00.0s
+
+running (2m24.0s), 09/30 VUs, 18 complete and 0 interrupted iterations
+default   [  40% ] 09/30 VUs  2m24.0s/6m00.0s
+time="2026-02-23T12:47:13-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=1956s duration=3900.1577ms" source=console
+
+running (2m25.0s), 09/30 VUs, 19 complete and 0 interrupted iterations
+default   [  40% ] 09/30 VUs  2m25.0s/6m00.0s
+
+running (2m26.0s), 09/30 VUs, 19 complete and 0 interrupted iterations
+default   [  41% ] 09/30 VUs  2m26.0s/6m00.0s
+
+running (2m27.0s), 09/30 VUs, 20 complete and 0 interrupted iterations
+default   [  41% ] 09/30 VUs  2m27.0s/6m00.0s
+
+running (2m28.0s), 09/30 VUs, 20 complete and 0 interrupted iterations
+default   [  41% ] 09/30 VUs  2m28.0s/6m00.0s
+time="2026-02-23T12:47:17-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=17743s duration=19752.0556ms" source=console
+time="2026-02-23T12:47:17-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=18079s duration=20037.7747ms" source=console
+
+running (2m29.0s), 09/30 VUs, 20 complete and 0 interrupted iterations
+default   [  41% ] 09/30 VUs  2m29.0s/6m00.0s
+time="2026-02-23T12:47:18-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=16861s duration=18835.2427ms" source=console
+
+running (2m30.0s), 09/30 VUs, 20 complete and 0 interrupted iterations
+default   [  42% ] 09/30 VUs  2m30.0s/6m00.0s
+
+running (2m31.0s), 10/30 VUs, 22 complete and 0 interrupted iterations
+default   [  42% ] 10/30 VUs  2m31.0s/6m00.0s
+
+running (2m32.0s), 10/30 VUs, 23 complete and 0 interrupted iterations
+default   [  42% ] 10/30 VUs  2m32.0s/6m00.0s
+
+running (2m33.0s), 10/30 VUs, 23 complete and 0 interrupted iterations
+default   [  42% ] 10/30 VUs  2m33.0s/6m00.0s
+time="2026-02-23T12:47:22-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=18167s duration=20384.6545ms" source=console
+
+running (2m34.0s), 10/30 VUs, 23 complete and 0 interrupted iterations
+default   [  43% ] 10/30 VUs  2m34.0s/6m00.0s
+
+running (2m35.0s), 10/30 VUs, 23 complete and 0 interrupted iterations
+default   [  43% ] 10/30 VUs  2m35.0s/6m00.0s
+
+running (2m36.0s), 10/30 VUs, 24 complete and 0 interrupted iterations
+default   [  43% ] 10/30 VUs  2m36.0s/6m00.0s
+
+running (2m37.0s), 11/30 VUs, 24 complete and 0 interrupted iterations
+default   [  44% ] 11/30 VUs  2m37.0s/6m00.0s
+
+running (2m38.0s), 11/30 VUs, 24 complete and 0 interrupted iterations
+default   [  44% ] 11/30 VUs  2m38.0s/6m00.0s
+
+running (2m39.0s), 11/30 VUs, 24 complete and 0 interrupted iterations
+default   [  44% ] 11/30 VUs  2m39.0s/6m00.0s
+time="2026-02-23T12:47:28-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=18321s duration=20296.2885ms" source=console
+
+running (2m40.0s), 11/30 VUs, 24 complete and 0 interrupted iterations
+default   [  44% ] 11/30 VUs  2m40.0s/6m00.0s
+
+running (2m41.0s), 11/30 VUs, 24 complete and 0 interrupted iterations
+default   [  45% ] 11/30 VUs  2m41.0s/6m00.0s
+
+running (2m42.0s), 11/30 VUs, 25 complete and 0 interrupted iterations
+default   [  45% ] 11/30 VUs  2m42.0s/6m00.0s
+time="2026-02-23T12:47:30-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=18874s duration=21196.5553ms" source=console
+time="2026-02-23T12:47:30-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=18763s duration=20946.8961ms" source=console
+
+running (2m43.0s), 12/30 VUs, 25 complete and 0 interrupted iterations
+default   [  45% ] 12/30 VUs  2m43.0s/6m00.0s
+
+running (2m44.0s), 12/30 VUs, 25 complete and 0 interrupted iterations
+default   [  46% ] 12/30 VUs  2m44.0s/6m00.0s
+
+running (2m45.0s), 12/30 VUs, 27 complete and 0 interrupted iterations
+default   [  46% ] 12/30 VUs  2m45.0s/6m00.0s
+
+running (2m46.0s), 12/30 VUs, 27 complete and 0 interrupted iterations
+default   [  46% ] 12/30 VUs  2m46.0s/6m00.0s
+
+running (2m47.0s), 12/30 VUs, 27 complete and 0 interrupted iterations
+default   [  46% ] 12/30 VUs  2m47.0s/6m00.0s
+time="2026-02-23T12:47:36-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=18151s duration=20495.9747ms" source=console
+
+running (2m48.0s), 12/30 VUs, 27 complete and 0 interrupted iterations
+default   [  47% ] 12/30 VUs  2m48.0s/6m00.0s
+
+running (2m49.0s), 13/30 VUs, 27 complete and 0 interrupted iterations
+default   [  47% ] 13/30 VUs  2m49.0s/6m00.0s
+time="2026-02-23T12:47:37-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=2061s duration=3997.782ms" source=console
+
+running (2m50.0s), 13/30 VUs, 28 complete and 0 interrupted iterations
+default   [  47% ] 13/30 VUs  2m50.0s/6m00.0s
+time="2026-02-23T12:47:38-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=18582s duration=20554.9461ms" source=console
+
+running (2m51.0s), 13/30 VUs, 28 complete and 0 interrupted iterations
+default   [  47% ] 13/30 VUs  2m51.0s/6m00.0s
+
+running (2m52.0s), 13/30 VUs, 29 complete and 0 interrupted iterations
+default   [  48% ] 13/30 VUs  2m52.0s/6m00.0s
+
+running (2m53.0s), 13/30 VUs, 30 complete and 0 interrupted iterations
+default   [  48% ] 13/30 VUs  2m53.0s/6m00.0s
+time="2026-02-23T12:47:42-05:00" level=info msg="CHAT OK: VU=9 model=remote-blackwell time=18650s duration=20668.5302ms" source=console
+time="2026-02-23T12:47:42-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=18428s duration=20441.3648ms" source=console
+
+running (2m54.0s), 13/30 VUs, 30 complete and 0 interrupted iterations
+default   [  48% ] 13/30 VUs  2m54.0s/6m00.0s
+time="2026-02-23T12:47:42-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=17779s duration=20093.6604ms" source=console
+
+running (2m55.0s), 14/30 VUs, 30 complete and 0 interrupted iterations
+default   [  49% ] 14/30 VUs  2m55.0s/6m00.0s
+
+running (2m56.0s), 14/30 VUs, 32 complete and 0 interrupted iterations
+default   [  49% ] 14/30 VUs  2m56.0s/6m00.0s
+time="2026-02-23T12:47:45-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=20535s duration=22830.6678ms" source=console
+
+running (2m57.0s), 14/30 VUs, 33 complete and 0 interrupted iterations
+default   [  49% ] 14/30 VUs  2m57.0s/6m00.0s
+
+running (2m58.0s), 14/30 VUs, 33 complete and 0 interrupted iterations
+default   [  49% ] 14/30 VUs  2m58.0s/6m00.0s
+
+running (2m59.0s), 14/30 VUs, 34 complete and 0 interrupted iterations
+default   [  50% ] 14/30 VUs  2m59.0s/6m00.0s
+time="2026-02-23T12:47:47-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=18753s duration=20750.1318ms" source=console
+
+running (3m00.0s), 14/30 VUs, 34 complete and 0 interrupted iterations
+default   [  50% ] 14/30 VUs  3m00.0s/6m00.0s
+time="2026-02-23T12:47:49-05:00" level=info msg="CHAT OK: VU=7 model=remote-blackwell time=2066s duration=4098.5265ms" source=console
+time="2026-02-23T12:47:49-05:00" level=info msg="CHAT OK: VU=4 model=remote-blackwell time=20236s duration=22235.472ms" source=console
+
+running (3m01.0s), 15/30 VUs, 34 complete and 0 interrupted iterations
+default   [  50% ] 15/30 VUs  3m01.0s/6m00.0s
+
+running (3m02.0s), 15/30 VUs, 35 complete and 0 interrupted iterations
+default   [  51% ] 15/30 VUs  3m02.0s/6m00.0s
+
+running (3m03.0s), 15/30 VUs, 37 complete and 0 interrupted iterations
+default   [  51% ] 15/30 VUs  3m03.0s/6m00.0s
+
+running (3m04.0s), 15/30 VUs, 37 complete and 0 interrupted iterations
+default   [  51% ] 15/30 VUs  3m04.0s/6m00.0s
+time="2026-02-23T12:47:52-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=17572s duration=19582.2488ms" source=console
+time="2026-02-23T12:47:53-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=16043s duration=18032.4286ms" source=console
+
+running (3m05.0s), 15/30 VUs, 37 complete and 0 interrupted iterations
+default   [  51% ] 15/30 VUs  3m05.0s/6m00.0s
+
+running (3m06.0s), 15/30 VUs, 37 complete and 0 interrupted iterations
+default   [  52% ] 15/30 VUs  3m06.0s/6m00.0s
+time="2026-02-23T12:47:55-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=17541s duration=19562.9884ms" source=console
+
+running (3m07.0s), 16/30 VUs, 39 complete and 0 interrupted iterations
+default   [  52% ] 16/30 VUs  3m07.0s/6m00.0s
+
+running (3m08.0s), 16/30 VUs, 39 complete and 0 interrupted iterations
+default   [  52% ] 16/30 VUs  3m08.0s/6m00.0s
+
+running (3m09.0s), 16/30 VUs, 40 complete and 0 interrupted iterations
+default   [  52% ] 16/30 VUs  3m09.0s/6m00.0s
+
+running (3m10.0s), 16/30 VUs, 40 complete and 0 interrupted iterations
+default   [  53% ] 16/30 VUs  3m10.0s/6m00.0s
+
+running (3m11.0s), 16/30 VUs, 40 complete and 0 interrupted iterations
+default   [  53% ] 16/30 VUs  3m11.0s/6m00.0s
+
+running (3m12.0s), 16/30 VUs, 40 complete and 0 interrupted iterations
+default   [  53% ] 16/30 VUs  3m12.0s/6m00.0s
+time="2026-02-23T12:48:01-05:00" level=info msg="CHAT OK: VU=8 model=remote-blackwell time=19699s duration=22160.9557ms" source=console
+
+running (3m13.0s), 17/30 VUs, 40 complete and 0 interrupted iterations
+default   [  54% ] 17/30 VUs  3m13.0s/6m00.0s
+time="2026-02-23T12:48:02-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=18889s duration=20962.2731ms" source=console
+
+running (3m14.0s), 17/30 VUs, 40 complete and 0 interrupted iterations
+default   [  54% ] 17/30 VUs  3m14.0s/6m00.0s
+time="2026-02-23T12:48:03-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=18784s duration=20818.4024ms" source=console
+
+running (3m15.0s), 17/30 VUs, 41 complete and 0 interrupted iterations
+default   [  54% ] 17/30 VUs  3m15.0s/6m00.0s
+time="2026-02-23T12:48:04-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=18493s duration=20581.1874ms" source=console
+
+running (3m16.0s), 17/30 VUs, 42 complete and 0 interrupted iterations
+default   [  54% ] 17/30 VUs  3m16.0s/6m00.0s
+
+running (3m17.0s), 17/30 VUs, 43 complete and 0 interrupted iterations
+default   [  55% ] 17/30 VUs  3m17.0s/6m00.0s
+
+running (3m18.0s), 17/30 VUs, 44 complete and 0 interrupted iterations
+default   [  55% ] 17/30 VUs  3m18.0s/6m00.0s
+time="2026-02-23T12:48:07-05:00" level=info msg="CHAT OK: VU=9 model=remote-blackwell time=18436s duration=20476.7529ms" source=console
+
+running (3m19.0s), 18/30 VUs, 44 complete and 0 interrupted iterations
+default   [  55% ] 18/30 VUs  3m19.0s/6m00.0s
+time="2026-02-23T12:48:08-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=19297s duration=21333.7394ms" source=console
+
+running (3m20.0s), 18/30 VUs, 44 complete and 0 interrupted iterations
+default   [  56% ] 18/30 VUs  3m20.0s/6m00.0s
+
+running (3m21.0s), 18/30 VUs, 45 complete and 0 interrupted iterations
+default   [  56% ] 18/30 VUs  3m21.0s/6m00.0s
+time="2026-02-23T12:48:10-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=18683s duration=20786.7943ms" source=console
+
+running (3m22.0s), 18/30 VUs, 46 complete and 0 interrupted iterations
+default   [  56% ] 18/30 VUs  3m22.0s/6m00.0s
+time="2026-02-23T12:48:10-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=21111s duration=23148.6341ms" source=console
+
+running (3m23.0s), 18/30 VUs, 46 complete and 0 interrupted iterations
+default   [  56% ] 18/30 VUs  3m23.0s/6m00.0s
+time="2026-02-23T12:48:12-05:00" level=info msg="CHAT OK: VU=20 model=remote-blackwell time=18712s duration=20777.3918ms" source=console
+
+running (3m24.0s), 18/30 VUs, 47 complete and 0 interrupted iterations
+default   [  57% ] 18/30 VUs  3m24.0s/6m00.0s
+time="2026-02-23T12:48:12-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=18024s duration=20072.3467ms" source=console
+
+running (3m25.0s), 19/30 VUs, 48 complete and 0 interrupted iterations
+default   [  57% ] 19/30 VUs  3m25.0s/6m00.0s
+
+running (3m26.0s), 19/30 VUs, 49 complete and 0 interrupted iterations
+default   [  57% ] 19/30 VUs  3m26.0s/6m00.0s
+time="2026-02-23T12:48:15-05:00" level=info msg="CHAT OK: VU=4 model=remote-blackwell time=18903s duration=20972.1914ms" source=console
+
+running (3m27.0s), 19/30 VUs, 50 complete and 0 interrupted iterations
+default   [  57% ] 19/30 VUs  3m27.0s/6m00.0s
+time="2026-02-23T12:48:16-05:00" level=info msg="CHAT OK: VU=7 model=remote-blackwell time=20245s duration=22286.399ms" source=console
+
+running (3m28.0s), 19/30 VUs, 50 complete and 0 interrupted iterations
+default   [  58% ] 19/30 VUs  3m28.0s/6m00.0s
+time="2026-02-23T12:48:17-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=17961s duration=20015.0883ms" source=console
+
+running (3m29.0s), 19/30 VUs, 51 complete and 0 interrupted iterations
+default   [  58% ] 19/30 VUs  3m29.0s/6m00.0s
+time="2026-02-23T12:48:18-05:00" level=info msg="CHAT OK: VU=30 model=remote-blackwell time=19077s duration=21107.2498ms" source=console
+
+running (3m30.0s), 19/30 VUs, 52 complete and 0 interrupted iterations
+default   [  58% ] 19/30 VUs  3m30.0s/6m00.0s
+
+running (3m31.0s), 20/30 VUs, 53 complete and 0 interrupted iterations
+default   [  59% ] 20/30 VUs  3m31.0s/6m00.0s
+time="2026-02-23T12:48:19-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=2215s duration=4278.4073ms" source=console
+time="2026-02-23T12:48:20-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=20031s duration=22116.7809ms" source=console
+time="2026-02-23T12:48:20-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=18486s duration=20538.9412ms" source=console
+
+running (3m32.0s), 20/30 VUs, 54 complete and 0 interrupted iterations
+default   [  59% ] 20/30 VUs  3m32.0s/6m00.0s
+
+running (3m33.0s), 20/30 VUs, 54 complete and 0 interrupted iterations
+default   [  59% ] 20/30 VUs  3m33.0s/6m00.0s
+
+running (3m34.0s), 20/30 VUs, 57 complete and 0 interrupted iterations
+default   [  59% ] 20/30 VUs  3m34.0s/6m00.0s
+
+running (3m35.0s), 20/30 VUs, 57 complete and 0 interrupted iterations
+default   [  60% ] 20/30 VUs  3m35.0s/6m00.0s
+
+running (3m36.0s), 20/30 VUs, 57 complete and 0 interrupted iterations
+default   [  60% ] 20/30 VUs  3m36.0s/6m00.0s
+
+running (3m37.0s), 21/30 VUs, 57 complete and 0 interrupted iterations
+default   [  60% ] 21/30 VUs  3m37.0s/6m00.0s
+time="2026-02-23T12:48:25-05:00" level=info msg="CHAT OK: VU=24 model=remote-blackwell time=20450s duration=22504.3849ms" source=console
+
+running (3m38.0s), 21/30 VUs, 57 complete and 0 interrupted iterations
+default   [  61% ] 21/30 VUs  3m38.0s/6m00.0s
+time="2026-02-23T12:48:26-05:00" level=info msg="CHAT OK: VU=8 model=remote-blackwell time=18540s duration=20630.0916ms" source=console
+time="2026-02-23T12:48:27-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=17584s duration=19623.3735ms" source=console
+
+running (3m39.0s), 21/30 VUs, 57 complete and 0 interrupted iterations
+default   [  61% ] 21/30 VUs  3m39.0s/6m00.0s
+
+running (3m40.0s), 21/30 VUs, 58 complete and 0 interrupted iterations
+default   [  61% ] 21/30 VUs  3m40.0s/6m00.0s
+time="2026-02-23T12:48:28-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=17941s duration=20041.2368ms" source=console
+time="2026-02-23T12:48:29-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=20163s duration=22206.7805ms" source=console
+
+running (3m41.0s), 21/30 VUs, 60 complete and 0 interrupted iterations
+default   [  61% ] 21/30 VUs  3m41.0s/6m00.0s
+
+running (3m42.0s), 21/30 VUs, 60 complete and 0 interrupted iterations
+default   [  62% ] 21/30 VUs  3m42.0s/6m00.0s
+time="2026-02-23T12:48:31-05:00" level=info msg="CHAT OK: VU=23 model=remote-blackwell time=19787s duration=21829.9005ms" source=console
+
+running (3m43.0s), 22/30 VUs, 62 complete and 0 interrupted iterations
+default   [  62% ] 22/30 VUs  3m43.0s/6m00.0s
+
+running (3m44.0s), 22/30 VUs, 62 complete and 0 interrupted iterations
+default   [  62% ] 22/30 VUs  3m44.0s/6m00.0s
+
+running (3m45.0s), 22/30 VUs, 63 complete and 0 interrupted iterations
+default   [  62% ] 22/30 VUs  3m45.0s/6m00.0s
+
+running (3m46.0s), 22/30 VUs, 63 complete and 0 interrupted iterations
+default   [  63% ] 22/30 VUs  3m46.0s/6m00.0s
+
+running (3m47.0s), 22/30 VUs, 63 complete and 0 interrupted iterations
+default   [  63% ] 22/30 VUs  3m47.0s/6m00.0s
+
+running (3m48.0s), 22/30 VUs, 63 complete and 0 interrupted iterations
+default   [  63% ] 22/30 VUs  3m48.0s/6m00.0s
+time="2026-02-23T12:48:36-05:00" level=info msg="CHAT OK: VU=9 model=remote-blackwell time=22228s duration=24792.6149ms" source=console
+time="2026-02-23T12:48:37-05:00" level=info msg="CHAT OK: VU=28 model=remote-blackwell time=19396s duration=21891.1087ms" source=console
+
+running (3m49.0s), 23/30 VUs, 63 complete and 0 interrupted iterations
+default   [  64% ] 23/30 VUs  3m49.0s/6m00.0s
+time="2026-02-23T12:48:37-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=19945s duration=22408.692ms" source=console
+time="2026-02-23T12:48:38-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=22440s duration=24907.5174ms" source=console
+
+running (3m50.0s), 23/30 VUs, 63 complete and 0 interrupted iterations
+default   [  64% ] 23/30 VUs  3m50.0s/6m00.0s
+
+running (3m51.0s), 23/30 VUs, 65 complete and 0 interrupted iterations
+default   [  64% ] 23/30 VUs  3m51.0s/6m00.0s
+time="2026-02-23T12:48:40-05:00" level=info msg="CHAT OK: VU=20 model=remote-blackwell time=20921s duration=22999.2078ms" source=console
+time="2026-02-23T12:48:40-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=20972s duration=23142.3688ms" source=console
+
+running (3m52.0s), 23/30 VUs, 67 complete and 0 interrupted iterations
+default   [  64% ] 23/30 VUs  3m52.0s/6m00.0s
+time="2026-02-23T12:48:41-05:00" level=info msg="CHAT OK: VU=7 model=remote-blackwell time=18152s duration=20213.9655ms" source=console
+
+running (3m53.0s), 23/30 VUs, 67 complete and 0 interrupted iterations
+default   [  65% ] 23/30 VUs  3m53.0s/6m00.0s
+
+running (3m54.0s), 23/30 VUs, 69 complete and 0 interrupted iterations
+default   [  65% ] 23/30 VUs  3m54.0s/6m00.0s
+time="2026-02-23T12:48:43-05:00" level=info msg="CHAT OK: VU=27 model=remote-blackwell time=19522s duration=21618.0868ms" source=console
+time="2026-02-23T12:48:43-05:00" level=info msg="CHAT OK: VU=4 model=remote-blackwell time=21320s duration=23369.7658ms" source=console
+
+running (3m55.0s), 24/30 VUs, 70 complete and 0 interrupted iterations
+default   [  65% ] 24/30 VUs  3m55.0s/6m00.0s
+
+running (3m56.0s), 24/30 VUs, 70 complete and 0 interrupted iterations
+default   [  66% ] 24/30 VUs  3m56.0s/6m00.0s
+
+running (3m57.0s), 24/30 VUs, 72 complete and 0 interrupted iterations
+default   [  66% ] 24/30 VUs  3m57.0s/6m00.0s
+time="2026-02-23T12:48:46-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=19136s duration=21232.6578ms" source=console
+
+running (3m58.0s), 24/30 VUs, 72 complete and 0 interrupted iterations
+default   [  66% ] 24/30 VUs  3m58.0s/6m00.0s
+time="2026-02-23T12:48:47-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=22216s duration=24662.2441ms" source=console
+
+running (3m59.0s), 24/30 VUs, 72 complete and 0 interrupted iterations
+default   [  66% ] 24/30 VUs  3m59.0s/6m00.0s
+time="2026-02-23T12:48:47-05:00" level=info msg="CHAT OK: VU=30 model=remote-blackwell time=22336s duration=24601.0704ms" source=console
+time="2026-02-23T12:48:47-05:00" level=info msg="CHAT OK: VU=17 model=remote-blackwell time=18243s duration=20410.9572ms" source=console
+time="2026-02-23T12:48:47-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=21093s duration=23263.9643ms" source=console
+
+running (4m00.0s), 24/30 VUs, 73 complete and 0 interrupted iterations
+default   [  67% ] 24/30 VUs  4m00.0s/6m00.0s
+time="2026-02-23T12:48:49-05:00" level=info msg="CHAT OK: VU=20 model=remote-blackwell time=2404s duration=4444.8332ms" source=console
+time="2026-02-23T12:48:49-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=22385s duration=24433.2773ms" source=console
+
+running (4m01.0s), 25/30 VUs, 74 complete and 0 interrupted iterations
+default   [  67% ] 25/30 VUs  4m01.0s/6m00.0s
+
+running (4m02.0s), 25/30 VUs, 77 complete and 0 interrupted iterations
+default   [  67% ] 25/30 VUs  4m02.0s/6m00.0s
+
+running (4m03.0s), 25/30 VUs, 78 complete and 0 interrupted iterations
+default   [  67% ] 25/30 VUs  4m03.0s/6m00.0s
+time="2026-02-23T12:48:51-05:00" level=info msg="CHAT OK: VU=24 model=remote-blackwell time=19411s duration=21473.4233ms" source=console
+
+running (4m04.0s), 25/30 VUs, 79 complete and 0 interrupted iterations
+default   [  68% ] 25/30 VUs  4m04.0s/6m00.0s
+time="2026-02-23T12:48:53-05:00" level=info msg="CHAT OK: VU=8 model=remote-blackwell time=19513s duration=21562.1437ms" source=console
+
+running (4m05.0s), 25/30 VUs, 79 complete and 0 interrupted iterations
+default   [  68% ] 25/30 VUs  4m05.0s/6m00.0s
+
+running (4m06.0s), 25/30 VUs, 80 complete and 0 interrupted iterations
+default   [  68% ] 25/30 VUs  4m06.0s/6m00.0s
+time="2026-02-23T12:48:55-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=21034s duration=23180.0018ms" source=console
+
+running (4m07.0s), 26/30 VUs, 81 complete and 0 interrupted iterations
+default   [  69% ] 26/30 VUs  4m07.0s/6m00.0s
+time="2026-02-23T12:48:56-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=19790s duration=22662.8814ms" source=console
+time="2026-02-23T12:48:56-05:00" level=info msg="CHAT OK: VU=23 model=remote-blackwell time=17502s duration=20247.795ms" source=console
+time="2026-02-23T12:48:56-05:00" level=info msg="CHAT OK: VU=22 model=remote-blackwell time=20920s duration=23140.3796ms" source=console
+
+running (4m08.0s), 26/30 VUs, 81 complete and 0 interrupted iterations
+default   [  69% ] 26/30 VUs  4m08.0s/6m00.0s
+
+running (4m09.0s), 26/30 VUs, 82 complete and 0 interrupted iterations
+default   [  69% ] 26/30 VUs  4m09.0s/6m00.0s
+time="2026-02-23T12:48:58-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=22501s duration=24560.8639ms" source=console
+
+running (4m10.0s), 26/30 VUs, 85 complete and 0 interrupted iterations
+default   [  69% ] 26/30 VUs  4m10.0s/6m00.0s
+time="2026-02-23T12:48:59-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=2749s duration=4945.9265ms" source=console
+
+running (4m11.0s), 26/30 VUs, 85 complete and 0 interrupted iterations
+default   [  70% ] 26/30 VUs  4m11.0s/6m00.0s
+
+running (4m12.0s), 26/30 VUs, 86 complete and 0 interrupted iterations
+default   [  70% ] 26/30 VUs  4m12.0s/6m00.0s
+
+running (4m13.0s), 27/30 VUs, 87 complete and 0 interrupted iterations
+default   [  70% ] 27/30 VUs  4m13.0s/6m00.0s
+time="2026-02-23T12:49:02-05:00" level=info msg="CHAT OK: VU=25 model=remote-blackwell time=19869s duration=22706.2603ms" source=console
+
+running (4m14.0s), 27/30 VUs, 87 complete and 0 interrupted iterations
+default   [  71% ] 27/30 VUs  4m14.0s/6m00.0s
+time="2026-02-23T12:49:03-05:00" level=info msg="CHAT OK: VU=28 model=remote-blackwell time=18182s duration=21208.8209ms" source=console
+
+running (4m15.0s), 27/30 VUs, 87 complete and 0 interrupted iterations
+default   [  71% ] 27/30 VUs  4m15.0s/6m00.0s
+
+running (4m16.0s), 27/30 VUs, 88 complete and 0 interrupted iterations
+default   [  71% ] 27/30 VUs  4m16.0s/6m00.0s
+
+running (4m17.0s), 27/30 VUs, 89 complete and 0 interrupted iterations
+default   [  71% ] 27/30 VUs  4m17.0s/6m00.0s
+time="2026-02-23T12:49:05-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=19616s duration=23510.3567ms" source=console
+
+running (4m18.0s), 27/30 VUs, 89 complete and 0 interrupted iterations
+default   [  72% ] 27/30 VUs  4m18.0s/6m00.0s
+time="2026-02-23T12:49:06-05:00" level=info msg="CHAT OK: VU=14 model=remote-blackwell time=18118s duration=21124.98ms" source=console
+time="2026-02-23T12:49:07-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=21044s duration=24836.479ms" source=console
+
+running (4m19.0s), 28/30 VUs, 89 complete and 0 interrupted iterations
+default   [  72% ] 28/30 VUs  4m19.0s/6m00.0s
+
+running (4m20.0s), 28/30 VUs, 90 complete and 0 interrupted iterations
+default   [  72% ] 28/30 VUs  4m20.0s/6m00.0s
+
+running (4m21.0s), 28/30 VUs, 92 complete and 0 interrupted iterations
+default   [  72% ] 28/30 VUs  4m21.0s/6m00.0s
+time="2026-02-23T12:49:10-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=19185s duration=25057.1744ms" source=console
+time="2026-02-23T12:49:10-05:00" level=info msg="CHAT OK: VU=9 model=remote-blackwell time=23185s duration=28813.9029ms" source=console
+
+running (4m22.0s), 28/30 VUs, 92 complete and 0 interrupted iterations
+default   [  73% ] 28/30 VUs  4m22.0s/6m00.0s
+
+running (4m23.0s), 28/30 VUs, 92 complete and 0 interrupted iterations
+default   [  73% ] 28/30 VUs  4m23.0s/6m00.0s
+time="2026-02-23T12:49:12-05:00" level=info msg="CHAT OK: VU=7 model=remote-blackwell time=21898s duration=26199.2942ms" source=console
+
+running (4m24.0s), 28/30 VUs, 94 complete and 0 interrupted iterations
+default   [  73% ] 28/30 VUs  4m24.0s/6m00.0s
+time="2026-02-23T12:49:13-05:00" level=info msg="CHAT OK: VU=27 model=remote-blackwell time=20479s duration=25155.3653ms" source=console
+time="2026-02-23T12:49:13-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=19046s duration=21999.0476ms" source=console
+time="2026-02-23T12:49:13-05:00" level=info msg="CHAT OK: VU=16 model=remote-blackwell time=19270s duration=21930.7759ms" source=console
+
+running (4m25.0s), 29/30 VUs, 94 complete and 0 interrupted iterations
+default   [  74% ] 29/30 VUs  4m25.0s/6m00.0s
+time="2026-02-23T12:49:13-05:00" level=info msg="CHAT OK: VU=4 model=remote-blackwell time=23050s duration=25911.4077ms" source=console
+time="2026-02-23T12:49:13-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=19220s duration=21966.0528ms" source=console
+time="2026-02-23T12:49:14-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=18686s duration=21844.989ms" source=console
+
+running (4m26.0s), 29/30 VUs, 95 complete and 0 interrupted iterations
+default   [  74% ] 29/30 VUs  4m26.0s/6m00.0s
+time="2026-02-23T12:49:15-05:00" level=info msg="CHAT OK: VU=17 model=remote-blackwell time=20430s duration=22493.7915ms" source=console
+
+running (4m27.0s), 29/30 VUs, 98 complete and 0 interrupted iterations
+default   [  74% ] 29/30 VUs  4m27.0s/6m00.0s
+time="2026-02-23T12:49:15-05:00" level=info msg="CHAT OK: VU=30 model=remote-blackwell time=21218s duration=23284.8991ms" source=console
+
+running (4m28.0s), 29/30 VUs, 101 complete and 0 interrupted iterations
+default   [  74% ] 29/30 VUs  4m28.0s/6m00.0s
+
+running (4m29.0s), 29/30 VUs, 102 complete and 0 interrupted iterations
+default   [  75% ] 29/30 VUs  4m29.0s/6m00.0s
+
+running (4m30.0s), 29/30 VUs, 103 complete and 0 interrupted iterations
+default   [  75% ] 29/30 VUs  4m30.0s/6m00.0s
+time="2026-02-23T12:49:19-05:00" level=info msg="CHAT OK: VU=11 model=remote-blackwell time=19286s duration=21775.4319ms" source=console
+
+running (4m31.0s), 30/30 VUs, 103 complete and 0 interrupted iterations
+default   [  75% ] 30/30 VUs  4m31.0s/6m00.0s
+
+running (4m32.0s), 30/30 VUs, 103 complete and 0 interrupted iterations
+default   [  76% ] 30/30 VUs  4m32.0s/6m00.0s
+time="2026-02-23T12:49:20-05:00" level=info msg="CHAT OK: VU=20 model=remote-blackwell time=23238s duration=26177.4019ms" source=console
+time="2026-02-23T12:49:21-05:00" level=info msg="CHAT OK: VU=8 model=remote-blackwell time=20036s duration=23592.9055ms" source=console
+
+running (4m33.0s), 30/30 VUs, 104 complete and 0 interrupted iterations
+default   [  76% ] 30/30 VUs  4m33.0s/6m00.0s
+
+running (4m34.0s), 30/30 VUs, 104 complete and 0 interrupted iterations
+default   [  76% ] 30/30 VUs  4m34.0s/6m00.0s
+
+running (4m35.0s), 30/30 VUs, 106 complete and 0 interrupted iterations
+default   [  76% ] 30/30 VUs  4m35.0s/6m00.0s
+
+running (4m36.0s), 30/30 VUs, 106 complete and 0 interrupted iterations
+default   [  77% ] 30/30 VUs  4m36.0s/6m00.0s
+
+running (4m37.0s), 30/30 VUs, 106 complete and 0 interrupted iterations
+default   [  77% ] 30/30 VUs  4m37.0s/6m00.0s
+
+running (4m38.0s), 30/30 VUs, 106 complete and 0 interrupted iterations
+default   [  77% ] 30/30 VUs  4m38.0s/6m00.0s
+time="2026-02-23T12:49:26-05:00" level=info msg="CHAT OK: VU=24 model=remote-blackwell time=22672s duration=30171.5862ms" source=console
+time="2026-02-23T12:49:27-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=19640s duration=27162.9047ms" source=console
+
+running (4m39.0s), 30/30 VUs, 106 complete and 0 interrupted iterations
+default   [  77% ] 30/30 VUs  4m39.0s/6m00.0s
+
+running (4m40.0s), 30/30 VUs, 106 complete and 0 interrupted iterations
+default   [  78% ] 30/30 VUs  4m40.0s/6m00.0s
+
+running (4m41.0s), 30/30 VUs, 108 complete and 0 interrupted iterations
+default   [  78% ] 30/30 VUs  4m41.0s/6m00.0s
+time="2026-02-23T12:49:29-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=20764s duration=26800.0931ms" source=console
+
+running (4m42.0s), 30/30 VUs, 108 complete and 0 interrupted iterations
+default   [  78% ] 30/30 VUs  4m42.0s/6m00.0s
+
+running (4m43.0s), 30/30 VUs, 108 complete and 0 interrupted iterations
+default   [  79% ] 30/30 VUs  4m43.0s/6m00.0s
+time="2026-02-23T12:49:32-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=23196s duration=31376.808ms" source=console
+
+running (4m44.0s), 30/30 VUs, 109 complete and 0 interrupted iterations
+default   [  79% ] 30/30 VUs  4m44.0s/6m00.0s
+time="2026-02-23T12:49:32-05:00" level=info msg="CHAT OK: VU=22 model=remote-blackwell time=23658s duration=31753.7536ms" source=console
+time="2026-02-23T12:49:33-05:00" level=info msg="CHAT OK: VU=23 model=remote-blackwell time=23949s duration=31891.0064ms" source=console
+time="2026-02-23T12:49:33-05:00" level=info msg="CHAT OK: VU=26 model=remote-blackwell time=21933s duration=29961.0638ms" source=console
+
+running (4m45.0s), 30/30 VUs, 109 complete and 0 interrupted iterations
+default   [  79% ] 30/30 VUs  4m45.0s/6m00.0s
+time="2026-02-23T12:49:34-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=23609s duration=29946.3595ms" source=console
+
+running (4m46.0s), 30/30 VUs, 110 complete and 0 interrupted iterations
+default   [  79% ] 30/30 VUs  4m46.0s/6m00.0s
+time="2026-02-23T12:49:34-05:00" level=info msg="CHAT OK: VU=15 model=remote-blackwell time=20821s duration=25561.0103ms" source=console
+time="2026-02-23T12:49:35-05:00" level=info msg="CHAT OK: VU=25 model=remote-blackwell time=23999s duration=28296.4787ms" source=console
+time="2026-02-23T12:49:35-05:00" level=info msg="CHAT OK: VU=28 model=remote-blackwell time=23459s duration=27624.9839ms" source=console
+
+running (4m47.0s), 30/30 VUs, 113 complete and 0 interrupted iterations
+default   [  80% ] 30/30 VUs  4m47.0s/6m00.0s
+time="2026-02-23T12:49:36-05:00" level=info msg="CHAT OK: VU=14 model=remote-blackwell time=21540s duration=24729.906ms" source=console
+
+running (4m48.0s), 30/30 VUs, 114 complete and 0 interrupted iterations
+default   [  80% ] 30/30 VUs  4m48.0s/6m00.0s
+time="2026-02-23T12:49:36-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=21172s duration=24758.9606ms" source=console
+time="2026-02-23T12:49:37-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=20029s duration=22388.2186ms" source=console
+
+running (4m49.0s), 30/30 VUs, 117 complete and 0 interrupted iterations
+default   [  80% ] 30/30 VUs  4m49.0s/6m00.0s
+time="2026-02-23T12:49:37-05:00" level=info msg="CHAT OK: VU=19 model=remote-blackwell time=19975s duration=22433.4819ms" source=console
+time="2026-02-23T12:49:38-05:00" level=info msg="CHAT OK: VU=9 model=remote-blackwell time=21116s duration=23246.0411ms" source=console
+time="2026-02-23T12:49:38-05:00" level=info msg="CHAT OK: VU=7 model=remote-blackwell time=19351s duration=21444.4265ms" source=console
+
+running (4m50.0s), 30/30 VUs, 118 complete and 0 interrupted iterations
+default   [  81% ] 30/30 VUs  4m50.0s/6m00.0s
+time="2026-02-23T12:49:38-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=26080s duration=28136.7937ms" source=console
+
+running (4m51.0s), 30/30 VUs, 120 complete and 0 interrupted iterations
+default   [  81% ] 30/30 VUs  4m51.0s/6m00.0s
+
+running (4m52.0s), 30/30 VUs, 123 complete and 0 interrupted iterations
+default   [  81% ] 30/30 VUs  4m52.0s/6m00.0s
+
+running (4m53.0s), 30/30 VUs, 124 complete and 0 interrupted iterations
+default   [  81% ] 30/30 VUs  4m53.0s/6m00.0s
+time="2026-02-23T12:49:42-05:00" level=info msg="CHAT OK: VU=4 model=remote-blackwell time=21084s duration=23532.5185ms" source=console
+
+running (4m54.0s), 30/30 VUs, 124 complete and 0 interrupted iterations
+default   [  82% ] 30/30 VUs  4m54.0s/6m00.0s
+time="2026-02-23T12:49:42-05:00" level=info msg="CHAT OK: VU=16 model=remote-blackwell time=21701s duration=24603.7962ms" source=console
+
+running (4m55.0s), 30/30 VUs, 124 complete and 0 interrupted iterations
+default   [  82% ] 30/30 VUs  4m55.0s/6m00.0s
+time="2026-02-23T12:49:43-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=22582s duration=25830.5653ms" source=console
+time="2026-02-23T12:49:44-05:00" level=info msg="CHAT OK: VU=27 model=remote-blackwell time=22698s duration=26715.4628ms" source=console
+
+running (4m56.0s), 30/30 VUs, 125 complete and 0 interrupted iterations
+default   [  82% ] 30/30 VUs  4m56.0s/6m00.0s
+
+running (4m57.0s), 30/30 VUs, 126 complete and 0 interrupted iterations
+default   [  82% ] 30/30 VUs  4m57.0s/6m00.0s
+
+running (4m58.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  83% ] 30/30 VUs  4m58.0s/6m00.0s
+
+running (4m59.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  83% ] 30/30 VUs  4m59.0s/6m00.0s
+
+running (5m00.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  83% ] 30/30 VUs  5m00.0s/6m00.0s
+
+running (5m01.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  84% ] 30/30 VUs  5m01.0s/6m00.0s
+
+running (5m02.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  84% ] 30/30 VUs  5m02.0s/6m00.0s
+
+running (5m03.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  84% ] 30/30 VUs  5m03.0s/6m00.0s
+
+running (5m04.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  84% ] 30/30 VUs  5m04.0s/6m00.0s
+time="2026-02-23T12:49:52-05:00" level=info msg="CHAT OK: VU=11 model=remote-blackwell time=21246s duration=28966.8927ms" source=console
+
+running (5m05.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  85% ] 30/30 VUs  5m05.0s/6m00.0s
+time="2026-02-23T12:49:53-05:00" level=info msg="CHAT OK: VU=29 model=remote-blackwell time=24008s duration=32129.2325ms" source=console
+time="2026-02-23T12:49:53-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=27894s duration=35347.7721ms" source=console
+time="2026-02-23T12:49:54-05:00" level=info msg="CHAT OK: VU=17 model=remote-blackwell time=26976s duration=34662.6654ms" source=console
+
+running (5m06.0s), 30/30 VUs, 128 complete and 0 interrupted iterations
+default   [  85% ] 30/30 VUs  5m06.0s/6m00.0s
+time="2026-02-23T12:49:55-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=27828s duration=36128.3774ms" source=console
+
+running (5m07.0s), 30/30 VUs, 129 complete and 0 interrupted iterations
+default   [  85% ] 30/30 VUs  5m07.0s/6m00.0s
+
+running (5m08.0s), 30/30 VUs, 132 complete and 0 interrupted iterations
+default   [  86% ] 30/30 VUs  5m08.0s/6m00.0s
+time="2026-02-23T12:49:56-05:00" level=info msg="CHAT OK: VU=30 model=remote-blackwell time=28552s duration=36062.7205ms" source=console
+time="2026-02-23T12:49:57-05:00" level=info msg="CHAT OK: VU=20 model=remote-blackwell time=25422s duration=32064.9812ms" source=console
+
+running (5m09.0s), 30/30 VUs, 133 complete and 0 interrupted iterations
+default   [  86% ] 30/30 VUs  5m09.0s/6m00.0s
+time="2026-02-23T12:49:57-05:00" level=info msg="CHAT OK: VU=8 model=remote-blackwell time=25772s duration=31629.8739ms" source=console
+time="2026-02-23T12:49:58-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=21619s duration=26389.1242ms" source=console
+
+running (5m10.0s), 30/30 VUs, 133 complete and 0 interrupted iterations
+default   [  86% ] 30/30 VUs  5m10.0s/6m00.0s
+time="2026-02-23T12:49:58-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=20109s duration=24135.467ms" source=console
+time="2026-02-23T12:49:59-05:00" level=info msg="CHAT OK: VU=22 model=remote-blackwell time=17805s duration=21555.8209ms" source=console
+time="2026-02-23T12:49:59-05:00" level=info msg="CHAT OK: VU=24 model=remote-blackwell time=24091s duration=27634.3475ms" source=console
+time="2026-02-23T12:49:59-05:00" level=info msg="CHAT OK: VU=26 model=remote-blackwell time=19143s duration=21475.0656ms" source=console
+
+running (5m11.0s), 30/30 VUs, 135 complete and 0 interrupted iterations
+default   [  86% ] 30/30 VUs  5m11.0s/6m00.0s
+time="2026-02-23T12:49:59-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=18376s duration=20947.3856ms" source=console
+time="2026-02-23T12:50:00-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=20979s duration=23107.6602ms" source=console
+
+running (5m12.0s), 30/30 VUs, 137 complete and 0 interrupted iterations
+default   [  87% ] 30/30 VUs  5m12.0s/6m00.0s
+time="2026-02-23T12:50:00-05:00" level=info msg="CHAT OK: VU=25 model=remote-blackwell time=18787s duration=20856.2156ms" source=console
+time="2026-02-23T12:50:01-05:00" level=info msg="CHAT OK: VU=15 model=remote-blackwell time=19815s duration=21910.8069ms" source=console
+time="2026-02-23T12:50:01-05:00" level=info msg="CHAT OK: VU=23 model=remote-blackwell time=21473s duration=23823.8803ms" source=console
+
+running (5m13.0s), 30/30 VUs, 141 complete and 0 interrupted iterations
+default   [  87% ] 30/30 VUs  5m13.0s/6m00.0s
+
+running (5m14.0s), 30/30 VUs, 143 complete and 0 interrupted iterations
+default   [  87% ] 30/30 VUs  5m14.0s/6m00.0s
+time="2026-02-23T12:50:02-05:00" level=info msg="CHAT OK: VU=28 model=remote-blackwell time=20540s duration=22587.8664ms" source=console
+
+running (5m15.0s), 30/30 VUs, 146 complete and 0 interrupted iterations
+default   [  87% ] 30/30 VUs  5m15.0s/6m00.0s
+
+running (5m16.0s), 30/30 VUs, 146 complete and 0 interrupted iterations
+default   [  88% ] 30/30 VUs  5m16.0s/6m00.0s
+
+running (5m17.0s), 30/30 VUs, 147 complete and 0 interrupted iterations
+default   [  88% ] 30/30 VUs  5m17.0s/6m00.0s
+time="2026-02-23T12:50:06-05:00" level=info msg="CHAT OK: VU=19 model=remote-blackwell time=21078s duration=23947.4307ms" source=console
+
+running (5m18.0s), 30/30 VUs, 147 complete and 0 interrupted iterations
+default   [  88% ] 30/30 VUs  5m18.0s/6m00.0s
+time="2026-02-23T12:50:07-05:00" level=info msg="CHAT OK: VU=14 model=remote-blackwell time=22982s duration=26458.5732ms" source=console
+
+running (5m19.0s), 30/30 VUs, 147 complete and 0 interrupted iterations
+default   [  89% ] 30/30 VUs  5m19.0s/6m00.0s
+
+running (5m20.0s), 30/30 VUs, 148 complete and 0 interrupted iterations
+default   [  89% ] 30/30 VUs  5m20.0s/6m00.0s
+
+running (5m21.0s), 30/30 VUs, 149 complete and 0 interrupted iterations
+default   [  89% ] 30/30 VUs  5m21.0s/6m00.0s
+
+running (5m22.0s), 30/30 VUs, 149 complete and 0 interrupted iterations
+default   [  89% ] 30/30 VUs  5m22.0s/6m00.0s
+time="2026-02-23T12:50:11-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=23572s duration=29834.5314ms" source=console
+
+running (5m23.0s), 30/30 VUs, 149 complete and 0 interrupted iterations
+default   [  90% ] 30/30 VUs  5m23.0s/6m00.0s
+
+running (5m24.0s), 30/30 VUs, 149 complete and 0 interrupted iterations
+default   [  90% ] 30/30 VUs  5m24.0s/6m00.0s
+
+running (5m25.0s), 30/30 VUs, 150 complete and 0 interrupted iterations
+default   [  90% ] 30/30 VUs  5m25.0s/6m00.0s
+time="2026-02-23T12:50:14-05:00" level=info msg="CHAT OK: VU=9 model=remote-blackwell time=22480s duration=31186.7942ms" source=console
+
+running (5m26.0s), 30/30 VUs, 150 complete and 0 interrupted iterations
+default   [  91% ] 30/30 VUs  5m26.0s/6m00.0s
+
+running (5m27.0s), 30/30 VUs, 150 complete and 0 interrupted iterations
+default   [  91% ] 30/30 VUs  5m27.0s/6m00.0s
+time="2026-02-23T12:50:16-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=24971s duration=33913.6249ms" source=console
+
+running (5m28.0s), 30/30 VUs, 151 complete and 0 interrupted iterations
+default   [  91% ] 30/30 VUs  5m28.0s/6m00.0s
+time="2026-02-23T12:50:17-05:00" level=info msg="CHAT OK: VU=7 model=remote-blackwell time=24520s duration=33806.9686ms" source=console
+
+running (5m29.0s), 30/30 VUs, 151 complete and 0 interrupted iterations
+default   [  91% ] 30/30 VUs  5m29.0s/6m00.0s
+time="2026-02-23T12:50:17-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=26209s duration=34531.0146ms" source=console
+
+running (5m30.0s), 30/30 VUs, 152 complete and 0 interrupted iterations
+default   [  92% ] 30/30 VUs  5m30.0s/6m00.0s
+
+running (5m31.0s), 30/30 VUs, 153 complete and 0 interrupted iterations
+default   [  92% ] 30/30 VUs  5m31.0s/6m00.0s
+
+running (5m32.0s), 30/30 VUs, 154 complete and 0 interrupted iterations
+default   [  92% ] 30/30 VUs  5m32.0s/6m00.0s
+time="2026-02-23T12:50:20-05:00" level=info msg="CHAT OK: VU=4 model=remote-blackwell time=25372s duration=33791.5133ms" source=console
+time="2026-02-23T12:50:20-05:00" level=info msg="CHAT OK: VU=16 model=remote-blackwell time=26210s duration=33392.0856ms" source=console
+time="2026-02-23T12:50:21-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=25660s duration=32836.3646ms" source=console
+time="2026-02-23T12:50:21-05:00" level=info msg="CHAT OK: VU=27 model=remote-blackwell time=25868s duration=32248.6808ms" source=console
+
+running (5m33.0s), 30/30 VUs, 154 complete and 0 interrupted iterations
+default   [  92% ] 30/30 VUs  5m33.0s/6m00.0s
+time="2026-02-23T12:50:21-05:00" level=info msg="CHAT OK: VU=11 model=remote-blackwell time=20717s duration=24248.3453ms" source=console
+time="2026-02-23T12:50:22-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=19522s duration=23215.2834ms" source=console
+
+running (5m34.0s), 30/30 VUs, 154 complete and 0 interrupted iterations
+default   [  93% ] 30/30 VUs  5m34.0s/6m00.0s
+time="2026-02-23T12:50:22-05:00" level=info msg="CHAT OK: VU=30 model=remote-blackwell time=17445s duration=21314.2174ms" source=console
+time="2026-02-23T12:50:23-05:00" level=info msg="CHAT OK: VU=29 model=remote-blackwell time=20619s duration=25011.7608ms" source=console
+
+running (5m35.0s), 30/30 VUs, 158 complete and 0 interrupted iterations
+default   [  93% ] 30/30 VUs  5m35.0s/6m00.0s
+time="2026-02-23T12:50:24-05:00" level=info msg="CHAT OK: VU=17 model=remote-blackwell time=22434s duration=25107.512ms" source=console
+time="2026-02-23T12:50:24-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=19161s duration=21594.6871ms" source=console
+
+running (5m36.0s), 29/30 VUs, 160 complete and 0 interrupted iterations
+default   [  93% ] 29/30 VUs  5m36.0s/6m00.0s
+time="2026-02-23T12:50:25-05:00" level=info msg="CHAT OK: VU=8 model=remote-blackwell time=19923s duration=22533.0059ms" source=console
+
+running (5m37.0s), 28/30 VUs, 162 complete and 0 interrupted iterations
+default   [  94% ] 28/30 VUs  5m37.0s/6m00.0s
+time="2026-02-23T12:50:26-05:00" level=info msg="CHAT OK: VU=20 model=remote-blackwell time=22131s duration=24263.7157ms" source=console
+
+running (5m38.0s), 28/30 VUs, 164 complete and 0 interrupted iterations
+default   [  94% ] 28/30 VUs  5m38.0s/6m00.0s
+time="2026-02-23T12:50:26-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=24691s duration=26961.317ms" source=console
+time="2026-02-23T12:50:27-05:00" level=info msg="CHAT OK: VU=22 model=remote-blackwell time=21017s duration=23356.5678ms" source=console
+
+running (5m39.0s), 28/30 VUs, 165 complete and 0 interrupted iterations
+default   [  94% ] 28/30 VUs  5m39.0s/6m00.0s
+time="2026-02-23T12:50:27-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=21559s duration=24363.7264ms" source=console
+time="2026-02-23T12:50:27-05:00" level=info msg="CHAT OK: VU=24 model=remote-blackwell time=21837s duration=23999.4259ms" source=console
+
+running (5m40.0s), 28/30 VUs, 166 complete and 0 interrupted iterations
+default   [  94% ] 28/30 VUs  5m40.0s/6m00.0s
+
+running (5m41.0s), 27/30 VUs, 168 complete and 0 interrupted iterations
+default   [  95% ] 27/30 VUs  5m41.0s/6m00.0s
+time="2026-02-23T12:50:29-05:00" level=info msg="CHAT OK: VU=26 model=remote-blackwell time=23690s duration=25759.1577ms" source=console
+
+running (5m42.0s), 27/30 VUs, 170 complete and 0 interrupted iterations
+default   [  95% ] 27/30 VUs  5m42.0s/6m00.0s
+time="2026-02-23T12:50:31-05:00" level=info msg="CHAT OK: VU=25 model=remote-blackwell time=23542s duration=25926.4411ms" source=console
+
+running (5m43.0s), 27/30 VUs, 170 complete and 0 interrupted iterations
+default   [  95% ] 27/30 VUs  5m43.0s/6m00.0s
+time="2026-02-23T12:50:31-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=24662s duration=27315.9411ms" source=console
+time="2026-02-23T12:50:32-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=25155s duration=27798.4698ms" source=console
+
+running (5m44.0s), 26/30 VUs, 171 complete and 0 interrupted iterations
+default   [  96% ] 26/30 VUs  5m44.0s/6m00.0s
+
+running (5m45.0s), 25/30 VUs, 172 complete and 0 interrupted iterations
+default   [  96% ] 25/30 VUs  5m45.0s/6m00.0s
+
+running (5m46.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  96% ] 25/30 VUs  5m46.0s/6m00.0s
+
+running (5m47.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  96% ] 25/30 VUs  5m47.0s/6m00.0s
+
+running (5m48.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  97% ] 25/30 VUs  5m48.0s/6m00.0s
+
+running (5m49.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  97% ] 25/30 VUs  5m49.0s/6m00.0s
+
+running (5m50.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  97% ] 25/30 VUs  5m50.0s/6m00.0s
+
+running (5m51.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  97% ] 25/30 VUs  5m51.0s/6m00.0s
+time="2026-02-23T12:50:39-05:00" level=info msg="CHAT OK: VU=15 model=remote-blackwell time=29061s duration=33815.6805ms" source=console
+
+running (5m52.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  98% ] 25/30 VUs  5m52.0s/6m00.0s
+time="2026-02-23T12:50:40-05:00" level=info msg="CHAT OK: VU=28 model=remote-blackwell time=27986s duration=33246.0044ms" source=console
+time="2026-02-23T12:50:41-05:00" level=info msg="CHAT OK: VU=14 model=remote-blackwell time=25725s duration=29342.039ms" source=console
+
+running (5m53.0s), 25/30 VUs, 174 complete and 0 interrupted iterations
+default   [  98% ] 25/30 VUs  5m53.0s/6m00.0s
+time="2026-02-23T12:50:42-05:00" level=info msg="CHAT OK: VU=23 model=remote-blackwell time=31738s duration=35995.3957ms" source=console
+
+running (5m54.0s), 24/30 VUs, 175 complete and 0 interrupted iterations
+default   [  98% ] 24/30 VUs  5m54.0s/6m00.0s
+time="2026-02-23T12:50:42-05:00" level=info msg="CHAT OK: VU=19 model=remote-blackwell time=27381s duration=31651.4385ms" source=console
+time="2026-02-23T12:50:42-05:00" level=info msg="CHAT OK: VU=9 model=remote-blackwell time=20326s duration=24028.4389ms" source=console
+
+running (5m55.0s), 22/30 VUs, 177 complete and 0 interrupted iterations
+default   [  99% ] 22/30 VUs  5m55.0s/6m00.0s
+time="2026-02-23T12:50:43-05:00" level=info msg="CHAT OK: VU=6 model=remote-blackwell time=24492s duration=27315.9625ms" source=console
+
+running (5m56.0s), 21/30 VUs, 178 complete and 0 interrupted iterations
+default   [  99% ] 21/30 VUs  5m56.0s/6m00.0s
+time="2026-02-23T12:50:45-05:00" level=info msg="CHAT OK: VU=7 model=remote-blackwell time=21288s duration=23371.6851ms" source=console
+time="2026-02-23T12:50:45-05:00" level=info msg="CHAT OK: VU=18 model=remote-blackwell time=22198s duration=24285.0969ms" source=console
+
+running (5m57.0s), 19/30 VUs, 180 complete and 0 interrupted iterations
+default   [  99% ] 19/30 VUs  5m57.0s/6m00.0s
+time="2026-02-23T12:50:46-05:00" level=info msg="CHAT OK: VU=4 model=remote-blackwell time=18968s duration=21050.7487ms" source=console
+time="2026-02-23T12:50:46-05:00" level=info msg="CHAT OK: VU=10 model=remote-blackwell time=21894s duration=23927.8099ms" source=console
+
+running (5m58.0s), 18/30 VUs, 181 complete and 0 interrupted iterations
+default   [  99% ] 18/30 VUs  5m58.0s/6m00.0s
+time="2026-02-23T12:50:47-05:00" level=info msg="CHAT OK: VU=30 model=remote-blackwell time=17816s duration=19894.9079ms" source=console
+
+running (5m59.0s), 16/30 VUs, 183 complete and 0 interrupted iterations
+default   [ 100% ] 16/30 VUs  5m59.0s/6m00.0s
+time="2026-02-23T12:50:47-05:00" level=info msg="CHAT OK: VU=13 model=remote-blackwell time=19931s duration=22022.5266ms" source=console
+
+running (6m00.0s), 14/30 VUs, 185 complete and 0 interrupted iterations
+default   [ 100% ] 14/30 VUs  6m00.0s/6m00.0s
+time="2026-02-23T12:50:48-05:00" level=info msg="CHAT OK: VU=27 model=remote-blackwell time=20805s duration=22830.6113ms" source=console
+
+running (6m01.0s), 13/30 VUs, 186 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:50-05:00" level=info msg="CHAT OK: VU=1 model=remote-blackwell time=21509s duration=23544.9224ms" source=console
+
+running (6m02.0s), 12/30 VUs, 187 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:50-05:00" level=info msg="CHAT OK: VU=16 model=remote-blackwell time=23274s duration=25269.3303ms" source=console
+
+running (6m03.0s), 11/30 VUs, 188 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:52-05:00" level=info msg="CHAT OK: VU=8 model=remote-blackwell time=20621s duration=22638.8814ms" source=console
+
+running (6m04.0s), 10/30 VUs, 189 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:52-05:00" level=info msg="CHAT OK: VU=5 model=remote-blackwell time=21438s duration=23533.7077ms" source=console
+time="2026-02-23T12:50:53-05:00" level=info msg="CHAT OK: VU=17 model=remote-blackwell time=22304s duration=24271.6539ms" source=console
+
+running (6m05.0s), 09/30 VUs, 190 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+
+running (6m06.0s), 08/30 VUs, 191 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:54-05:00" level=info msg="CHAT OK: VU=20 model=remote-blackwell time=21532s duration=23518.4398ms" source=console
+
+running (6m07.0s), 06/30 VUs, 193 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+
+running (6m08.0s), 06/30 VUs, 193 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+
+running (6m09.0s), 05/30 VUs, 194 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:57-05:00" level=info msg="CHAT OK: VU=3 model=remote-blackwell time=24233s duration=26182.5455ms" source=console
+time="2026-02-23T12:50:58-05:00" level=info msg="CHAT OK: VU=2 model=remote-blackwell time=23717s duration=25695.0985ms" source=console
+
+running (6m10.0s), 05/30 VUs, 194 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:58-05:00" level=info msg="CHAT OK: VU=24 model=remote-blackwell time=24140s duration=26083.1817ms" source=console
+
+running (6m11.0s), 05/30 VUs, 194 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:50:59-05:00" level=info msg="CHAT OK: VU=12 model=remote-blackwell time=20517s duration=22493.363ms" source=console
+time="2026-02-23T12:51:00-05:00" level=info msg="CHAT OK: VU=21 model=remote-blackwell time=21559s duration=23482.9627ms" source=console
+
+running (6m12.0s), 03/30 VUs, 196 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+
+running (6m13.0s), 02/30 VUs, 197 complete and 0 interrupted iterations
+default ↓ [ 100% ] 14/30 VUs  6m0s
+time="2026-02-23T12:51:02-05:00" level=info msg="\n============================================================" source=console
+time="2026-02-23T12:51:02-05:00" level=info msg="  LearnBOT Load Test Results" source=console
+time="2026-02-23T12:51:02-05:00" level=info msg="============================================================" source=console
+time="2026-02-23T12:51:02-05:00" level=info msg="  Login:         avg=35ms  p95=55ms" source=console
+time="2026-02-23T12:51:02-05:00" level=info msg="  Chat (total):  avg=23425ms  p95=33432ms  max=36128ms" source=console
+time="2026-02-23T12:51:02-05:00" level=info msg="  Chat (TTFB):   avg=23423ms  p95=33430ms  max=36128ms" source=console
+time="2026-02-23T12:51:02-05:00" level=info msg="  Error Rate:    0.0%" source=console
+time="2026-02-23T12:51:02-05:00" level=info msg="============================================================" source=console
+      █ 1. Login
+
+[32m        ✓ login status 200[0m
+[32m        ✓ login has sessionId[0m
+
+      █ 2. List Classes
+
+[32m        ✓ classes status 200[0m
+
+      █ 3. List Conversations
+
+[32m        ✓ conversations status 200[0m
+
+      █ 4. Create Conversation
+
+[32m        ✓ create conversation status 200[0m
+
+      █ 5. Send Chat Message (ai-response)
+
+[32m        ✓ chat status 200[0m
+[32m        ✓ chat has response[0m
+
+      █ 6. Cleanup
+
+    [32m✓[0m chat_first_byte[2m................:[0m avg=[36m23.42s[0m   min=[36m3.89s[0m   med=[36m22.82s[0m  max=[36m36.12s[0m   p(90)=[36m31.42s[0m   p(95)=[36m33.43s[0m  
+      chat_send_duration[2m.............:[0m avg=[36m23.42s[0m   min=[36m3.9s[0m    med=[36m22.83s[0m  max=[36m36.12s[0m   p(90)=[36m31.42s[0m   p(95)=[36m33.43s[0m  
+      checks[2m.........................:[0m [36m100.00%[0m [36;2m✓ 1393[0m     [36;2m✗ 0[0m   
+      classes_load_duration[2m..........:[0m avg=[36m29ms[0m     min=[36m13.14ms[0m med=[36m22.02ms[0m max=[36m287.52ms[0m p(90)=[36m39.79ms[0m  p(95)=[36m55.14ms[0m 
+      convos_load_duration[2m...........:[0m avg=[36m97.51ms[0m  min=[36m54.4ms[0m  med=[36m80.58ms[0m max=[36m436.7ms[0m  p(90)=[36m144.35ms[0m p(95)=[36m185.12ms[0m
+      data_received[2m..................:[0m [36m19 MB[0m   [36;2m51 kB/s[0m
+      data_sent[2m......................:[0m [36m300 kB[0m  [36;2m804 B/s[0m
+    [32m✓[0m errors[2m.........................:[0m [36m0.00%[0m   [36;2m✓ 0[0m        [36;2m✗ 995[0m 
+      group_duration[2m.................:[0m avg=[36m3.94s[0m    min=[36m13.62ms[0m med=[36m34.35ms[0m max=[36m36.12s[0m   p(90)=[36m21.95s[0m   p(95)=[36m24.77s[0m  
+      http_req_blocked[2m...............:[0m avg=[36m2.69ms[0m   min=[36m0s[0m      med=[36m0s[0m      max=[36m563.78ms[0m p(90)=[36m0s[0m       p(95)=[36m0s[0m      
+      http_req_connecting[2m............:[0m avg=[36m531.08µs[0m min=[36m0s[0m      med=[36m0s[0m      max=[36m37.01ms[0m  p(90)=[36m0s[0m       p(95)=[36m0s[0m      
+      http_req_duration[2m..............:[0m avg=[36m3.94s[0m    min=[36m13.14ms[0m med=[36m32.68ms[0m max=[36m36.12s[0m   p(90)=[36m21.95s[0m   p(95)=[36m24.77s[0m  
+        { expected_response:true }[2m...:[0m avg=[36m3.94s[0m    min=[36m13.14ms[0m med=[36m32.68ms[0m max=[36m36.12s[0m   p(90)=[36m21.95s[0m   p(95)=[36m24.77s[0m  
+      http_req_failed[2m................:[0m [36m0.00%[0m   [36;2m✓ 0[0m        [36;2m✗ 1194[0m
+      http_req_receiving[2m.............:[0m avg=[36m11.92ms[0m  min=[36m0s[0m      med=[36m513.7µs[0m max=[36m253.97ms[0m p(90)=[36m48.2ms[0m   p(95)=[36m71.33ms[0m 
+      http_req_sending[2m...............:[0m avg=[36m188.36µs[0m min=[36m0s[0m      med=[36m0s[0m      max=[36m2.96ms[0m   p(90)=[36m524.27µs[0m p(95)=[36m561.87µs[0m
+      http_req_tls_handshaking[2m.......:[0m avg=[36m2.07ms[0m   min=[36m0s[0m      med=[36m0s[0m      max=[36m436.97ms[0m p(90)=[36m0s[0m       p(95)=[36m0s[0m      
+      http_req_waiting[2m...............:[0m avg=[36m3.93s[0m    min=[36m12.52ms[0m med=[36m26.5ms[0m  max=[36m36.12s[0m   p(90)=[36m21.95s[0m   p(95)=[36m24.77s[0m  
+      http_reqs[2m......................:[0m [36m1194[0m    [36;2m3.196876/s[0m
+      iteration_duration[2m.............:[0m avg=[36m28.17s[0m   min=[36m8.56s[0m   med=[36m27.53s[0m  max=[36m40.83s[0m   p(90)=[36m36.09s[0m   p(95)=[36m38.1s[0m   
+      iterations[2m.....................:[0m [36m199[0m     [36;2m0.532813/s[0m
+    [32m✓[0m login_duration[2m.................:[0m avg=[36m35.18ms[0m  min=[36m18.59ms[0m med=[36m28.12ms[0m max=[36m288.6ms[0m  p(90)=[36m46.02ms[0m  p(95)=[36m54.76ms[0m 
+      vus[2m............................:[0m [36m2[0m       [36;2mmin=1[0m      [36;2mmax=30[0m
+      vus_max[2m........................:[0m [36m30[0m      [36;2mmin=30[0m     [36;2mmax=30[0m
+running (6m13.5s), 00/30 VUs, 199 complete and 0 interrupted iterations
+default ✓ [ 100% ] 00/30 VUs  6m0s
