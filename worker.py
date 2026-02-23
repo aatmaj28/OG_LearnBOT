@@ -33,8 +33,7 @@ load_dotenv()
 
 import pika
 
-from services import redis_service
-from services.db_service import DatabaseService
+from services import redis_service, db_service
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -53,7 +52,6 @@ TASK_TIMEOUT = int(os.getenv("WORKER_TASK_TIMEOUT", "120"))  # 2 minutes
 # ---------------------------------------------------------------------------
 
 _rag_module = None
-_db_service = None
 _shutdown = False
 
 
@@ -74,14 +72,6 @@ def load_rag_module():
     spec.loader.exec_module(_rag_module)
     print(f"[WORKER] RAG module loaded from {rag_path}", flush=True)
     return _rag_module
-
-
-def get_db_service() -> DatabaseService:
-    """Get the database service singleton."""
-    global _db_service
-    if _db_service is None:
-        _db_service = DatabaseService()
-    return _db_service
 
 
 # ---------------------------------------------------------------------------
@@ -135,8 +125,7 @@ def process_chat_task(task_id: str, request_data: dict) -> None:
         
         # Save to database
         try:
-            db = get_db_service()
-            conversation = db.get_rag_conversation_by_id(session_id)
+            conversation = db_service.get_rag_conversation_by_id(session_id)
             if conversation:
                 updated_history = conversation.get("messageHistory", [])
                 from datetime import datetime
@@ -157,7 +146,7 @@ def process_chat_task(task_id: str, request_data: dict) -> None:
                         "timestamp": datetime.now().isoformat(),
                     })
                 
-                db.update_rag_conversation(session_id, {
+                db_service.update_rag_conversation(session_id, {
                     "messageHistory": updated_history,
                     "checkpointState": result.get("checkpoint_state",
                                                    conversation.get("checkpointState", {})),
