@@ -57,14 +57,14 @@ module.exports = {
       cwd: process.cwd(),
       interpreter: 'venv/bin/python',
       script: 'worker.py',
-      instances: 10,
+      instances: 5,
       exec_mode: 'fork',
 
       namespace: process.env.NAMESPACE || 'uat',
       env_file: '.env',
 
       env: {
-        WORKER_MAX_CONCURRENT: '5',
+        WORKER_MAX_CONCURRENT: '10',
         WORKER_TASK_TIMEOUT: '120',
       },
 
@@ -81,7 +81,7 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: '512M',
-      restart_delay: 5000,
+      restart_delay: 15000,
       min_uptime: '10s',
       max_restarts: 10,
       kill_timeout: 30000,    // 30s to finish active tasks before SIGKILL
