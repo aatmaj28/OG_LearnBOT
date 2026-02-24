@@ -1,0 +1,6 @@
+{
+    "name": "learnbot-backend",
+    "version": "1.0.0",
+    "description": "LearnBOT Backend Services",
+    "private": true
+}
