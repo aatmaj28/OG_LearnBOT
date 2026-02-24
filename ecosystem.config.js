@@ -29,8 +29,9 @@ module.exports = {
 
       // Overrides when you start with: `--env production`
       env_production: {
-        PORT: process.env.PORT || 8030, // PROD port (default 8030, can be overridden)
+        PORT: process.env.PORT || 8030,
         NAMESPACE: 'prod',
+        DB_CONNECTION_HEADROOM: '40', // (100 - 40) / 2 = 30 Gunicorn workers
       },
 
       // logs relative to each folder so prod/uat don't collide
@@ -66,6 +67,7 @@ module.exports = {
       env: {
         WORKER_MAX_CONCURRENT: '10',
         WORKER_TASK_TIMEOUT: '120',
+        DB_POOL_MAX: '5', // 5 processes x 5 pool size = 25 connections
       },
 
       // Overrides when you start with: `--env production`
