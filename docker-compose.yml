@@ -14,3 +14,24 @@ services:
       QDRANT__LOG_LEVEL: INFO
     # No healthcheck: qdrant/qdrant image does not include curl (see GitHub #4250)
     restart: unless-stopped
+
+  # RabbitMQ Message Broker (dedicated to LearnBot)
+  # Port 5673 to avoid conflict with EssayBot's RabbitMQ on 5672
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: learnbot-rabbitmq
+    ports:
+      - "0.0.0.0:5673:5672"    # AMQP (host 5673 to avoid conflict with EssayBot on 5672)
+      - "0.0.0.0:15673:15672"  # Management UI
+    volumes:
+      - ./rabbitmq-data:/var/lib/rabbitmq  # Persist data so user/queues survive rebuilds
+    environment:
+      RABBITMQ_DEFAULT_USER: learnbot
+      RABBITMQ_DEFAULT_PASS: learnbot123
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped

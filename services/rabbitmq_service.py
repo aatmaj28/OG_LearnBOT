@@ -17,7 +17,7 @@ import pika
 # Configuration
 # ---------------------------------------------------------------------------
 _NAMESPACE = os.getenv("NAMESPACE", "uat")
-_RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://learnbot:learnbot123@localhost:5672")
+_RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://learnbot:learnbot123@localhost:5673")
 _EXCHANGE = os.getenv("RABBITMQ_EXCHANGE", f"learnbot.{_NAMESPACE}.chat")
 _QUEUE = os.getenv("RABBITMQ_QUEUE", f"learnbot.{_NAMESPACE}.chat.queue")
 _ROUTING_KEY = f"learnbot.{_NAMESPACE}.chat.request"
