@@ -82,7 +82,7 @@ module.exports = {
       time: true,
       autorestart: true,
       watch: false,
-      max_memory_restart: '512M',
+      max_memory_restart: '2G',
       restart_delay: 15000,
       min_uptime: '10s',
       max_restarts: 10,
