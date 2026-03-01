@@ -41,7 +41,7 @@ from services import redis_service, db_service
 # ---------------------------------------------------------------------------
 
 NAMESPACE = os.getenv("NAMESPACE", "uat")
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://learnbot:learnbot123@localhost:5672")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://learnbot:learnbot123@localhost:5673")
 EXCHANGE_NAME = os.getenv("RABBITMQ_EXCHANGE", f"learnbot.{NAMESPACE}.chat")
 QUEUE_NAME = os.getenv("RABBITMQ_QUEUE", f"learnbot.{NAMESPACE}.chat.queue")
 ROUTING_KEY = f"learnbot.{NAMESPACE}.chat.request"
