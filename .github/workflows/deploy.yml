@@ -194,8 +194,8 @@ jobs:
           sudo -u deploy git reset --hard "origin/$DEPLOY_BRANCH"
           echo "✅ Reset to latest code from branch: $DEPLOY_BRANCH (commit: $(sudo -u deploy git rev-parse --short HEAD))"
 
-      # ======= START QDRANT (Docker Compose) =======
-      - name: Start Qdrant (Docker Compose)
+      # ======= START DOCKER SERVICES (Qdrant + RabbitMQ) =======
+      - name: Start Docker services (Qdrant + RabbitMQ)
         run: |
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
           cd "$REPO_DIR"
@@ -206,13 +206,7 @@ jobs:
           sudo chmod 755 "$REPO_DIR/vector-stores/qdrant"
 
           if [ ! -f docker-compose.yml ]; then
-            echo "⚠️ docker-compose.yml not found - skipping Qdrant startup"
-            exit 0
-          fi
-
-          # LearnBot Qdrant uses host ports 6335 (REST) / 6336 (gRPC) to avoid conflict with EssayBot on 6333/6334
-          if curl -sf http://localhost:6335/health >/dev/null 2>&1; then
-            echo "✅ LearnBot Qdrant already running on port 6335 - skipping start"
+            echo "⚠️ docker-compose.yml not found - skipping Docker services"
             exit 0
           fi
 
@@ -220,24 +214,42 @@ jobs:
           COMPOSE_CMD="docker compose"
           command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 || COMPOSE_CMD="docker-compose"
 
-          echo "🐳 Ensuring LearnBot Qdrant container is running (ports 6335/6336)..."
-          sudo $COMPOSE_CMD down qdrant 2>/dev/null || true
-          sudo docker stop learnbot-qdrant 2>/dev/null || true
-          sudo docker rm -f learnbot-qdrant 2>/dev/null || true
-          sleep 2
-          if ! sudo $COMPOSE_CMD up -d qdrant 2>&1; then
-            if curl -sf http://localhost:6335/health >/dev/null 2>&1; then
-              echo "✅ LearnBot Qdrant already healthy on 6335"
-            else
-              echo "⚠️ LearnBot Qdrant could not start. Deploy continues; ensure Qdrant is running on ports 6335/6336 if needed."
-            fi
-            exit 0
-          fi
-          sleep 5
-          if curl -f http://localhost:6335/health >/dev/null 2>&1; then
-            echo "✅ LearnBot Qdrant is healthy on port 6335"
+          # --- Qdrant ---
+          # LearnBot Qdrant uses host ports 6335 (REST) / 6336 (gRPC) to avoid conflict with EssayBot on 6333/6334
+          if curl -sf http://localhost:6335/health >/dev/null 2>&1; then
+            echo "✅ LearnBot Qdrant already running on port 6335"
           else
-            echo "⚠️ Qdrant health check failed (container may still be starting)"
+            echo "🐳 Starting LearnBot Qdrant container (ports 6335/6336)..."
+            sudo docker stop learnbot-qdrant 2>/dev/null || true
+            sudo docker rm -f learnbot-qdrant 2>/dev/null || true
+            sleep 2
+            if sudo $COMPOSE_CMD up -d qdrant 2>&1; then
+              sleep 5
+              if curl -f http://localhost:6335/health >/dev/null 2>&1; then
+                echo "✅ Qdrant is healthy on port 6335"
+              else
+                echo "⚠️ Qdrant health check failed (container may still be starting)"
+              fi
+            else
+              echo "⚠️ LearnBot Qdrant could not start. Deploy continues."
+            fi
+          fi
+
+          # --- RabbitMQ ---
+          # LearnBot RabbitMQ uses host port 5673 (AMQP) / 15673 (management) to avoid conflict with EssayBot on 5672/15672
+          if curl -sf http://localhost:15673/api/health/checks/alarms -u learnbot:learnbot123 >/dev/null 2>&1; then
+            echo "✅ LearnBot RabbitMQ already running on port 5673"
+          else
+            echo "🐰 Starting LearnBot RabbitMQ container (port 5673)..."
+            sudo $COMPOSE_CMD up -d rabbitmq 2>&1 || true
+            echo "⏳ Waiting for RabbitMQ to be ready..."
+            sleep 15
+            if curl -sf http://localhost:15673/api/health/checks/alarms -u learnbot:learnbot123 >/dev/null 2>&1; then
+              echo "✅ RabbitMQ is healthy on port 5673"
+            else
+              echo "⚠️ RabbitMQ health check failed (container may still be starting)"
+              echo "   Check logs with: docker logs learnbot-rabbitmq"
+            fi
           fi
 
       # ======= CREATE ENV FILE =======
