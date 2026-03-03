@@ -31,7 +31,6 @@ module.exports = {
       env_production: {
         PORT: process.env.PORT || 8030,
         NAMESPACE: 'prod',
-        DB_CONNECTION_HEADROOM: '40', // (100 - 40) / 2 = 30 Gunicorn workers
       },
 
       // logs relative to each folder so prod/uat don't collide
@@ -42,7 +41,7 @@ module.exports = {
       time: true,
       autorestart: true,
       watch: false,
-      max_memory_restart: '2G',
+      max_memory_restart: '4G',  // RAG pipeline loads in Flask now (~1.4 GB × 2 Gunicorn gthread procs)
       restart_delay: 4000,
       min_uptime: '10s',
       max_restarts: 10,
@@ -50,8 +49,8 @@ module.exports = {
       listen_timeout: 10000,
     },
 
-    // ── LearnBOT Chat Workers (RabbitMQ consumers) ──────────────
-    // 10 workers × 5 threads/worker = 50 concurrent LLM requests
+    // ── LearnBOT Chat Workers (thin HTTP dispatchers) ──────────────
+    // 5 workers × 10 threads = 50 concurrent HTTP dispatches to Flask
     {
       name:
         process.env.NAMESPACE === 'prod' ? 'learnbot-worker' : 'learnbot-worker-uat',
@@ -67,7 +66,7 @@ module.exports = {
       env: {
         WORKER_MAX_CONCURRENT: '10',
         WORKER_TASK_TIMEOUT: '120',
-        DB_POOL_MAX: '5', // 5 processes x 5 pool size = 25 connections
+        FLASK_INTERNAL_URL: `http://localhost:${process.env.NAMESPACE === 'prod' ? '8030' : '8031'}`,
       },
 
       // Overrides when you start with: `--env production`
@@ -82,7 +81,7 @@ module.exports = {
       time: true,
       autorestart: true,
       watch: false,
-      max_memory_restart: '2G',
+      max_memory_restart: '500M',  // Thin HTTP dispatcher, no ML models loaded (~36 MB)
       restart_delay: 15000,
       min_uptime: '10s',
       max_restarts: 10,
