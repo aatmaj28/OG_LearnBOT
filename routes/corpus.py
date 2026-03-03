@@ -6,10 +6,13 @@ from flask import Blueprint, request, jsonify
 from services import db_service
 import os
 import pathlib
-import subprocess
 import json
+import threading
 
 bp = Blueprint("corpus", __name__)
+
+# Limit concurrent indexing to 3 to keep at least 2 Gunicorn workers free for chat
+_indexing_semaphore = threading.Semaphore(3)
 
 def get_vector_store_path_by_folder(folder_name: str) -> str:
     """Gets vector store path by folder name"""
@@ -70,7 +73,23 @@ def upload():
 
 @bp.route("/index", methods=["POST"])
 def index():
-    """Index corpus endpoint - migrated from app/api/corpus/index/route.ts"""
+    """Index corpus endpoint - calls indexing service in-process (no subprocess).
+    
+    Uses Flask's pre-loaded embedding model for instant indexing (no 5-10s PyTorch startup).
+    A semaphore limits concurrent indexing to 3 to keep at least 2 Gunicorn workers free for chat.
+    """
+    # Try to acquire the semaphore (non-blocking check first for immediate feedback)
+    acquired = _indexing_semaphore.acquire(timeout=0)
+    if not acquired:
+        # All 3 indexing slots are busy — wait with a timeout
+        print("[CORPUS] INDEX: 3 concurrent indexing jobs running, waiting for a slot...", flush=True)
+        acquired = _indexing_semaphore.acquire(timeout=600)  # Wait up to 10 min
+        if not acquired:
+            return jsonify({
+                "error": "Server is busy with other indexing requests. Please try again in a few minutes.",
+                "success": False
+            }), 503
+
     try:
         print("[CORPUS] INDEX request received (Start indexing clicked)", flush=True)
         data = request.get_json()
@@ -98,7 +117,6 @@ def index():
         
         backend_root = pathlib.Path(__file__).resolve().parent.parent
         store_path = get_vector_store_path_by_folder(vector_store_folder)
-        # Use absolute paths so the indexing script finds files on server
         pdf_dir = (backend_root / store_path / "source_pdfs").resolve()
         pdf_dir.mkdir(parents=True, exist_ok=True)
         output_path_abs = (backend_root / store_path).resolve()
@@ -107,118 +125,76 @@ def index():
         if not pdf_dir.exists():
             return jsonify({"error": "No PDFs directory found. Upload PDFs first."}), 400
         
-        # Get all PDF files (absolute paths)
         pdf_files = [str(f) for f in pdf_dir.glob("*.pdf")]
         print(f"[CORPUS] INDEX pdf_dir.exists=True pdf_files ({len(pdf_files)}): {pdf_files}", flush=True)
         
         if not pdf_files:
             return jsonify({"error": "No PDF files found to index"}), 400
         
-        # Use indexing script in backend lib/ (deployed with repo)
-        indexing_service_path = backend_root / 'lib' / 'llamaindex-indexing-service.py'
-        if not indexing_service_path.exists():
-            return jsonify({
-                "error": "Indexing service not found (lib/llamaindex-indexing-service.py). Deploy may be incomplete."
-            }), 500
-
-        # Determine Python executable (venv relative to backend root)
-        venv_python = backend_root / 'venv' / ('Scripts' if os.name == 'nt' else 'bin') / 'python'
-        python_exec = str(venv_python) if venv_python.exists() else (os.getenv('PYTHON_PATH', 'python'))
-        print(f"[CORPUS] INDEX python_exec={python_exec} indexing_service_path={indexing_service_path} exists={indexing_service_path.exists()}", flush=True)
-
-        args = [
-            str(indexing_service_path),
-            str(output_path_abs),
-            'true' if is_syllabus else 'false',
-            class_id,
-            cls.get('name', ''),
-            *pdf_files
-        ]
-        print(f"[CORPUS] INDEX subprocess args (first 5 + N pdfs): output_path={args[1]} is_syllabus={args[2]} class_id={args[3]} class_name={args[4]} pdf_count={len(pdf_files)}", flush=True)
-
-        # Pass QDRANT_URL (and QDRANT_API_KEY) so the indexing script uses the same Qdrant as Flask (subprocess may not inherit env under Gunicorn)
-        subprocess_env = os.environ.copy()
-        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6337").strip() or "http://localhost:6337"
-        subprocess_env["QDRANT_URL"] = qdrant_url
-        if os.getenv("QDRANT_API_KEY"):
-            subprocess_env["QDRANT_API_KEY"] = os.getenv("QDRANT_API_KEY")
-        print(f"[CORPUS] INDEX env: QDRANT_URL={qdrant_url} (passed to subprocess) cwd={backend_root}", flush=True)
-        print("[CORPUS] INDEX starting subprocess (indexing script)...", flush=True)
-
-        # Run with cwd=backend root so store_path (e.g. vector_stores/...) and script path resolve
-        result = subprocess.run(
-            [python_exec] + args,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 minute timeout
-            cwd=str(backend_root),
-            env=subprocess_env
-        )
+        # Call indexing service directly (in-process, no subprocess)
+        # The embedding model is either already loaded by the RAG service or will be
+        # lazily initialized by the indexing service on first use.
+        import time as _time
+        start_time = _time.time()
+        print(f"[CORPUS] INDEX calling index_pdfs() in-process (no subprocess)...", flush=True)
         
-        print(f"[CORPUS] INDEX subprocess finished: returncode={result.returncode} stdout_len={len(result.stdout or '')} stderr_len={len(result.stderr or '')}", flush=True)
-        if result.stdout:
-            last_stdout_line = (result.stdout.strip().split('\n') or [''])[-1]
-            print(f"[CORPUS] INDEX stdout last line (result JSON): {last_stdout_line[:200]}..." if len(last_stdout_line) > 200 else f"[CORPUS] INDEX stdout last line: {last_stdout_line}", flush=True)
-        
-        if result.returncode != 0:
-            # Log full stderr to server log so PM2/logs show traceback and [LlamaIndex] Qdrant UnexpectedResponse
-            print(f"[CORPUS] INDEX script failed (returncode={result.returncode}). Full stderr:", flush=True)
-            print(result.stderr or "(empty)", flush=True)
-            return jsonify({
-                "error": f"Indexing failed: {result.stderr}",
-                "success": False
-            }), 500
-        
-        # Parse result from last line of stdout
         try:
-            last_line = result.stdout.strip().split('\n')[-1]
-            index_result = json.loads(last_line)
-
-            # Script can return success: false (e.g. no text extracted from PDFs)
-            if index_result.get('success') is False:
-                err = index_result.get('error', 'Indexing failed')
-                print(f"[CORPUS] INDEX script reported success=false: error={err}", flush=True)
-                # Log full stderr so we see [LlamaIndex] Qdrant UnexpectedResponse and traceback
-                print(f"[CORPUS] script stderr (full): {result.stderr or '(none)'}", flush=True)
-                return jsonify({"error": err, "success": False}), 500
-
-            chunks_per_file = index_result.get('chunks_per_file') or {}
-            print(f"[CORPUS] INDEX script success: chunks={index_result.get('chunks')} pdfs={index_result.get('pdfs')} newChunks={index_result.get('newChunks')} chunks_per_file={chunks_per_file}", flush=True)
-            total_chunks = index_result.get('chunks', 0)
-            if total_chunks == 0 and result.stderr:
-                print(f"[CORPUS] INDEX returned 0 chunks. script stderr (last 1500 chars): {result.stderr[-1500:]}", flush=True)
-
-            # Mark every attempted PDF as indexed (so chunk_count and is_indexed get set even when script returns empty chunks_per_file)
-            print("[CORPUS] INDEX marking corpus files as indexed in DB...", flush=True)
-            for pdf_path in pdf_files:
-                safe_name = pathlib.Path(pdf_path).name
-                chunk_count = chunks_per_file.get(safe_name)
-                if chunk_count is None:
-                    # Key might be full path in script output
-                    chunk_count = chunks_per_file.get(pdf_path, 0)
-                if not isinstance(chunk_count, int):
-                    chunk_count = int(chunk_count) if chunk_count is not None else 0
-                db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
-                print(f"[CORPUS] INDEX marked: {safe_name} -> chunk_count={chunk_count}", flush=True)
-            print("[CORPUS] INDEX completed successfully.", flush=True)
+            from lib import indexing_service
+            index_result = indexing_service.index_pdfs(
+                pdf_paths=pdf_files,
+                output_path=str(output_path_abs),
+                is_syllabus=is_syllabus,
+                class_id=class_id,
+                class_name=cls.get('name', '')
+            )
+        except Exception as idx_err:
+            elapsed = _time.time() - start_time
+            print(f"[CORPUS] INDEX index_pdfs() raised exception after {elapsed:.1f}s: {idx_err}", flush=True)
+            import traceback
+            traceback.print_exc()
             return jsonify({
-                "success": True,
-                "chunks": index_result.get('chunks', 0),
-                "pdfs": index_result.get('pdfs', len(pdf_files)),
-                "newChunks": index_result.get('newChunks', 0)
-            })
-        except json.JSONDecodeError:
-            return jsonify({
-                "error": "Failed to parse indexing result",
+                "error": f"Indexing failed: {idx_err}",
                 "success": False
             }), 500
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "Indexing timed out"}), 500
+        
+        elapsed = _time.time() - start_time
+        print(f"[CORPUS] INDEX index_pdfs() completed in {elapsed:.1f}s: success={index_result.get('success')}", flush=True)
+        
+        # Handle failure from indexing service
+        if index_result.get('success') is False:
+            err = index_result.get('error', 'Indexing failed')
+            print(f"[CORPUS] INDEX index_pdfs() reported success=false: error={err}", flush=True)
+            return jsonify({"error": err, "success": False}), 500
+        
+        chunks_per_file = index_result.get('chunks_per_file') or {}
+        print(f"[CORPUS] INDEX success: chunks={index_result.get('chunks')} pdfs={index_result.get('pdfs')} newChunks={index_result.get('new_chunks')} chunks_per_file={chunks_per_file}", flush=True)
+        
+        # Mark every attempted PDF as indexed in the database
+        print("[CORPUS] INDEX marking corpus files as indexed in DB...", flush=True)
+        for pdf_path in pdf_files:
+            safe_name = pathlib.Path(pdf_path).name
+            chunk_count = chunks_per_file.get(safe_name)
+            if chunk_count is None:
+                chunk_count = chunks_per_file.get(pdf_path, 0)
+            if not isinstance(chunk_count, int):
+                chunk_count = int(chunk_count) if chunk_count is not None else 0
+            db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
+            print(f"[CORPUS] INDEX marked: {safe_name} -> chunk_count={chunk_count}", flush=True)
+        
+        print(f"[CORPUS] INDEX completed successfully in {elapsed:.1f}s.", flush=True)
+        return jsonify({
+            "success": True,
+            "chunks": index_result.get('chunks', 0),
+            "pdfs": index_result.get('pdfs', len(pdf_files)),
+            "newChunks": index_result.get('new_chunks', 0)
+        })
     except Exception as error:
         print(f"[CORPUS] INDEX ERROR: {error}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Internal server error"}), 500
+    finally:
+        _indexing_semaphore.release()
 
 @bp.route("/files", methods=["GET", "DELETE"])
 def files():

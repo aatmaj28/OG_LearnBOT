@@ -2,11 +2,10 @@
 Database connection and initialization
 Python equivalent of lib/db.ts
 
-Pool size: DB_POOL_MAX (default 25) per process. With Gunicorn gthread workers,
-multiple threads share a single process and need concurrent DB access —
-ThreadedConnectionPool is required (SimpleConnectionPool is NOT thread-safe).
-Total DB connections from Flask = Gunicorn workers × DB_POOL_MAX.
-Must stay under Postgres max_connections; gunicorn_config.py caps workers accordingly.
+Pool size: DB_POOL_MAX (default 10) per process. With Gunicorn gthread workers
+(5 procs × 10 threads), multiple threads share a single process and need
+concurrent DB access — ThreadedConnectionPool is required.
+Total DB connections from Flask = 5 × 10 = 50 (under PostgreSQL max_connections).
 """
 import os
 import psycopg2
@@ -21,7 +20,7 @@ def init_pool():
     global connection_pool
     if connection_pool is None:
         try:
-            pool_max = int(os.getenv("DB_POOL_MAX", "25"))
+            pool_max = int(os.getenv("DB_POOL_MAX", "10"))
             # ThreadedConnectionPool is thread-safe (required for Gunicorn gthread workers)
             connection_pool = psycopg2.pool.ThreadedConnectionPool(
                 1,  # min connections

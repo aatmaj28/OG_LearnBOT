@@ -794,12 +794,14 @@ def initialize_indexing_resources():
         # Don't exit - allow lazy initialization on first use
 
 
-# Initialize resources immediately when the script is imported/executed
-# This ensures the model and Qdrant connection are ready before processing any indexing requests
-initialize_indexing_resources()
-
+# Only auto-initialize when run as a standalone script (not when imported by Flask).
+# When imported, the caller should call get_or_init_embed_model() / get_or_init_qdrant_client()
+# explicitly, or they'll be lazily initialized on first use.
 
 if __name__ == "__main__":
+    # Initialize resources immediately when run as a script
+    initialize_indexing_resources()
+
     # Command-line interface
     if len(sys.argv) < 6:
         print("Usage: python llamaindex-indexing-service.py <output_path> <is_syllabus> <class_id> <class_name> <pdf1> [pdf2] ...", file=sys.stderr)
@@ -820,3 +822,4 @@ if __name__ == "__main__":
    
     result = index_pdfs(pdf_paths, output_path, is_syllabus, class_id, class_name)
     print(json.dumps(result))
+
