@@ -276,8 +276,12 @@ export const classesApi = {
   },
 
   downloadAssignment: async (classId: string, assignmentId: string) => {
-    return fetch(`${FLASK_API_URL}/api/classes/assignments/download?classId=${classId}&assignmentId=${assignmentId}`)
-      .then(res => res.blob())
+    const response = await fetch(`${FLASK_API_URL}/api/classes/assignments/download?classId=${classId}&assignmentId=${assignmentId}`)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: `Failed to download assignment: ${response.statusText}` }))
+      throw new Error(errorData.error || `Failed to download assignment: ${response.statusText}`)
+    }
+    return response.blob()
   },
 
   getResources: async (classId: string, userId: string) => {
