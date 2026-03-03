@@ -25,6 +25,7 @@ interface BulkUploadResult {
   success: string[]
   alreadyEnrolled: string[]
   notRegistered: string[]
+  invalidDomain: string[]
 }
 
 interface ClassManagementTabProps {
@@ -192,7 +193,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
     try {
       const { usersApi, classesApi } = await import("@/lib/flask-api-client")
-      
+
       // Check if student already exists by email
       let user
       try {
@@ -216,7 +217,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         })
         return
       }
-      
+
       // Check if student is already in this class
       if (selectedClass.studentIds.includes(user.id)) {
         toast.warning('Student already enrolled', {
@@ -227,7 +228,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       // Add the existing student to the class
       await classesApi.addStudent(selectedClass.id, user.id)
-      
+
       // Reset form and close dialog
       setNewStudent({
         name: "",
@@ -248,7 +249,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
           await loadClassStudents()
         }
       }
-      
+
       // Show success message
       toast.success('Student added successfully!')
     } catch (error) {
@@ -270,24 +271,29 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     try {
       const text = await file.text()
       const lines = text.split('\n').map(line => line.trim()).filter(line => line)
-      
+
       // Parse CSV - expect "email" header or just list of emails
       const emails: string[] = []
+      const invalidDomainEmails: string[] = []
       let hasHeader = false
-      
+
       lines.forEach((line, index) => {
         // Check if first line is a header
         if (index === 0 && (line.toLowerCase().includes('email') || line.toLowerCase().includes('e-mail'))) {
           hasHeader = true
           return
         }
-        
+
         // Extract email from line (handle comma-separated or just email)
         const parts = line.split(',').map(p => p.trim())
         const email = parts.find(p => p.includes('@'))
-        
-        if (email && email.includes('@northeastern.edu')) {
-          emails.push(email.toLowerCase())
+
+        if (email) {
+          if (email.includes('@northeastern.edu')) {
+            emails.push(email.toLowerCase())
+          } else {
+            invalidDomainEmails.push(email.toLowerCase())
+          }
         }
       })
 
@@ -305,11 +311,12 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       const result: BulkUploadResult = {
         success: [],
         alreadyEnrolled: [],
-        notRegistered: []
+        notRegistered: [],
+        invalidDomain: [...new Set(invalidDomainEmails)]
       }
 
       const { usersApi, classesApi } = await import("@/lib/flask-api-client")
-      
+
       // Process each email
       for (const email of uniqueEmails) {
         try {
@@ -390,12 +397,12 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     try {
       const { classesApi } = await import("@/lib/flask-api-client")
       await classesApi.removeStudent(selectedClass.id, studentToRemove.id)
-      
+
       // Immediately update the local state to remove the student from UI
-      setClassStudents(prevStudents => 
+      setClassStudents(prevStudents =>
         prevStudents.filter(student => student.id !== studentToRemove.id)
       )
-      
+
       // Update the selected class to reflect the new student count
       setSelectedClass(prevClass => {
         if (!prevClass) return prevClass
@@ -404,18 +411,18 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
           studentIds: prevClass.studentIds.filter(id => id !== studentToRemove.id)
         }
       })
-      
+
       // Refresh the classes list in the background
       await loadClasses()
-      
+
       // Store student name and class name before resetting
       const studentName = studentToRemove.name
       const className = selectedClass.name
-      
+
       // Close dialog and reset
       setShowRemoveStudentDialog(false)
       setStudentToRemove(null)
-      
+
       toast.success('Student removed successfully', {
         description: `${studentName} has been removed from ${className}.`
       })
@@ -467,7 +474,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
     // Filter only PDF files
     const pdfFiles = Array.from(files).filter(file => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))
-    
+
     if (pdfFiles.length === 0) {
       toast.error("Please select PDF files only")
       if (resourcesFileInputRef.current) {
@@ -506,12 +513,12 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       const { classesApi } = await import("@/lib/flask-api-client")
       const result = await classesApi.uploadResources(selectedClass.id, [fileToUpload], userId)
-      
+
       if (result.success) {
         // Mark this file as uploaded
         setUploadedFileIndices(prev => new Set([...prev, currentPreviewIndex]))
         toast.success(`Successfully uploaded ${fileToUpload.name}`)
-        
+
         // Move to next file or close dialog if all uploaded
         if (currentPreviewIndex < selectedFiles.length - 1) {
           // Find next unuploaded file
@@ -526,7 +533,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
           // Last file uploaded
           handleClosePreviewDialog()
         }
-        
+
         await loadResources()
       } else {
         toast.error(`Failed to upload ${fileToUpload.name}`)
@@ -591,15 +598,15 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
   const openResourcePreview = async (index: number) => {
     if (!selectedClass || !resources[index]) return
-    
+
     const userId = localStorage.getItem("userId")
     if (!userId) return
-    
+
     setPreviewResourceIndex(index)
     setShowResourcePreviewDialog(true)
     setPreviewResourceBlobUrl(null) // Clear previous blob URL
     setPreviewResourceError(null) // Clear previous error
-    
+
     // Fetch the file as a blob and create an object URL for preview
     try {
       const { classesApi } = await import("@/lib/flask-api-client")
@@ -617,10 +624,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
   const downloadResource = async (fileName: string) => {
     if (!selectedClass || isDownloadingResource) return
-    
+
     const userId = localStorage.getItem("userId")
     if (!userId) return
-    
+
     setIsDownloadingResource(true)
     try {
       const { classesApi } = await import("@/lib/flask-api-client")
@@ -646,7 +653,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     if (!selectedClass) return
     const userId = localStorage.getItem("userId")
     if (!userId) return
-    
+
     try {
       const { classesApi } = await import("@/lib/flask-api-client")
       const data = await classesApi.getAssignments(selectedClass.id, userId)
@@ -686,7 +693,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       const { classesApi } = await import("@/lib/flask-api-client")
       const result = await classesApi.createAssignment(formData)
-      
+
       if (result.success) {
         toast.success("Assignment added successfully")
         setShowAddAssignmentDialog(false)
@@ -741,54 +748,54 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       setIsSendingReminders(false)
     }, 1500)
 
-    // Fire off the request in the background (don't wait for it)
-    ;(async () => {
-      try {
-        // Get faculty name
-        const facultyId = localStorage.getItem("userId")
-        let facultyName = ""
-        
-        if (facultyId) {
-          const { usersApi } = await import("@/lib/flask-api-client")
-          try {
-            const facultyData = await usersApi.getUsers(undefined, facultyId)
-            facultyName = facultyData.user?.name || ""
-          } catch {
-            // Ignore errors
-          }
-        }
+      // Fire off the request in the background (don't wait for it)
+      ; (async () => {
+        try {
+          // Get faculty name
+          const facultyId = localStorage.getItem("userId")
+          let facultyName = ""
 
-        // Fire and forget - don't await, let it process in background
-        const { classesApi } = await import("@/lib/flask-api-client")
-        classesApi.sendReminder(
-          bulkUploadResult.notRegistered,
-          selectedClass.name,
-          facultyName
-        ).then((data) => {
-          if (data?.results?.success?.length > 0) {
-            toast.success(`Reminder emails sent successfully!`, {
-              description: `Sent to ${data.results.success.length} student(s).`
-            })
+          if (facultyId) {
+            const { usersApi } = await import("@/lib/flask-api-client")
+            try {
+              const facultyData = await usersApi.getUsers(undefined, facultyId)
+              facultyName = facultyData.user?.name || ""
+            } catch {
+              // Ignore errors
+            }
           }
-          
-          if (data?.results?.failed?.length > 0) {
-            toast.warning(`Some emails failed to send`, {
-              description: `Failed to send to ${data.results.failed.length} student(s).`
+
+          // Fire and forget - don't await, let it process in background
+          const { classesApi } = await import("@/lib/flask-api-client")
+          classesApi.sendReminder(
+            bulkUploadResult.notRegistered,
+            selectedClass.name,
+            facultyName
+          ).then((data) => {
+            if (data?.results?.success?.length > 0) {
+              toast.success(`Reminder emails sent successfully!`, {
+                description: `Sent to ${data.results.success.length} student(s).`
+              })
+            }
+
+            if (data?.results?.failed?.length > 0) {
+              toast.warning(`Some emails failed to send`, {
+                description: `Failed to send to ${data.results.failed.length} student(s).`
+              })
+            }
+          }).catch((error) => {
+            console.error("[v0] Failed to send reminder emails:", error)
+            toast.error('Failed to send reminder emails', {
+              description: 'An unexpected error occurred. Please try again.'
             })
-          }
-        }).catch((error) => {
+          })
+        } catch (error) {
           console.error("[v0] Failed to send reminder emails:", error)
           toast.error('Failed to send reminder emails', {
             description: 'An unexpected error occurred. Please try again.'
           })
-        })
-      } catch (error) {
-        console.error("[v0] Failed to send reminder emails:", error)
-        toast.error('Failed to send reminder emails', {
-          description: 'An unexpected error occurred. Please try again.'
-        })
-      }
-    })()
+        }
+      })()
 
     // Show immediate feedback that emails are being sent in background
     toast.info('Sending reminder emails...', {
@@ -854,9 +861,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
               classes.map((classItem) => (
                 <Card
                   key={classItem.id}
-                  className={`p-3 cursor-pointer hover:bg-accent transition-colors ${
-                    selectedClass?.id === classItem.id ? "bg-accent" : ""
-                  }`}
+                  className={`p-3 cursor-pointer hover:bg-accent transition-colors ${selectedClass?.id === classItem.id ? "bg-accent" : ""
+                    }`}
                   onClick={() => setSelectedClass(classItem)}
                 >
                   <p className="font-medium text-sm">{classItem.name}</p>
@@ -980,321 +986,340 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
               </div>
             </div>
 
-                {/* Remove Student Confirmation Dialog */}
-                <Dialog open={showRemoveStudentDialog} onOpenChange={setShowRemoveStudentDialog}>
-                  <DialogContent className="max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>Remove Student from Class</DialogTitle>
-                      <DialogDescription>
-                        Are you sure you want to remove {studentToRemove?.name} from {selectedClass?.name}?
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="py-4">
-                      <p className="text-sm text-muted-foreground">
-                        This action will remove the student from this class. They will no longer have access to class materials or chat sessions.
-                      </p>
-                    </div>
-                    <div className="flex justify-end space-x-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setShowRemoveStudentDialog(false)
-                          setStudentToRemove(null)
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={removeStudentFromClass}
-                      >
-                        Remove Student
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+            {/* Remove Student Confirmation Dialog */}
+            <Dialog open={showRemoveStudentDialog} onOpenChange={setShowRemoveStudentDialog}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Remove Student from Class</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to remove {studentToRemove?.name} from {selectedClass?.name}?
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                  <p className="text-sm text-muted-foreground">
+                    This action will remove the student from this class. They will no longer have access to class materials or chat sessions.
+                  </p>
+                </div>
+                <div className="flex justify-end space-x-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowRemoveStudentDialog(false)
+                      setStudentToRemove(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={removeStudentFromClass}
+                  >
+                    Remove Student
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
 
             {/* Content based on selected view */}
             {activeView === "students" && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Students</CardTitle>
-                    <CardDescription>{selectedClass.studentIds.length} students enrolled</CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Dialog open={showAddStudentDialog} onOpenChange={setShowAddStudentDialog}>
-                      <DialogTrigger asChild>
-                        <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50">
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          Add Student
-                        </Button>
-                      </DialogTrigger>
-                    <DialogContent className="max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Add Student to Class</DialogTitle>
-                        <DialogDescription>
-                          Enter the registered student's email address. The student must have already registered an account.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="student-email">Student's Northeastern Email *</Label>
-                          <Input
-                            id="student-email"
-                            type="email"
-                            placeholder="student@northeastern.edu"
-                            value={newStudent.email}
-                            onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
-                            className={newStudent.email && !newStudent.email.endsWith('@northeastern.edu') ? 'border-red-500' : ''}
-                            autoFocus
-                          />
-                          {newStudent.email && !newStudent.email.endsWith('@northeastern.edu') && (
-                            <p className="text-sm text-red-500">Email must end with @northeastern.edu</p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            Note: Student must register first before they can be added to a class.
-                          </p>
-                        </div>
-                        <div className="flex justify-end space-x-2 pt-4">
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              setShowAddStudentDialog(false)
-                              setNewStudent({
-                                name: "",
-                                email: "",
-                                nuid: "",
-                                degree: "",
-                                major: "",
-                              })
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                          <Button onClick={createAndAddStudent} disabled={!newStudent.email || !newStudent.email.endsWith('@northeastern.edu')}>
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Students</CardTitle>
+                      <CardDescription>{selectedClass.studentIds.length} students enrolled</CardDescription>
+                    </div>
+                    <div className="flex gap-2">
+                      <Dialog open={showAddStudentDialog} onOpenChange={setShowAddStudentDialog}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50">
+                            <UserPlus className="h-4 w-4 mr-2" />
                             Add Student
                           </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-md">
+                          <DialogHeader>
+                            <DialogTitle>Add Student to Class</DialogTitle>
+                            <DialogDescription>
+                              Enter the registered student's email address. The student must have already registered an account.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="student-email">Student's Northeastern Email *</Label>
+                              <Input
+                                id="student-email"
+                                type="email"
+                                placeholder="student@northeastern.edu"
+                                value={newStudent.email}
+                                onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
+                                className={newStudent.email && !newStudent.email.endsWith('@northeastern.edu') ? 'border-red-500' : ''}
+                                autoFocus
+                              />
+                              {newStudent.email && !newStudent.email.endsWith('@northeastern.edu') && (
+                                <p className="text-sm text-red-500">Email must end with @northeastern.edu</p>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                Note: Student must register first before they can be added to a class.
+                              </p>
+                            </div>
+                            <div className="flex justify-end space-x-2 pt-4">
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  setShowAddStudentDialog(false)
+                                  setNewStudent({
+                                    name: "",
+                                    email: "",
+                                    nuid: "",
+                                    degree: "",
+                                    major: "",
+                                  })
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button onClick={createAndAddStudent} disabled={!newStudent.email || !newStudent.email.endsWith('@northeastern.edu')}>
+                                Add Student
+                              </Button>
+                            </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
 
-                    {/* Bulk Upload Dialog */}
-                    <Dialog open={showBulkUploadDialog} onOpenChange={(open) => {
-                      setShowBulkUploadDialog(open)
-                      if (!open) {
-                        setBulkUploadResult(null)
-                        setIsProcessingBulk(false)
-                      }
-                    }}>
-                      <DialogTrigger asChild>
-                        <Button size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
-                          <Upload className="h-4 w-4 mr-2" />
-                          Bulk Upload (CSV)
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-2xl">
-                        <DialogHeader>
-                          <DialogTitle>Bulk Upload Students from CSV</DialogTitle>
-                          <DialogDescription>
-                            Upload a CSV file containing student email addresses. Only registered students will be added.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          {!bulkUploadResult ? (
-                            <>
-                              <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                                <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                                <Label htmlFor="csv-upload" className="cursor-pointer">
-                                  <div className="space-y-2">
-                                    <p className="text-sm font-medium">Click to upload CSV file</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      File should contain one email per line or a column with "email" header
-                                    </p>
-                                  </div>
-                                  <Input
-                                    id="csv-upload"
-                                    type="file"
-                                    accept=".csv,.txt"
-                                    onChange={handleCSVUpload}
-                                    className="hidden"
-                                    disabled={isProcessingBulk}
-                                  />
-                                </Label>
-                                {isProcessingBulk && (
-                                  <div className="mt-4">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                                    <p className="text-sm text-muted-foreground mt-2">Processing...</p>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="bg-muted p-4 rounded-lg space-y-2">
-                                <p className="text-sm font-medium">CSV Format Example:</p>
-                                <pre className="text-xs bg-background p-2 rounded border">
-{`email
+                      {/* Bulk Upload Dialog */}
+                      <Dialog open={showBulkUploadDialog} onOpenChange={(open) => {
+                        setShowBulkUploadDialog(open)
+                        if (!open) {
+                          setBulkUploadResult(null)
+                          setIsProcessingBulk(false)
+                        }
+                      }}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
+                            <Upload className="h-4 w-4 mr-2" />
+                            Bulk Upload (CSV)
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle>Bulk Upload Students from CSV</DialogTitle>
+                            <DialogDescription>
+                              Upload a CSV file containing student email addresses. Only registered students will be added.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            {!bulkUploadResult ? (
+                              <>
+                                <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                                  <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                                  <Label htmlFor="csv-upload" className="cursor-pointer">
+                                    <div className="space-y-2">
+                                      <p className="text-sm font-medium">Click to upload CSV file</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        File should contain one email per line or a column with "email" header
+                                      </p>
+                                    </div>
+                                    <Input
+                                      id="csv-upload"
+                                      type="file"
+                                      accept=".csv,.txt"
+                                      onChange={handleCSVUpload}
+                                      className="hidden"
+                                      disabled={isProcessingBulk}
+                                    />
+                                  </Label>
+                                  {isProcessingBulk && (
+                                    <div className="mt-4">
+                                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                                      <p className="text-sm text-muted-foreground mt-2">Processing...</p>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="bg-muted p-4 rounded-lg space-y-2">
+                                  <p className="text-sm font-medium">CSV Format Example:</p>
+                                  <pre className="text-xs bg-background p-2 rounded border">
+                                    {`email
 john.doe@northeastern.edu
 sarah.smith@northeastern.edu
 mike.johnson@northeastern.edu`}
-                                </pre>
-                                <p className="text-xs text-muted-foreground mt-2">
-                                  Or just a simple list without header:
-                                </p>
-                                <pre className="text-xs bg-background p-2 rounded border">
-{`john.doe@northeastern.edu
+                                  </pre>
+                                  <p className="text-xs text-muted-foreground mt-2">
+                                    Or just a simple list without header:
+                                  </p>
+                                  <pre className="text-xs bg-background p-2 rounded border">
+                                    {`john.doe@northeastern.edu
 sarah.smith@northeastern.edu
 mike.johnson@northeastern.edu`}
-                                </pre>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="space-y-4">
-                              <div className="text-center pb-4 border-b">
-                                <h3 className="text-lg font-semibold mb-2">Upload Results</h3>
-                                <p className="text-sm text-muted-foreground">
-                                  Processed {bulkUploadResult.success.length + bulkUploadResult.alreadyEnrolled.length + bulkUploadResult.notRegistered.length} email(s)
-                                </p>
-                              </div>
-
-                              {bulkUploadResult.success.length > 0 && (
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                                    <CheckCircle2 className="h-5 w-5" />
-                                    <h4 className="font-medium">Successfully Added ({bulkUploadResult.success.length})</h4>
-                                  </div>
-                                  <ScrollArea className="h-32 rounded border p-2 bg-green-50 dark:bg-green-950/20">
-                                    <div className="space-y-1">
-                                      {bulkUploadResult.success.map((email, i) => (
-                                        <p key={i} className="text-sm">{email}</p>
-                                      ))}
-                                    </div>
-                                  </ScrollArea>
+                                  </pre>
                                 </div>
-                              )}
-
-                              {bulkUploadResult.alreadyEnrolled.length > 0 && (
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                                    <AlertTriangle className="h-5 w-5" />
-                                    <h4 className="font-medium">Already Enrolled ({bulkUploadResult.alreadyEnrolled.length})</h4>
-                                  </div>
-                                  <ScrollArea className="h-32 rounded border p-2 bg-blue-50 dark:bg-blue-950/20">
-                                    <div className="space-y-1">
-                                      {bulkUploadResult.alreadyEnrolled.map((email, i) => (
-                                        <p key={i} className="text-sm">{email}</p>
-                                      ))}
-                                    </div>
-                                  </ScrollArea>
+                              </>
+                            ) : (
+                              <div className="space-y-4">
+                                <div className="text-center pb-4 border-b">
+                                  <h3 className="text-lg font-semibold mb-2">Upload Results</h3>
+                                  <p className="text-sm text-muted-foreground">
+                                    Processed {bulkUploadResult.success.length + bulkUploadResult.alreadyEnrolled.length + bulkUploadResult.notRegistered.length + bulkUploadResult.invalidDomain.length} email(s)
+                                  </p>
                                 </div>
-                              )}
 
-                              {bulkUploadResult.notRegistered.length > 0 && (
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                                    <XCircle className="h-5 w-5" />
-                                    <h4 className="font-medium">Not Registered ({bulkUploadResult.notRegistered.length})</h4>
-                                  </div>
-                                  <ScrollArea className="h-32 rounded border p-2 bg-red-50 dark:bg-red-950/20">
-                                    <div className="space-y-1">
-                                      {bulkUploadResult.notRegistered.map((email, i) => (
-                                        <p key={i} className="text-sm">{email}</p>
-                                      ))}
-                                    </div>
-                                  </ScrollArea>
+                                {bulkUploadResult.success.length > 0 && (
                                   <div className="space-y-2">
-                                    <p className="text-xs text-muted-foreground">
-                                      These students need to register on LearnBOT first before they can be added to the class.
-                                    </p>
-                                    <Button 
-                                      onClick={sendReminderEmails}
-                                      disabled={isSendingReminders}
-                                      variant="outline"
-                                      size="sm"
-                                      className="w-full"
-                                    >
-                                      {isSendingReminders ? (
-                                        <>
-                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
-                                          Sending Reminders...
-                                        </>
-                                      ) : (
-                                        <>
-                                          📧 Send Registration Reminder
-                                        </>
-                                      )}
-                                    </Button>
+                                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                                      <CheckCircle2 className="h-5 w-5" />
+                                      <h4 className="font-medium">Successfully Added ({bulkUploadResult.success.length})</h4>
+                                    </div>
+                                    <ScrollArea className="h-32 rounded border p-2 bg-green-50 dark:bg-green-950/20">
+                                      <div className="space-y-1">
+                                        {bulkUploadResult.success.map((email, i) => (
+                                          <p key={i} className="text-sm">{email}</p>
+                                        ))}
+                                      </div>
+                                    </ScrollArea>
                                   </div>
-                                </div>
-                              )}
+                                )}
 
-                              <div className="flex justify-end gap-2 pt-4">
-                                <Button 
-                                  onClick={() => {
-                                    setBulkUploadResult(null)
-                                    setShowBulkUploadDialog(false)
-                                  }}
-                                >
-                                  Done
-                                </Button>
+                                {bulkUploadResult.alreadyEnrolled.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                                      <AlertTriangle className="h-5 w-5" />
+                                      <h4 className="font-medium">Already Enrolled ({bulkUploadResult.alreadyEnrolled.length})</h4>
+                                    </div>
+                                    <ScrollArea className="h-32 rounded border p-2 bg-blue-50 dark:bg-blue-950/20">
+                                      <div className="space-y-1">
+                                        {bulkUploadResult.alreadyEnrolled.map((email, i) => (
+                                          <p key={i} className="text-sm">{email}</p>
+                                        ))}
+                                      </div>
+                                    </ScrollArea>
+                                  </div>
+                                )}
+
+                                {bulkUploadResult.notRegistered.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                                      <XCircle className="h-5 w-5" />
+                                      <h4 className="font-medium">Not Registered ({bulkUploadResult.notRegistered.length})</h4>
+                                    </div>
+                                    <ScrollArea className="h-32 rounded border p-2 bg-red-50 dark:bg-red-950/20">
+                                      <div className="space-y-1">
+                                        {bulkUploadResult.notRegistered.map((email, i) => (
+                                          <p key={i} className="text-sm">{email}</p>
+                                        ))}
+                                      </div>
+                                    </ScrollArea>
+                                    <div className="space-y-2">
+                                      <p className="text-xs text-muted-foreground">
+                                        These students need to register on LearnBOT first before they can be added to the class.
+                                      </p>
+                                      <Button
+                                        onClick={sendReminderEmails}
+                                        disabled={isSendingReminders}
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full"
+                                      >
+                                        {isSendingReminders ? (
+                                          <>
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                                            Sending Reminders...
+                                          </>
+                                        ) : (
+                                          <>
+                                            📧 Send Registration Reminder
+                                          </>
+                                        )}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {bulkUploadResult.invalidDomain.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
+                                      <AlertTriangle className="h-5 w-5" />
+                                      <h4 className="font-medium">Invalid Domain ({bulkUploadResult.invalidDomain.length})</h4>
+                                    </div>
+                                    <ScrollArea className="h-32 rounded border p-2 bg-yellow-50 dark:bg-yellow-950/20">
+                                      <div className="space-y-1">
+                                        {bulkUploadResult.invalidDomain.map((email, i) => (
+                                          <p key={i} className="text-sm">{email}</p>
+                                        ))}
+                                      </div>
+                                    </ScrollArea>
+                                    <p className="text-xs text-muted-foreground">
+                                      Only @northeastern.edu emails are supported.
+                                    </p>
+                                  </div>
+                                )}
+
+                                <div className="flex justify-end gap-2 pt-4">
+                                  <Button
+                                    onClick={() => {
+                                      setBulkUploadResult(null)
+                                      setShowBulkUploadDialog(false)
+                                    }}
+                                  >
+                                    Done
+                                  </Button>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {classStudents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">
-                    No students enrolled yet. Add students to get started!
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {classStudents.map((student) => (
-                      <div
-                        key={student.id}
-                        className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
-                      >
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{student.name}</p>
-                          <p className="text-xs text-muted-foreground">{student.email}</p>
-                          {(student.nuid || student.degree || student.major) && (
-                            <div className="flex flex-wrap gap-2 mt-1">
-                              {student.nuid && (
-                                <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                                  NUID: {student.nuid}
-                                </span>
-                              )}
-                              {student.degree && (
-                                <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded">
-                                  {student.degree}
-                                </span>
-                              )}
-                              {student.major && (
-                                <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded">
-                                  {student.major}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => handleRemoveStudentClick(student)}
-                          className="cursor-pointer hover:bg-destructive/10"
+                </CardHeader>
+                <CardContent>
+                  {classStudents.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      No students enrolled yet. Add students to get started!
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {classStudents.map((student) => (
+                        <div
+                          key={student.id}
+                          className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{student.name}</p>
+                            <p className="text-xs text-muted-foreground">{student.email}</p>
+                            {(student.nuid || student.degree || student.major) && (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {student.nuid && (
+                                  <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                                    NUID: {student.nuid}
+                                  </span>
+                                )}
+                                {student.degree && (
+                                  <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded">
+                                    {student.degree}
+                                  </span>
+                                )}
+                                {student.major && (
+                                  <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded">
+                                    {student.major}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveStudentClick(student)}
+                            className="cursor-pointer hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             )}
 
             {activeView === "assignments" && (
@@ -1566,13 +1591,12 @@ mike.johnson@northeastern.edu`}
                       {resources.map((resource, index) => (
                         <div
                           key={index}
-                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors group ${
-                            isDarkMode 
-                              ? 'bg-gray-800 border-gray-700 hover:bg-gray-750' 
-                              : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
-                          }`}
+                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors group ${isDarkMode
+                            ? 'bg-gray-800 border-gray-700 hover:bg-gray-750'
+                            : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                            }`}
                         >
-                          <div 
+                          <div
                             className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
                             onClick={() => openResourcePreview(index)}
                           >
@@ -1625,7 +1649,7 @@ mike.johnson@northeastern.edu`}
                     </div>
                   </div>
                 </DialogHeader>
-                
+
                 <div className="flex-1 flex flex-col min-h-0 px-6 overflow-hidden">
                   {/* File Navigation Menu */}
                   <div className={`mb-3 p-2.5 rounded-lg border flex-shrink-0 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
@@ -1635,19 +1659,18 @@ mike.johnson@northeastern.edu`}
                           key={index}
                           onClick={() => navigateToFile(index)}
                           disabled={isUploadingResources}
-                          className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-                            index === currentPreviewIndex
+                          className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${index === currentPreviewIndex
+                            ? isDarkMode
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-blue-600 text-white'
+                            : uploadedFileIndices.has(index)
                               ? isDarkMode
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-blue-600 text-white'
-                              : uploadedFileIndices.has(index)
-                                ? isDarkMode
-                                  ? 'bg-green-900/50 text-green-400 hover:bg-green-900/70'
-                                  : 'bg-green-100 text-green-700 hover:bg-green-200'
-                                : isDarkMode
-                                  ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                  : 'bg-white text-gray-700 hover:bg-gray-100'
-                          } ${isUploadingResources ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                ? 'bg-green-900/50 text-green-400 hover:bg-green-900/70'
+                                : 'bg-green-100 text-green-700 hover:bg-green-200'
+                              : isDarkMode
+                                ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                : 'bg-white text-gray-700 hover:bg-gray-100'
+                            } ${isUploadingResources ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                         >
                           {uploadedFileIndices.has(index) && '✓ '}
                           {file.name.length > 20 ? `${file.name.substring(0, 20)}...` : file.name}
@@ -1750,7 +1773,7 @@ mike.johnson@northeastern.edu`}
                   </div>
                 </div>
               </DialogHeader>
-              
+
               <div className="flex-1 flex flex-col min-h-0 px-6 overflow-hidden">
                 {/* PDF Preview */}
                 <div className="flex-1 border rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-900 min-h-0" style={{ height: 'calc(95vh - 200px)' }}>
