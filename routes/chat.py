@@ -538,6 +538,157 @@ def ai_response():
 
 
 # ---------------------------------------------------------------------------
+# Internal Endpoint for Worker Delegation (EssayBot pattern)
+# ---------------------------------------------------------------------------
+
+@bp.route("/internal/process_query", methods=["POST"])
+def internal_process_query():
+    """
+    Internal endpoint for workers to delegate RAG processing to Flask.
+    
+    Workers POST {"task_id": "...", "request_data": {...}} and this handler:
+    1. Calls rag.process_query() with stream_callback → Redis pub/sub
+    2. Saves conversation to DB
+    3. Publishes 'done' event to Redis
+    4. Returns result to worker
+    
+    Security: Only accepts requests from localhost (workers run on same machine).
+    """
+    # Security check: only allow localhost
+    remote_addr = request.remote_addr or ""
+    if remote_addr not in ("127.0.0.1", "::1", "localhost"):
+        return jsonify({"error": "Forbidden: internal endpoint"}), 403
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+        
+        task_id = data.get("task_id")
+        request_data = data.get("request_data", {})
+        
+        if not task_id or not request_data:
+            return jsonify({"error": "task_id and request_data required"}), 400
+        
+        session_id = request_data.get("conversation_id", "unknown")
+        start_time = time.time()
+        
+        print(f"[INTERNAL] Processing task {task_id} (session={session_id})", flush=True)
+        
+        # Load RAG module
+        rag_module = load_rag_module()
+        if rag_module is None:
+            redis_service.publish_chunk(task_id, {
+                "error": "Processing failed",
+                "message": "RAG service not available",
+            })
+            redis_service.fail_task(task_id, "RAG service not available")
+            return jsonify({"error": "RAG service not available"}), 500
+        
+        process_query = rag_module.process_query
+        
+        # Update Redis status
+        redis_service.set_task_status(task_id, "processing")
+        
+        # Accumulated response for final save
+        accumulated_response = ""
+        
+        def stream_callback(chunk_data: dict) -> None:
+            """Called by RAG service for each generated token/chunk."""
+            nonlocal accumulated_response
+            if chunk_data.get("type") == "chunk":
+                chunk_text = chunk_data.get("chunk", "")
+                if chunk_text:
+                    accumulated_response += chunk_text
+                    # Publish chunk to Redis pub/sub for SSE endpoint
+                    redis_service.publish_chunk(task_id, {
+                        "content": chunk_text,
+                    })
+        
+        # Call process_query with streaming
+        result = process_query(request_data, stream_callback=stream_callback)
+        
+        elapsed = time.time() - start_time
+        final_response = result.get("response", accumulated_response)
+        model_used = result.get("model_used", request_data.get("preferred_model", "unknown"))
+        
+        # Save to database
+        try:
+            conversation = db_service.get_rag_conversation_by_id(session_id)
+            if conversation:
+                updated_history = conversation.get("messageHistory", [])
+                now_iso = datetime.now().isoformat()
+                
+                # Add user message
+                updated_history.append({
+                    "role": "user",
+                    "content": request_data.get("query", ""),
+                    "timestamp": now_iso,
+                })
+                
+                # Add assistant message
+                if final_response:
+                    updated_history.append({
+                        "role": "assistant",
+                        "content": final_response,
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                
+                db_service.update_rag_conversation(session_id, {
+                    "messageHistory": updated_history,
+                    "checkpointState": result.get("checkpoint_state",
+                                                   conversation.get("checkpointState", {})),
+                })
+                print(f"[INTERNAL] DB updated for session {session_id}", flush=True)
+        except Exception as db_err:
+            print(f"[INTERNAL] DB save error for task {task_id}: {db_err}", flush=True)
+            import traceback
+            traceback.print_exc()
+        
+        # Publish 'done' event to Redis pub/sub
+        redis_service.publish_chunk(task_id, {
+            "done": True,
+            "content": final_response,
+            "modelUsed": model_used,
+            "mode": result.get("mode", "rag"),
+            "contentFound": result.get("content_found", False),
+            "timeTaken": elapsed,
+        })
+        
+        # Update Redis task status
+        redis_service.complete_task(task_id, {
+            "response": final_response[:500],  # Truncate for status storage
+            "modelUsed": model_used,
+            "timeTaken": elapsed,
+        })
+        
+        print(f"[INTERNAL] Task {task_id} completed in {elapsed:.1f}s", flush=True)
+        
+        return jsonify({
+            "success": True,
+            "task_id": task_id,
+            "elapsed": elapsed,
+        })
+        
+    except Exception as e:
+        _elapsed = time.time() - start_time if 'start_time' in locals() else 0
+        _tid = task_id if 'task_id' in locals() else 'unknown'
+        print(f"[INTERNAL] Task {_tid} FAILED: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        
+        # Publish error to Redis pub/sub
+        if 'task_id' in locals() and task_id:
+            redis_service.publish_chunk(task_id, {
+                "error": "Processing failed",
+                "message": str(e),
+            })
+            redis_service.fail_task(task_id, str(e))
+        
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
 # RabbitMQ Worker Streaming Endpoints
 # ---------------------------------------------------------------------------
 
