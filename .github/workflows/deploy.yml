@@ -122,7 +122,7 @@ jobs:
         run: |
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
           DEFAULT_BRANCH="${{ steps.setup.outputs.default_branch }}"
-          if [ ! -d "$REPO_DIR/.git" ]; then
+          if ! sudo -u deploy test -d "$REPO_DIR/.git"; then
             echo "📂 Repo not found at $REPO_DIR - cloning..."
             sudo mkdir -p "$(dirname "$REPO_DIR")"
             sudo chown deploy:deploy "$(dirname "$REPO_DIR")"
