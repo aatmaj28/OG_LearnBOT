@@ -41,7 +41,7 @@ module.exports = {
       time: true,
       autorestart: true,
       watch: false,
-      max_memory_restart: '4G',  // RAG pipeline loads in Flask now (~1.4 GB × 2 Gunicorn gthread procs)
+      max_memory_restart: '9G',  // RAG pipeline loads in Flask now (~1.4 GB × 5 Gunicorn gthread procs)
       restart_delay: 4000,
       min_uptime: '10s',
       max_restarts: 10,
