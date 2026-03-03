@@ -7,12 +7,15 @@ from services import db_service
 import os
 import pathlib
 
+# Absolute path to the backend root (parent of routes/)
+BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 bp = Blueprint("classes", __name__)
 
 def create_vector_store_manually(folder_name: str, class_name: str) -> bool:
     """Manually creates vector store folder"""
     try:
-        vector_stores_dir = pathlib.Path('vector_stores')
+        vector_stores_dir = BACKEND_ROOT / 'vector_stores'
         class_vector_store_dir = vector_stores_dir / folder_name
         
         # Create directories
@@ -245,7 +248,7 @@ def assignments():
             # Save file
             import pathlib
             import uuid
-            assignments_dir = pathlib.Path('assignments') / class_id
+            assignments_dir = BACKEND_ROOT / 'assignments' / class_id
             assignments_dir.mkdir(parents=True, exist_ok=True)
             
             assignment_id = f"{int(__import__('time').time() * 1000)}-{uuid.uuid4().hex[:7]}"
@@ -307,7 +310,7 @@ def assignments():
             
             # Delete file
             import pathlib
-            file_path = pathlib.Path('assignments') / class_id / assignment['pdfFileName']
+            file_path = BACKEND_ROOT / 'assignments' / class_id / assignment['pdfFileName']
             if file_path.exists():
                 file_path.unlink()
             
@@ -335,7 +338,7 @@ def download_assignment():
             return jsonify({"error": "Assignment not found"}), 404
         
         import pathlib
-        file_path = pathlib.Path('assignments') / class_id / assignment['pdfFileName']
+        file_path = BACKEND_ROOT / 'assignments' / class_id / assignment['pdfFileName']
         
         if not file_path.exists():
             return jsonify({"error": "File not found"}), 404
@@ -421,7 +424,7 @@ def resources():
             uploaded_files = []
             
             import pathlib
-            resources_dir = pathlib.Path('resources') / class_id
+            resources_dir = BACKEND_ROOT / 'resources' / class_id
             resources_dir.mkdir(parents=True, exist_ok=True)
             
             for file in files:
@@ -490,7 +493,7 @@ def resources():
                 return jsonify({"error": "Unauthorized"}), 403
             
             # Delete file
-            file_path = pathlib.Path('resources') / class_id / safe_file_name
+            file_path = BACKEND_ROOT / 'resources' / class_id / safe_file_name
             if file_path.exists():
                 file_path.unlink()
             
@@ -515,7 +518,7 @@ def download_resource():
         
         import pathlib
         safe_file_name = pathlib.Path(file_name).name  # Prevent path traversal
-        file_path = pathlib.Path('resources') / class_id / safe_file_name
+        file_path = BACKEND_ROOT / 'resources' / class_id / safe_file_name
         
         if not file_path.exists():
             return jsonify({"error": "File not found"}), 404
