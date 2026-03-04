@@ -1069,6 +1069,14 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                         firstTokenTimestamp = Date.now()
                         const ttft = firstTokenTimestamp - sendTimestamp
                         console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
+
+                        // Artificial delay for Deep Thinking animation
+                        if (deepThinking && ttft < 4000) {
+                          const delayNeeded = 4000 - ttft
+                          console.log(`[v0] 🧠 Artificial Deep Thinking delay: adding ${delayNeeded}ms`)
+                          await new Promise(resolve => setTimeout(resolve, delayNeeded))
+                        }
+
                         // Hide Deep Thinking animation when stream starts
                         setIsDeepThinking(false)
                       }
@@ -1122,6 +1130,15 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
                     if (data.done) {
                       console.log("[v0] Streaming completed, modelUsed:", data.modelUsed, "Final content length:", accumulatedResponse.length)
+
+                      // If the response finished very fast (e.g. error or cached), still enforce 4s minimum for Deep Thinking
+                      if (deepThinking && isDeepThinking) {
+                        const timeElapsed = Date.now() - sendTimestamp
+                        if (timeElapsed < 4000) {
+                          await new Promise(resolve => setTimeout(resolve, 4000 - timeElapsed))
+                        }
+                        setIsDeepThinking(false)
+                      }
 
                       // Capture modelUsed from done event
                       if (data.modelUsed) {

@@ -1418,8 +1418,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                           console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
 
                           // Artificial delay for Deep Thinking animation
-                          if (deepThinking && ttft < 2000) {
-                            const delayNeeded = 2000 - ttft
+                          if (deepThinking && ttft < 4000) {
+                            const delayNeeded = 4000 - ttft
                             console.log(`[v0] 🧠 Artificial Deep Thinking delay: adding ${delayNeeded}ms`)
                             await new Promise(resolve => setTimeout(resolve, delayNeeded))
                           }
@@ -1484,11 +1484,11 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                       if (data.done) {
                         console.log("[v0] Streaming completed, modelUsed from done event:", data.modelUsed, "preferredModel:", preferredModel)
 
-                        // If the response finished very fast (e.g. error or cached), still enforce 2s minimum for Deep Thinking
+                        // If the response finished very fast (e.g. error or cached), still enforce 4s minimum for Deep Thinking
                         if (deepThinking && isDeepThinking) {
                           const timeElapsed = Date.now() - sendTimestamp
-                          if (timeElapsed < 2000) {
-                            await new Promise(resolve => setTimeout(resolve, 2000 - timeElapsed))
+                          if (timeElapsed < 4000) {
+                            await new Promise(resolve => setTimeout(resolve, 4000 - timeElapsed))
                           }
                           setIsDeepThinking(false)
                         }
