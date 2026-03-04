@@ -882,7 +882,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     if (files.length === 0) return
 
     // Filter valid file types (images and common document types)
-    const validFiles = files.filter(file => {
+    let validFiles = files.filter(file => {
       const validTypes = [
         'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
         'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -902,17 +902,18 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     // Calculate persistent attachments already uploaded in this chat session
     const persistentCount = currentConversation?.cachedContext?.persistent_attachments?.length || 0;
     const currentAttachmentsCount = attachments.length;
-    const totalAttemptedCount = persistentCount + currentAttachmentsCount + validFiles.length;
 
-    if (totalAttemptedCount > 3) {
+    // Calculate how many more *can* be added to reach exactly 3
+    const allowedCount = Math.max(0, 3 - (persistentCount + currentAttachmentsCount));
+
+    if (allowedCount === 0) {
       toast.error('MAX Upload Limit reached (3). You cannot attach more documents to this chat.');
+      return;
+    }
 
-      // Calculate how many more *can* be added to reach exactly 3 (if any)
-      const allowedCount = Math.max(0, 3 - (persistentCount + currentAttachmentsCount));
-      if (allowedCount === 0) return;
-
-      // Slice validFiles to only allow the remaining permitted amount
-      validFiles.splice(allowedCount);
+    if (validFiles.length > allowedCount) {
+      toast.error(`MAX Upload Limit reached. Only ${allowedCount} more document(s) can be attached.`);
+      validFiles = validFiles.slice(0, allowedCount);
     }
 
     if (validFiles.length === 0) return;
