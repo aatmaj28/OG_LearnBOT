@@ -15,10 +15,6 @@ export function StudentDashboard() {
 
   useEffect(() => {
     loadUserData()
-    const savedTab = localStorage.getItem("studentActiveTab")
-    if (savedTab && ["chat", "classes"].includes(savedTab)) {
-      setActiveTab(savedTab)
-    }
     const savedDarkMode = localStorage.getItem("studentDarkMode")
     if (savedDarkMode !== null) {
       setIsDarkMode(savedDarkMode === "true")

@@ -158,7 +158,7 @@ export function AnalyticsTab() {
         <>
           <div className="mb-6 flex flex-row items-center justify-between gap-4">
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger className="w-[300px]">
+              <SelectTrigger className="w-[300px] border-gray-300">
                 <SelectValue placeholder="Select a class" />
               </SelectTrigger>
               <SelectContent>
@@ -218,32 +218,29 @@ export function AnalyticsTab() {
               </CardContent>
             </Card>
 
-            <Card className={`border-l-4 ${
-              analytics.averageSentiment > 0.3 
-                ? 'border-l-green-500' 
-                : analytics.averageSentiment < -0.3 
-                ? 'border-l-red-500' 
-                : 'border-l-yellow-500'
-            }`}>
+            <Card className={`border-l-4 ${analytics.averageSentiment > 0.3
+                ? 'border-l-green-500'
+                : analytics.averageSentiment < -0.3
+                  ? 'border-l-red-500'
+                  : 'border-l-yellow-500'
+              }`}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Average Sentiment</CardTitle>
-                <TrendingUp className={`h-4 w-4 ${
-                  analytics.averageSentiment > 0.3 
-                    ? 'text-green-500' 
-                    : analytics.averageSentiment < -0.3 
-                    ? 'text-red-500' 
-                    : 'text-yellow-500'
-                }`} />
+                <TrendingUp className={`h-4 w-4 ${analytics.averageSentiment > 0.3
+                    ? 'text-green-500'
+                    : analytics.averageSentiment < -0.3
+                      ? 'text-red-500'
+                      : 'text-yellow-500'
+                  }`} />
               </CardHeader>
               <CardContent>
                 <div
-                  className={`text-2xl font-bold ${
-                    analytics.averageSentiment > 0.3
+                  className={`text-2xl font-bold ${analytics.averageSentiment > 0.3
                       ? "text-green-600 dark:text-green-400"
                       : analytics.averageSentiment < -0.3
                         ? "text-red-600 dark:text-red-400"
                         : "text-yellow-600 dark:text-yellow-400"
-                  }`}
+                    }`}
                 >
                   {analytics.averageSentiment > 0.3
                     ? "Positive"
@@ -319,25 +316,25 @@ export function AnalyticsTab() {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={analytics.topicDistribution} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis 
-                          dataKey="topic" 
+                        <XAxis
+                          dataKey="topic"
                           tick={{ fontSize: 12, fill: '#6b7280' }}
                           axisLine={{ stroke: '#d1d5db' }}
                           angle={-45}
                           textAnchor="end"
                           height={80}
                         />
-                        <YAxis 
+                        <YAxis
                           tick={{ fontSize: 12, fill: '#6b7280' }}
                           axisLine={{ stroke: '#d1d5db' }}
                         />
-                        <ChartTooltip 
-                          content={<ChartTooltipContent 
+                        <ChartTooltip
+                          content={<ChartTooltipContent
                             formatter={(value) => [`${value} mentions`, '']}
-                          />} 
+                          />}
                         />
-                        <Bar 
-                          dataKey="count" 
+                        <Bar
+                          dataKey="count"
                           fill={CHART_COLORS.accent}
                           radius={[4, 4, 0, 0]}
                         />
@@ -382,17 +379,17 @@ export function AnalyticsTab() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={analytics.activityOverTime} margin={{ top: 50, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis 
-                        dataKey="date" 
+                      <XAxis
+                        dataKey="date"
                         tick={{ fontSize: 12, fill: '#6b7280' }}
                         axisLine={{ stroke: '#d1d5db' }}
                       />
-                      <YAxis 
+                      <YAxis
                         tick={{ fontSize: 12, fill: '#6b7280' }}
                         axisLine={{ stroke: '#d1d5db' }}
                       />
-                      <ChartTooltip 
-                        content={<ChartTooltipContent 
+                      <ChartTooltip
+                        content={<ChartTooltipContent
                           formatter={(value, name) => {
                             if (name === 'sessions' || name === 'Sessions') {
                               return (
@@ -421,9 +418,9 @@ export function AnalyticsTab() {
                             }
                             return null
                           }}
-                        />} 
+                        />}
                       />
-                      <Legend 
+                      <Legend
                         wrapperStyle={{ paddingTop: '10px', paddingBottom: '10px' }}
                         iconType="square"
                         align="right"
@@ -435,14 +432,14 @@ export function AnalyticsTab() {
                           return value
                         }}
                       />
-                      <Bar 
-                        dataKey="sessions" 
+                      <Bar
+                        dataKey="sessions"
                         fill={CHART_COLORS.primary}
                         name="Sessions"
                         radius={[4, 4, 0, 0]}
                       />
-                      <Bar 
-                        dataKey="minutes" 
+                      <Bar
+                        dataKey="minutes"
                         fill={CHART_COLORS.secondary}
                         name="Minutes"
                         radius={[4, 4, 0, 0]}
@@ -493,22 +490,22 @@ export function AnalyticsTab() {
                     className="h-[350px]"
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart 
-                        data={[analytics.studentEngagement.find(s => s.name === selectedStudent) || { name: selectedStudent, sessions: 0, minutes: 0 }]} 
+                      <BarChart
+                        data={[analytics.studentEngagement.find(s => s.name === selectedStudent) || { name: selectedStudent, sessions: 0, minutes: 0 }]}
                         margin={{ top: 50, right: 30, left: 20, bottom: 5 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis 
-                          dataKey="name" 
+                        <XAxis
+                          dataKey="name"
                           tick={{ fontSize: 12, fill: '#6b7280' }}
                           axisLine={{ stroke: '#d1d5db' }}
                         />
-                        <YAxis 
+                        <YAxis
                           tick={{ fontSize: 12, fill: '#6b7280' }}
                           axisLine={{ stroke: '#d1d5db' }}
                         />
-                        <ChartTooltip 
-                          content={<ChartTooltipContent 
+                        <ChartTooltip
+                          content={<ChartTooltipContent
                             formatter={(value, name) => {
                               if (name === 'sessions' || name === 'Sessions') {
                                 return (
@@ -537,9 +534,9 @@ export function AnalyticsTab() {
                               }
                               return null
                             }}
-                          />} 
+                          />}
                         />
-                        <Legend 
+                        <Legend
                           wrapperStyle={{ paddingTop: '10px', paddingBottom: '10px' }}
                           iconType="square"
                           align="right"
@@ -551,14 +548,14 @@ export function AnalyticsTab() {
                             return value
                           }}
                         />
-                        <Bar 
-                          dataKey="sessions" 
+                        <Bar
+                          dataKey="sessions"
                           fill={CHART_COLORS.success}
                           name="Sessions"
                           radius={[4, 4, 0, 0]}
                         />
-                        <Bar 
-                          dataKey="minutes" 
+                        <Bar
+                          dataKey="minutes"
                           fill={CHART_COLORS.warning}
                           name="Minutes"
                           radius={[4, 4, 0, 0]}

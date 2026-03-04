@@ -167,7 +167,7 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
         <>
           <div className="mb-6">
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger className={`w-[300px] ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}`}>
+              <SelectTrigger className={`w-[300px] ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'border-gray-300'}`}>
                 <SelectValue placeholder="Select a class" />
               </SelectTrigger>
               <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>

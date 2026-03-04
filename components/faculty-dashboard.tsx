@@ -18,12 +18,7 @@ export function FacultyDashboard() {
 
   useEffect(() => {
     loadUserData()
-    // Load the last active tab from localStorage
-    const savedTab = localStorage.getItem("facultyActiveTab")
-    if (savedTab && ["chat", "classes", "students", "analytics", "corpus"].includes(savedTab)) {
-      setActiveTab(savedTab)
-    }
-    
+
     // Load dark mode state from localStorage
     const savedDarkMode = localStorage.getItem("facultyDarkMode")
     if (savedDarkMode !== null) {
