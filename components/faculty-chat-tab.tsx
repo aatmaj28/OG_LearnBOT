@@ -1700,17 +1700,23 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     </p>
                   </div>
                 ) : (
-                  currentConversation.messageHistory.map((message, index) => (
-                    <ChatMessage
-                      key={index}
-                      role={message.role}
-                      content={message.content}
-                      timestamp={message.timestamp}
-                      metadata={message.metadata}
-                      attachments={message.attachments}
-                      isDarkMode={isDarkMode}
-                    />
-                  ))
+                  currentConversation.messageHistory.map((message, index) => {
+                    // Don't render empty assistant messages while Deep Thinking animation is active
+                    if (message.role === 'assistant' && message.content === '' && loading && isDeepThinking) {
+                      return null
+                    }
+                    return (
+                      <ChatMessage
+                        key={index}
+                        role={message.role}
+                        content={message.content}
+                        timestamp={message.timestamp}
+                        metadata={message.metadata}
+                        attachments={message.attachments}
+                        isDarkMode={isDarkMode}
+                      />
+                    )
+                  })
                 )}
                 {loading && deepThinking && (
                   <DeepThinkingAnimation isDarkMode={isDarkMode} />
