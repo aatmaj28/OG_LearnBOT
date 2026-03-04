@@ -27,6 +27,39 @@ bp = Blueprint("chat", __name__)
 # Create separate blueprint for RAG routes (for /api/rag compatibility)
 rag_bp = Blueprint("rag", __name__)
 
+
+def _derive_persistent_attachments_from_history(conversation):
+    """If cachedContext has no persistent_attachments, derive from messageHistory so 'Documents in this chat' persists."""
+    if not conversation:
+        return conversation
+    cached = conversation.get("cachedContext") or {}
+    pa = (cached.get("persistent_attachments") or []) if isinstance(cached, dict) else []
+    if pa and len(pa) > 0:
+        return conversation
+    history = conversation.get("messageHistory") or []
+    seen = set()
+    derived = []
+    for msg in history:
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            for att in (msg.get("attachments") or []):
+                name = (att.get("name") if isinstance(att, dict) else None) or "Document"
+                if name not in seen:
+                    seen.add(name)
+                    derived.append({"name": name, "summary": ""})
+    # Fallback for old convos: if first assistant message mentions uploaded PDF/doc, add a placeholder
+    if not derived and history:
+        for msg in history:
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                content = (msg.get("content") or "").lower()
+                if "uploaded a pdf" in content or "attached" in content or "uploaded a document" in content:
+                    derived = [{"name": "Document", "summary": ""}]
+                break
+    if derived:
+        out = dict(conversation)
+        out["cachedContext"] = {**(cached if isinstance(cached, dict) else {}), "persistent_attachments": derived[:3]}
+        return out
+    return conversation
+
 # Cache the loaded RAG module so we only import once (used by ai_response and by startup preload)
 _rag_module = None
 
@@ -81,7 +114,8 @@ def conversations():
                 class_id if class_id else None,
                 chat_type if chat_type else None
             )
-            
+            # Derive cachedContext.persistent_attachments from message history when null (so "Documents in this chat" persists)
+            conversations_list = [_derive_persistent_attachments_from_history(c) for c in conversations_list]
             return jsonify({"conversations": conversations_list})
         
         elif request.method == "POST":
@@ -136,24 +170,7 @@ def conversation_detail(conversation_id):
             conversation = db_service.get_rag_conversation_by_id(conversation_id)
             if not conversation:
                 return jsonify({"error": "Conversation not found"}), 404
-            # If cached_context has no persistent_attachments but message history has user messages with attachments, derive it
-            # so "Documents in this chat" persists even when DB cached_context was never written (e.g. old convos or RAG write failed)
-            cached = conversation.get("cachedContext") or {}
-            pa = (cached.get("persistent_attachments") or []) if isinstance(cached, dict) else []
-            if not pa or len(pa) == 0:
-                history = conversation.get("messageHistory") or []
-                seen = set()
-                derived = []
-                for msg in history:
-                    if isinstance(msg, dict) and msg.get("role") == "user":
-                        for att in (msg.get("attachments") or []):
-                            name = (att.get("name") if isinstance(att, dict) else None) or "Document"
-                            if name not in seen:
-                                seen.add(name)
-                                derived.append({"name": name, "summary": ""})
-                if derived:
-                    conversation = dict(conversation)
-                    conversation["cachedContext"] = {**(cached if isinstance(cached, dict) else {}), "persistent_attachments": derived[:3]}
+            conversation = _derive_persistent_attachments_from_history(conversation)
             return jsonify({"conversation": conversation})
         
         elif request.method == "PUT":
