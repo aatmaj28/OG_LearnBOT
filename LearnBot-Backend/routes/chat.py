@@ -269,7 +269,14 @@ def ai_response():
         if has_image_attachment and preferred_model_norm != 'claude':
             updated_history = list(conversation.get('messageHistory', []))
             now_iso = datetime.now().isoformat()
-            updated_history.append({"role": "user", "content": message, "timestamp": now_iso})
+            attachments_for_message = [
+                {"name": a.get("name", "attachment"), "type": "image" if (a.get("type") or "").startswith("image/") else "file"}
+                for a in request_data.get("attachments", [])
+            ]
+            user_msg = {"role": "user", "content": message, "timestamp": now_iso}
+            if attachments_for_message:
+                user_msg["attachments"] = attachments_for_message
+            updated_history.append(user_msg)
             updated_history.append({
                 "role": "assistant",
                 "content": image_unsupported_msg,
@@ -363,14 +370,21 @@ def ai_response():
                             # Put chunk in queue for generator to yield
                             chunk_queue.put(('chunk', chunk_text))
                 
-                # Update conversation with user message first
+                # Update conversation with user message first (include attachments for persistence)
                 updated_history = conversation.get('messageHistory', [])
                 now_iso = datetime.now().isoformat()
-                updated_history.append({
+                attachments_for_message = [
+                    {"name": a.get("name", "attachment"), "type": "image" if (a.get("type") or "").startswith("image/") else "file"}
+                    for a in request_data.get("attachments", [])
+                ]
+                user_msg = {
                     "role": "user",
                     "content": message,
                     "timestamp": now_iso,
-                })
+                }
+                if attachments_for_message:
+                    user_msg["attachments"] = attachments_for_message
+                updated_history.append(user_msg)
                 
                 def run_rag_service():
                     """Run RAG service in a separate thread"""
@@ -502,15 +516,18 @@ def ai_response():
             except Exception as log_error:
                 print(f"[CHAT] Error logging AI response: {log_error}", flush=True)
 
-            # Update conversation with new message
+            # Update conversation with new message (include attachments for persistence)
             updated_history = conversation.get('messageHistory', [])
             # Persist accurate timestamps for both user and assistant messages
             now_iso = datetime.now().isoformat()
-            updated_history.append({
-                "role": "user",
-                "content": message,
-                "timestamp": now_iso,
-            })
+            attachments_for_message = [
+                {"name": a.get("name", "attachment"), "type": "image" if (a.get("type") or "").startswith("image/") else "file"}
+                for a in request_data.get("attachments", [])
+            ]
+            user_msg = {"role": "user", "content": message, "timestamp": now_iso}
+            if attachments_for_message:
+                user_msg["attachments"] = attachments_for_message
+            updated_history.append(user_msg)
             if result.get('response'):
                 updated_history.append({
                     "role": "assistant",

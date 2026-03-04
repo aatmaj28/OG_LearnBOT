@@ -824,6 +824,21 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       }
     })
 
+    // Optimistically update persistent_attachments count so the 3-attachment limit is enforced
+    // before the backend responds (avoids allowing 3 more when 1 was already sent in a prior message)
+    if (messageAttachments.length > 0) {
+      setCurrentConversation(prev => {
+        if (!prev) return prev
+        const existing = prev.cachedContext?.persistent_attachments || []
+        const added = messageAttachments.map(f => ({ name: f.name, summary: '(pending)' }))
+        const merged = [...existing, ...added].slice(0, 3)
+        return {
+          ...prev,
+          cachedContext: { ...prev.cachedContext, persistent_attachments: merged }
+        }
+      })
+    }
+
     // Force smooth scroll to bottom immediately after adding user message
     // If Deep Thinking Mode is enabled, scroll will happen again when animation appears
     setTimeout(() => {
@@ -1870,6 +1885,25 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                         </div>
                       )
                     })}
+                  </div>
+                )}
+
+                {/* Documents in this chat - persistent attachments in context */}
+                {currentConversation?.cachedContext?.persistent_attachments?.length > 0 && (
+                  <div className={`flex flex-wrap items-center gap-2 mb-2 ${isDarkMode ? 'text-white/80' : 'text-gray-600'}`}>
+                    <span className="text-xs font-medium shrink-0">Documents in this chat:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {currentConversation.cachedContext.persistent_attachments.map((att: { name?: string }, i: number) => (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs ${isDarkMode ? 'bg-white/10 text-white/90' : 'bg-gray-200 text-gray-700'}`}
+                          title={att.name}
+                        >
+                          <File className="h-3 w-3 shrink-0 opacity-70" />
+                          <span className="max-w-[120px] truncate">{att.name || 'Document'}</span>
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
 
