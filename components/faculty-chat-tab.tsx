@@ -390,7 +390,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         }))
       : []
 
-    // If API returned null cachedContext but we have user messages with attachments, derive it so "Documents in this chat" persists
+    // If API returned null cachedContext, derive so "Documents in this chat" persists
     let cachedContext = conversation.cachedContext ?? undefined
     if (!cachedContext?.persistent_attachments?.length && messageHistory.length > 0) {
       const fromHistory: Array<{ name?: string; summary?: string }> = []
@@ -404,6 +404,14 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               fromHistory.push({ name, summary: '' })
             }
           }
+        }
+      }
+      // Fallback for old convos: if first assistant message mentions uploaded PDF/doc, show a placeholder
+      if (fromHistory.length === 0) {
+        const firstAssistant = messageHistory.find((m: any) => m?.role === 'assistant')
+        const content = (firstAssistant?.content || '').toLowerCase()
+        if (/uploaded a pdf|attached a (document|pdf|file)|uploaded a document/.test(content)) {
+          fromHistory.push({ name: 'Document', summary: '' })
         }
       }
       if (fromHistory.length > 0) {

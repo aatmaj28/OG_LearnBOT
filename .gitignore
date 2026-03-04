@@ -45,6 +45,9 @@ coverage/
 .yarn-integrity
 .npm/
 
+# Cloned LearnBot-Server (separate repo; do not commit into UI)
+LearnBot-Server/
+
 # Temporary folders
 tmp/
 temp/
