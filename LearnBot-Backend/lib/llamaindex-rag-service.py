@@ -2452,6 +2452,20 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         deep_thinking = request_data.get('deep_thinking', False)  # Deep thinking mode flag
         attachments = request_data.get('attachments', [])  # File attachments (base64 encoded)
         
+        # Load persistent attachment context from DB once (for prompt injection and for appending new attachments)
+        _injected_persistent_attachments = []
+        if conversation_id and conversation_id != "undefined":
+            try:
+                _backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                if _backend_root not in sys.path:
+                    sys.path.insert(0, _backend_root)
+                from services import db_service as _db_svc
+                _conv = _db_svc.get_rag_conversation_by_id(conversation_id)
+                if _conv and _conv.get('cachedContext'):
+                    _injected_persistent_attachments = list((_conv['cachedContext'].get('persistent_attachments') or [])[:3])
+            except Exception:
+                pass
+        
         # Check if images are present (for model fallback logic)
         has_images = False
         image_attachments = []
@@ -2656,8 +2670,10 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
             document_ack_summary = None
             document_ack_type = "document"
             
-            # Retrieve existing persistent attachments or initialize empty list
-            persistent_attachments = store_data.get("cached_context", {}).get("persistent_attachments", [])
+            # Use persistent_attachments loaded at start of process_query (from DB) so we preserve and append
+            persistent_attachments = list(_injected_persistent_attachments)
+            if persistent_attachments:
+                print(f"📎 [PYTHON] Using {len(persistent_attachments)} existing persistent attachment(s) for this message", file=sys.stderr)
             
             if document_attachments:
                 first_doc = document_attachments[0]
@@ -2699,10 +2715,17 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                     # Force update the conversation record in the database
                     if conversation_id and conversation_id != "undefined":
                         try:
-                            cached_ctx = store_data.get("cached_context", {})
+                            _backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                            if _backend_root not in sys.path:
+                                sys.path.insert(0, _backend_root)
+                            from services import db_service as _db_svc
+                            # Preserve existing cached_context keys (e.g. from previous load) and set persistent_attachments
+                            _conv = _db_svc.get_rag_conversation_by_id(conversation_id)
+                            cached_ctx = (_conv.get('cachedContext') or {}).copy() if _conv else {}
                             cached_ctx["persistent_attachments"] = persistent_attachments
                             update_data = {"cachedContext": cached_ctx}
-                            db_service.update_rag_conversation(conversation_id, update_data)
+                            _db_svc.update_rag_conversation(conversation_id, update_data)
+                            _injected_persistent_attachments[:] = persistent_attachments  # so prompt injection sees updated list
                             print(f"💾 [PYTHON] Saved persistent attachment context to DB (Total: {len(persistent_attachments)}/3)", file=sys.stderr)
                         except Exception as db_err:
                             print(f"⚠️ Failed to update DB with persistent attachments: {db_err}", file=sys.stderr)
@@ -3058,12 +3081,11 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     else:
                         full_prompt += f"→ All checkpoints completed. Help the student verify their work.\n\n"
                 
-                # Inject persistent attachment context
-                persistent_attachments = store_data.get("cached_context", {}).get("persistent_attachments", [])
-                if persistent_attachments:
+                # Inject persistent attachment context (loaded from DB at start of process_query)
+                if _injected_persistent_attachments:
                     full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
                     full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
-                    for idx, att in enumerate(persistent_attachments):
+                    for idx, att in enumerate(_injected_persistent_attachments):
                         full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
                     full_prompt += "\n"
                 
@@ -3078,12 +3100,11 @@ Could you try rephrasing your question, or ask about a specific topic from the c
             else:
                 full_prompt = f"{system_prompt}\n\n"
                 
-                # Inject persistent attachment context for fallback models
-                persistent_attachments = store_data.get("cached_context", {}).get("persistent_attachments", [])
-                if persistent_attachments:
+                # Inject persistent attachment context for fallback models (loaded from DB at start)
+                if _injected_persistent_attachments:
                     full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
                     full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
-                    for idx, att in enumerate(persistent_attachments):
+                    for idx, att in enumerate(_injected_persistent_attachments):
                         full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
                     full_prompt += "\n"
                 

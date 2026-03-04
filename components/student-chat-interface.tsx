@@ -701,6 +701,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       analyticsLastUpdated: conversation.analyticsLastUpdated
         ? safeParseTimestamp(conversation.analyticsLastUpdated)
         : undefined,
+      cachedContext: conversation.cachedContext ?? undefined,
       messageHistory: Array.isArray(conversation.messageHistory)
         ? conversation.messageHistory.map((msg: any) => ({
           ...msg,

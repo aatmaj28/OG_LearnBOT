@@ -390,6 +390,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       analyticsLastUpdated: conversation.analyticsLastUpdated
         ? safeParseTimestamp(conversation.analyticsLastUpdated)
         : undefined,
+      cachedContext: conversation.cachedContext ?? undefined,
       messageHistory: Array.isArray(conversation.messageHistory)
         ? conversation.messageHistory.map((msg: any) => ({
           ...msg,
