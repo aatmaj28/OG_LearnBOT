@@ -136,6 +136,24 @@ def conversation_detail(conversation_id):
             conversation = db_service.get_rag_conversation_by_id(conversation_id)
             if not conversation:
                 return jsonify({"error": "Conversation not found"}), 404
+            # If cached_context has no persistent_attachments but message history has user messages with attachments, derive it
+            # so "Documents in this chat" persists even when DB cached_context was never written (e.g. old convos or RAG write failed)
+            cached = conversation.get("cachedContext") or {}
+            pa = (cached.get("persistent_attachments") or []) if isinstance(cached, dict) else []
+            if not pa or len(pa) == 0:
+                history = conversation.get("messageHistory") or []
+                seen = set()
+                derived = []
+                for msg in history:
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        for att in (msg.get("attachments") or []):
+                            name = (att.get("name") if isinstance(att, dict) else None) or "Document"
+                            if name not in seen:
+                                seen.add(name)
+                                derived.append({"name": name, "summary": ""})
+                if derived:
+                    conversation = dict(conversation)
+                    conversation["cachedContext"] = {**(cached if isinstance(cached, dict) else {}), "persistent_attachments": derived[:3]}
             return jsonify({"conversation": conversation})
         
         elif request.method == "PUT":
