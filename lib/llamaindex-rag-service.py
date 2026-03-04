@@ -122,8 +122,9 @@ FORMATTING: Use **bold** for key terms. Numbered lists with blank lines between 
 }
 # Short Deep Thinking add-on for Blackwell (Gemma) — reason step-by-step, in-depth but concise; keep vLLM-friendly.
 BLACKWELL_DEEP_THINKING_SUFFIX = (
-    "\n\n[DEEP THINKING MODE] Reason step-by-step (outline your reasoning). Give informative, in-depth responses: "
-    "explain the why and how, not just the what; break down concepts; connect to context. Stay concise enough to fit vLLM limits."
+    "\n\n[DEEP THINKING MODE] Reason step-by-step and provide a HIGHLY DETAILED, multi-paragraph explanation. "
+    "Do NOT give a short answer. Break down every concept thoroughly, explain the 'why' and 'how' in extreme depth, "
+    "use real-world analogies, and connect concepts to the broader context. Your priority is depth and exhaustive reasoning."
 )
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
