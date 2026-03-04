@@ -15,7 +15,7 @@ import { speechToText } from "@/lib/speech-to-text"
 import { VoiceWave } from "@/components/voice-wave"
 import { voiceLogger } from "@/lib/voice-logger"
 import { DeepThinkingAnimation } from "@/components/deep-thinking-animation"
-import toast from "react-hot-toast"
+import { toast } from "sonner"
 
 type ChatType = "class_material" | "syllabus"
 
