@@ -2281,7 +2281,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                     ) : (
                       currentConversation.messageHistory.map((message, index) => {
                         // Don't render empty assistant messages while Deep Thinking animation is active
-                        if (message.role === 'assistant' && message.content === '' && loading && isDeepThinking) {
+                        if (message.role === 'assistant' && message.content === '' && isDeepThinking) {
                           return null
                         }
                         return (
@@ -2297,10 +2297,10 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         )
                       })
                     )}
-                    {loading && deepThinking && (
+                    {isDeepThinking && (
                       <DeepThinkingAnimation isDarkMode={isDarkMode} />
                     )}
-                    {loading && !deepThinking && (
+                    {loading && !isDeepThinking && (
                       <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         <div className="flex-shrink-0">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isDarkMode
