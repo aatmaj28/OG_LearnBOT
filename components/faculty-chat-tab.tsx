@@ -383,6 +383,34 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       return new Date(0) // Return epoch instead of current time
     }
 
+    const messageHistory = Array.isArray(conversation.messageHistory)
+      ? conversation.messageHistory.map((msg: any) => ({
+          ...msg,
+          timestamp: safeParseTimestamp(msg.timestamp)
+        }))
+      : []
+
+    // If API returned null cachedContext but we have user messages with attachments, derive it so "Documents in this chat" persists
+    let cachedContext = conversation.cachedContext ?? undefined
+    if (!cachedContext?.persistent_attachments?.length && messageHistory.length > 0) {
+      const fromHistory: Array<{ name?: string; summary?: string }> = []
+      const seen = new Set<string>()
+      for (const msg of messageHistory) {
+        if (msg?.role === 'user' && Array.isArray(msg.attachments)) {
+          for (const att of msg.attachments) {
+            const name = att?.name || 'Document'
+            if (!seen.has(name)) {
+              seen.add(name)
+              fromHistory.push({ name, summary: '' })
+            }
+          }
+        }
+      }
+      if (fromHistory.length > 0) {
+        cachedContext = { ...(cachedContext || {}), persistent_attachments: fromHistory.slice(0, 3) }
+      }
+    }
+
     return {
       ...conversation,
       createdAt: safeParseTimestamp(conversation.createdAt),
@@ -390,13 +418,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       analyticsLastUpdated: conversation.analyticsLastUpdated
         ? safeParseTimestamp(conversation.analyticsLastUpdated)
         : undefined,
-      cachedContext: conversation.cachedContext ?? undefined,
-      messageHistory: Array.isArray(conversation.messageHistory)
-        ? conversation.messageHistory.map((msg: any) => ({
-          ...msg,
-          timestamp: safeParseTimestamp(msg.timestamp)
-        }))
-        : []
+      cachedContext,
+      messageHistory
     }
   }
 
