@@ -3085,8 +3085,13 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
                     for idx, att in enumerate(_injected_persistent_attachments):
                         full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
-                    full_prompt += "\n"
-                
+                    full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
+
+                # Follow-up: do not repeat greeting (model often ignores system-prompt rule without this)
+                is_follow_up = any(m.get('role') == 'assistant' for m in (message_history or []))
+                if is_follow_up:
+                    full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat 'Hi there! I'm LearnBOT' or the 3-checkpoint introduction. Answer directly and naturally.\n\n"
+
                 if history_text:
                     _hist = history_text[:4000] if len(history_text) > 4000 else history_text
                     full_prompt += f"Previous conversation:\n{_hist}\n\n"
@@ -3104,8 +3109,13 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
                     for idx, att in enumerate(_injected_persistent_attachments):
                         full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
-                    full_prompt += "\n"
-                
+                    full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
+
+                # Follow-up: do not repeat greeting (model often ignores system-prompt rule without this)
+                is_follow_up = any(m.get('role') == 'assistant' for m in (message_history or []))
+                if is_follow_up:
+                    full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat 'Hi there! I'm LearnBOT' or the 3-checkpoint introduction. Answer directly and naturally.\n\n"
+
                 if history_text:
                     full_prompt += f"Previous conversation:\n{history_text}\n\n"
                 full_prompt += f"Context from textbook:\n{context_text}\n\n"

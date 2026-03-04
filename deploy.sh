@@ -5,6 +5,7 @@ set -euo pipefail
 case "$PWD" in
   "/opt/Learnbot-Server-UAT")
     APP_FLASK="learnbot-flask-uat"
+    APP_WORKER="learnbot-worker-uat"
     NS="uat"
     DEFAULT_BRANCH="dynamic-update"
     PM2_ENV=""  # don't pass --env production
@@ -12,6 +13,7 @@ case "$PWD" in
     ;;
   "/opt/Learnbot-Server")
     APP_FLASK="learnbot-flask"
+    APP_WORKER="learnbot-worker"
     NS="prod"
     DEFAULT_BRANCH="main"
     PM2_ENV="--env production"  # applies env_production
@@ -159,6 +161,18 @@ if pm2 describe "$APP_FLASK" >/dev/null 2>&1; then
   pm2 reload "$APP_FLASK" --namespace "$NS" --update-env
 else
   NAMESPACE="$NS" pm2 start ecosystem.config.js $PM2_ENV --only "$APP_FLASK" --namespace "$NS"
+fi
+
+# Workers: restart so they stay in sync; if "Process not found" (stale state), delete and start fresh
+if pm2 describe "$APP_WORKER" --namespace "$NS" >/dev/null 2>&1; then
+  if ! pm2 restart "$APP_WORKER" --namespace "$NS" --update-env 2>/dev/null; then
+    echo "🔄 Workers stale (Process not found), resyncing..."
+    pm2 delete "$APP_WORKER" --namespace "$NS" 2>/dev/null || true
+    NAMESPACE="$NS" pm2 start ecosystem.config.js $PM2_ENV --only "$APP_WORKER" --namespace "$NS"
+  fi
+else
+  echo "🔄 Starting workers from ecosystem..."
+  NAMESPACE="$NS" pm2 start ecosystem.config.js $PM2_ENV --only "$APP_WORKER" --namespace "$NS"
 fi
 
 pm2 save
