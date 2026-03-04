@@ -1173,6 +1173,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       // Capture timestamp BEFORE sending request - this will be used for the assistant message
       const assistantMessageTimestamp = new Date()
 
+      // If Deep Thinking Mode is enabled, add a 3-second artificial delay *before* sending the request
+      if (deepThinking) {
+        console.log("[v0] 🧠 Deep Thinking Mode active: delaying request by 3000ms")
+        await new Promise(resolve => setTimeout(resolve, 3000))
+      }
+
       // Send message with streaming enabled
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
@@ -1417,14 +1423,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                           const ttft = firstTokenTimestamp - sendTimestamp
                           console.log(`[v0] ⚡ Time to First Token: ${ttft}ms`)
 
-                          // Artificial delay for Deep Thinking animation
-                          if (deepThinking && ttft < 4000) {
-                            const delayNeeded = 4000 - ttft
-                            console.log(`[v0] 🧠 Artificial Deep Thinking delay: adding ${delayNeeded}ms`)
-                            await new Promise(resolve => setTimeout(resolve, delayNeeded))
-                          }
-
-                          // Hide Deep Thinking animation when stream starts
+                          // Hide Deep Thinking animation when stream actual text starts
                           setIsDeepThinking(false)
                         }
 
@@ -2281,7 +2280,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                     ) : (
                       currentConversation.messageHistory.map((message, index) => {
                         // Don't render empty assistant messages while Deep Thinking animation is active
-                        if (message.role === 'assistant' && message.content === '' && isDeepThinking) {
+                        if (message.role === 'assistant' && message.content.trim() === '' && isDeepThinking) {
                           return null
                         }
                         return (
