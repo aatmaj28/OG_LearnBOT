@@ -2452,6 +2452,20 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         deep_thinking = request_data.get('deep_thinking', False)  # Deep thinking mode flag
         attachments = request_data.get('attachments', [])  # File attachments (base64 encoded)
         
+        # Load persistent attachment context from DB once (for prompt injection and for appending new attachments)
+        _injected_persistent_attachments = []
+        if conversation_id and conversation_id != "undefined":
+            try:
+                _backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                if _backend_root not in sys.path:
+                    sys.path.insert(0, _backend_root)
+                from services import db_service as _db_svc
+                _conv = _db_svc.get_rag_conversation_by_id(conversation_id)
+                if _conv and _conv.get('cachedContext'):
+                    _injected_persistent_attachments = list((_conv['cachedContext'].get('persistent_attachments') or [])[:3])
+            except Exception:
+                pass
+        
         # Check if images are present (for model fallback logic)
         has_images = False
         image_attachments = []
@@ -2655,9 +2669,14 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
             # Summarize document with Gemma when using Blackwell, then combine summary + query for RAG; else append full text
             document_ack_summary = None
             document_ack_type = "document"
+            # Use persistent_attachments loaded at start of process_query (from DB) so we preserve and append
+            persistent_attachments = list(_injected_persistent_attachments)
+            if persistent_attachments:
+                print(f"📎 [PYTHON] Using {len(persistent_attachments)} existing persistent attachment(s) for this message", file=sys.stderr)
             if document_attachments:
                 first_doc = document_attachments[0]
                 ft = (first_doc.get("type") or "").lower()
+                doc_name = first_doc.get("name", "Unknown Document")
                 if "pdf" in ft:
                     document_ack_type = "PDF"
                 elif "csv" in ft or "spreadsheet" in ft:
@@ -2667,17 +2686,48 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
             
             if attachment_text:
                 original_query = query
+                summary_content = ""
+                # Summarize if long enough, else use raw text
                 if document_attachments and preferred_model == 'remote-blackwell' and len(attachment_text.strip()) > 100:
                     summary = summarize_with_blackwell(attachment_text)
                     if summary:
                         query = original_query + "\n\n[Attached document summary]: " + summary
                         document_ack_summary = summary
+                        summary_content = summary
                         print(f"✅ [PYTHON] Using document summary for RAG context ({len(summary)} chars)", file=sys.stderr)
                     else:
                         query = original_query + "\n\n" + attachment_text
+                        summary_content = attachment_text
                         print(f"✅ [PYTHON] Summarization failed or skipped; appending full attachment text ({len(attachment_text)} chars)", file=sys.stderr)
                 else:
                     query = original_query + "\n\n" + attachment_text
+                    summary_content = attachment_text
+                
+                # Automatically append to persistent_attachments limit 3
+                if len(persistent_attachments) < 3 and summary_content:
+                    persistent_attachments.append({
+                        "name": document_attachments[0].get("name", "Unknown Document") if document_attachments else "Text Snippet",
+                        "summary": summary_content
+                    })
+                    
+                    # Force update the conversation record in the database
+                    if conversation_id and conversation_id != "undefined":
+                        try:
+                            _backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                            if _backend_root not in sys.path:
+                                sys.path.insert(0, _backend_root)
+                            from services import db_service as _db_svc
+                            # Preserve existing cached_context keys (e.g. from previous load) and set persistent_attachments
+                            _conv = _db_svc.get_rag_conversation_by_id(conversation_id)
+                            cached_ctx = (_conv.get('cachedContext') or {}).copy() if _conv else {}
+                            cached_ctx["persistent_attachments"] = persistent_attachments
+                            update_data = {"cachedContext": cached_ctx}
+                            _db_svc.update_rag_conversation(conversation_id, update_data)
+                            _injected_persistent_attachments[:] = persistent_attachments  # so prompt injection sees updated list
+                            print(f"💾 [PYTHON] Saved persistent attachment context to DB (Total: {len(persistent_attachments)}/3)", file=sys.stderr)
+                        except Exception as db_err:
+                            print(f"⚠️ Failed to update DB with persistent attachments: {db_err}", file=sys.stderr)
+
                 attachment_text_length = len(attachment_text)
                 print(f"✅ [PYTHON] Attachment text content appended to query ({attachment_text_length} chars total)", file=sys.stderr)
                 if attachment_text_length > 500:
@@ -3029,6 +3079,14 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     else:
                         full_prompt += f"→ All checkpoints completed. Help the student verify their work.\n\n"
                 
+                # Inject persistent attachment context (loaded from DB at start of process_query)
+                if _injected_persistent_attachments:
+                    full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
+                    full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
+                    for idx, att in enumerate(_injected_persistent_attachments):
+                        full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                    full_prompt += "\n"
+                
                 if history_text:
                     _hist = history_text[:4000] if len(history_text) > 4000 else history_text
                     full_prompt += f"Previous conversation:\n{_hist}\n\n"
@@ -3039,6 +3097,15 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 full_prompt += "Provide a helpful educational response following the rules above."
             else:
                 full_prompt = f"{system_prompt}\n\n"
+                
+                # Inject persistent attachment context for fallback models (loaded from DB at start)
+                if _injected_persistent_attachments:
+                    full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
+                    full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
+                    for idx, att in enumerate(_injected_persistent_attachments):
+                        full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                    full_prompt += "\n"
+                
                 if history_text:
                     full_prompt += f"Previous conversation:\n{history_text}\n\n"
                 full_prompt += f"Context from textbook:\n{context_text}\n\n"
