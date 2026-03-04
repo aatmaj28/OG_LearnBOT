@@ -1,0 +1,92 @@
+// PM2 Ecosystem Configuration for LearnBot Backend (Flask)
+// Works for BOTH envs (prod & uat) just by how you start it.
+module.exports = {
+  apps: [
+    {
+      name:
+        process.env.NAMESPACE === 'prod' ? 'learnbot-flask' : 'learnbot-flask-uat',
+      cwd: process.cwd(), // ← no hardcoded path
+      // Run Gunicorn from venv (interpreter: 'none' = run as binary, not with Node)
+      interpreter: 'none',
+      script: 'venv/bin/gunicorn',
+      args: '-c gunicorn_config.py app:app',
+      instances: 1,
+      exec_mode: 'fork',
+
+      // PM2 grouping: lets you do `pm2 ls prod` vs `pm2 ls uat`
+      namespace: process.env.NAMESPACE || 'uat',
+
+      // Load environment variables from .env file (PM2 will merge these)
+      env_file: '.env',
+
+      // Default = UAT (when you do NOT pass --env production)
+      // Dynamic port from environment (K8s-compliant)
+      env: {
+        FLASK_ENV: 'production',
+        PORT: process.env.PORT || 8031, // UAT port (default 8031, can be overridden)
+        NAMESPACE: process.env.NAMESPACE || 'uat',
+      },
+
+      // Overrides when you start with: `--env production`
+      env_production: {
+        PORT: process.env.PORT || 8030,
+        NAMESPACE: 'prod',
+      },
+
+      // logs relative to each folder so prod/uat don't collide
+      error_file: './logs/flask.err.log',
+      out_file: './logs/flask.out.log',
+      log_file: './logs/flask.combined.log',
+
+      time: true,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '9G',  // RAG pipeline loads in Flask now (~1.4 GB × 5 Gunicorn gthread procs)
+      restart_delay: 4000,
+      min_uptime: '10s',
+      max_restarts: 10,
+      kill_timeout: 5000,
+      listen_timeout: 10000,
+    },
+
+    // ── LearnBOT Chat Workers (thin HTTP dispatchers) ──────────────
+    // 5 workers × 10 threads = 50 concurrent HTTP dispatches to Flask
+    {
+      name:
+        process.env.NAMESPACE === 'prod' ? 'learnbot-worker' : 'learnbot-worker-uat',
+      cwd: process.cwd(),
+      interpreter: 'venv/bin/python',
+      script: 'worker.py',
+      instances: 5,
+      exec_mode: 'fork',
+
+      namespace: process.env.NAMESPACE || 'uat',
+      env_file: '.env',
+
+      env: {
+        WORKER_MAX_CONCURRENT: '10',
+        WORKER_TASK_TIMEOUT: '120',
+        FLASK_INTERNAL_URL: `http://localhost:${process.env.NAMESPACE === 'prod' ? '8030' : '8031'}`,
+      },
+
+      // Overrides when you start with: `--env production`
+      env_production: {
+        NAMESPACE: 'prod',
+      },
+
+      error_file: './logs/worker.err.log',
+      out_file: './logs/worker.out.log',
+      log_file: './logs/worker.combined.log',
+
+      time: true,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '500M',  // Thin HTTP dispatcher, no ML models loaded (~36 MB)
+      restart_delay: 15000,
+      min_uptime: '10s',
+      max_restarts: 10,
+      kill_timeout: 30000,    // 30s to finish active tasks before SIGKILL
+      listen_timeout: 10000,
+    }
+  ]
+};
