@@ -1585,6 +1585,15 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
               // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
               loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))
+
+              // Silently sync the updated cachedContext from DB so persistent attachments remain accurate
+              import("@/lib/flask-api-client").then(({ chatApi }) => {
+                chatApi.getConversation(currentConversation.id).then(data => {
+                  if (data?.conversation?.cachedContext) {
+                    setCurrentConversation(prev => prev ? { ...prev, cachedContext: data.conversation.cachedContext } : prev)
+                  }
+                }).catch(err => console.error("[v0] Failed to sync cached context:", err))
+              })
             } catch (streamError: unknown) {
               console.error("[v0] Stream read error (often ERR_HTTP2_PROTOCOL_ERROR):", streamError)
               toast.error("Connection interrupted during response. Please try again.")
