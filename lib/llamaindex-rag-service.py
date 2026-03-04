@@ -2978,8 +2978,49 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     compressed_system = compressed_system + BLACKWELL_DEEP_THINKING_SUFFIX
                     print(f"🧠 Deep thinking mode enabled for Blackwell (Gemma) — reasoning + in-depth, vLLM-friendly", file=sys.stderr)
                 full_prompt = f"{compressed_system}\n\n"
+                
+                # Parse checkpoint progress from ALL messages (not just recent window)
+                cp_progress = {'1': False, '2': False, '3': False}
+                if message_history:
+                    for msg in message_history:
+                        content = msg.get('content', '')
+                        if msg.get('role') == 'assistant' and 'CHECKPOINT_UPDATE:' in content:
+                            import re
+                            cp_match = re.search(r'CHECKPOINT_UPDATE:\s*1=(true|false)\s*,\s*2=(true|false)\s*,\s*3=(true|false)', content, re.IGNORECASE)
+                            if cp_match:
+                                cp_progress['1'] = cp_match.group(1).lower() == 'true' or cp_progress['1']
+                                cp_progress['2'] = cp_match.group(2).lower() == 'true' or cp_progress['2']
+                                cp_progress['3'] = cp_match.group(3).lower() == 'true' or cp_progress['3']
+                        # Also detect checkpoints from conversation content (fallback if CHECKPOINT_UPDATE missing)
+                        if msg.get('role') == 'assistant':
+                            content_lower = content.lower()
+                            if 'checkpoint 1' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
+                                cp_progress['1'] = True
+                            if 'checkpoint 2' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
+                                cp_progress['2'] = True
+                            if 'checkpoint 3' in content_lower and ('formula' in content_lower or 'setup' in content_lower):
+                                cp_progress['3'] = True
+                
+                # Inject checkpoint progress into prompt
+                any_passed = any(cp_progress.values())
+                if any_passed:
+                    cp_status = []
+                    if cp_progress['1']:
+                        cp_status.append("Checkpoint 1 (Classification): COMPLETED")
+                    if cp_progress['2']:
+                        cp_status.append("Checkpoint 2 (Conceptual): COMPLETED")
+                    if cp_progress['3']:
+                        cp_status.append("Checkpoint 3 (Formula & Setup): COMPLETED")
+                    next_cp = "1" if not cp_progress['1'] else ("2" if not cp_progress['2'] else ("3" if not cp_progress['3'] else "ALL DONE"))
+                    full_prompt += f"CHECKPOINT PROGRESS (DO NOT RESTART — continue from where we left off):\n"
+                    full_prompt += "\n".join(cp_status) + "\n"
+                    if next_cp != "ALL DONE":
+                        full_prompt += f"→ Continue with Checkpoint {next_cp}. Do NOT repeat completed checkpoints.\n\n"
+                    else:
+                        full_prompt += f"→ All checkpoints completed. Help the student verify their work.\n\n"
+                
                 if history_text:
-                    _hist = history_text[:2000] if len(history_text) > 2000 else history_text
+                    _hist = history_text[:4000] if len(history_text) > 4000 else history_text
                     full_prompt += f"Previous conversation:\n{_hist}\n\n"
                 full_prompt += f"Context from textbook:\n{_ctx}\n\n"
                 full_prompt += f"Student question: {query}\n\n"
