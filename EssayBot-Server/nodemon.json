@@ -1,0 +1,12 @@
+{
+  "watch": ["src/**/*"],
+  "ext": "ts,json",
+  "ignore": [
+    "src/python/venv/**/*",
+    "src/python/**/__pycache__/**/*",
+    "src/python/**/*.pyc",
+    "node_modules/**/*",
+    "logs/**/*"
+  ],
+  "exec": "ts-node src/index.ts"
+}

@@ -1,0 +1,39 @@
+node_modules/
+*.lock
+.env
+.env.local
+package-lock.json
+__pycache
+
+EssayBot-Server/src/python/llamaindex_rag/cache
+EssayBot-Server/src/python/llamaindex_rag/indices
+EssayBot-Server/src/python/llamaindex_rag/documents
+EssayBot-Server/src/python/llamaindex_rag/embeddings    
+
+# Python caches and artifacts
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py[cod]
+*.egg-info/
+.eggs/
+.Python
+
+# Python/RAG caches and indices within this project
+src/python/cache/
+src/python/**/cache/
+src/python/**/indices/
+src/python/**/documents/
+src/python/**/embeddings/
+src/python/llamaindex_rag/cache/
+src/python/llamaindex_rag/indices/
+src/python/llamaindex_rag/documents/
+src/python/llamaindex_rag/embeddings/
+
+# FAISS index files
+*.faiss
+
+# Logs
+*.log

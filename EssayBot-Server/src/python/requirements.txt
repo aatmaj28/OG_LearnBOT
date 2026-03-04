@@ -1,0 +1,73 @@
+# 
+# ============================================
+# Core Framework Dependencies
+# ============================================
+Flask>=3.0.0
+flask_cors>=4.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+routes>=2.5.0
+ 
+# ============================================
+# Async & Message Queue
+# ============================================
+pika>=1.3.0
+redis>=5.0.0
+aiohttp>=3.9.0
+ 
+# ============================================
+# LangChain & LangGraph (Multi-Agent System)
+# ============================================
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.20
+langchain-huggingface>=0.0.1
+langgraph>=0.0.40
+ 
+# ============================================
+# LlamaIndex RAG System
+# ============================================
+llama-index>=0.12.0
+llama-index-core>=0.12.0
+llama-index-embeddings-huggingface>=0.2.0
+llama-index-readers-file>=0.1.4
+ 
+# ============================================
+# Vector Store - Qdrant
+# ============================================
+qdrant-client>=1.7.0
+ 
+# ============================================
+# ML & Embeddings
+# ============================================
+transformers>=4.35.0
+sentence-transformers>=2.2.0
+torch --pre --index-url https://download.pytorch.org/whl/nightly/cu128
+torchvision --pre --index-url https://download.pytorch.org/whl/nightly/cu128
+torchaudio --pre --index-url https://download.pytorch.org/whl/nightly/cu128
+ 
+# ============================================
+# Document Processing
+# ============================================
+# PDF Processing
+pdfplumber>=0.10.0
+PyMuPDF==1.23.26
+PyPDF2==3.0.1
+ 
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+ 
+# ============================================
+# Cloud & Storage
+# ============================================
+boto3>=1.28.0  # AWS S3 / MinIO
+openai>=1.0.0  # OpenAI API (if used)
+ 
+# ============================================
+# Utilities
+# ============================================
+openpyxl>=3.1.0  # Excel file handling
+typing-extensions>=4.5.0
+dataclasses-json>=0.6.0

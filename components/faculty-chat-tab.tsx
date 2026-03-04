@@ -15,6 +15,7 @@ import { speechToText } from "@/lib/speech-to-text"
 import { VoiceWave } from "@/components/voice-wave"
 import { voiceLogger } from "@/lib/voice-logger"
 import { DeepThinkingAnimation } from "@/components/deep-thinking-animation"
+import toast from "react-hot-toast"
 
 type ChatType = "class_material" | "syllabus"
 
@@ -557,8 +558,26 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
     if (validFiles.length === 0) return
 
-    // Limit to 5 attachments
-    const newFiles = [...attachments, ...validFiles].slice(0, 5)
+    // Calculate persistent attachments already uploaded in this chat session
+    const persistentCount = currentConversation?.cachedContext?.persistent_attachments?.length || 0;
+    const currentAttachmentsCount = attachments.length;
+    const totalAttemptedCount = persistentCount + currentAttachmentsCount + validFiles.length;
+
+    if (totalAttemptedCount > 3) {
+      toast.error('MAX Upload Limit reached (3). You cannot attach more documents to this chat.');
+
+      // Calculate how many more *can* be added to reach exactly 3 (if any)
+      const allowedCount = Math.max(0, 3 - (persistentCount + currentAttachmentsCount));
+      if (allowedCount === 0) return;
+
+      // Slice validFiles to only allow the remaining permitted amount
+      validFiles.splice(allowedCount);
+    }
+
+    if (validFiles.length === 0) return;
+
+    // Limit the current message attachments array
+    const newFiles = [...attachments, ...validFiles]
     setAttachments(newFiles)
 
     // Generate previews for images
