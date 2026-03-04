@@ -3154,15 +3154,20 @@ before and after. This is MANDATORY, not optional.
             
             time_taken = int(llm_time_ms)
         
-        # Output Guard (always on): Gemma/vLLM verifies response vs question; only block if confident leak
+        # Output Guard (always on for strict mode): Gemma/vLLM verifies response vs question; only block if confident leak
+        # Skip for lenient/normal modes since answer verification is explicitly allowed in those modes
         import re as _re  # use _re throughout to avoid shadowing from inner 'import re' elsewhere in process_query
         output_guard_start = time.time()
         leak_detected = False
-        # Compare response to the original user question (before bypass rephrase)
-        output_guard_query = original_user_query
+        skip_output_guard = ta_mode in ('lenient', 'normal')
+        if skip_output_guard:
+            print(f"🛡️ Output Guard: SKIPPED (ta_mode={ta_mode} allows answer verification)", file=sys.stderr)
+        else:
+            # Compare response to the original user question (before bypass rephrase)
+            output_guard_query = original_user_query
 
-        # Use Gemma (Blackwell vLLM) to compare question vs response; require confidence >= threshold so we don't over-flag
-        output_guard_prompt = f"""Compare the STUDENT QUESTION with the TEACHING ASSISTANT RESPONSE.
+            # Use Gemma (Blackwell vLLM) to compare question vs response; require confidence >= threshold so we don't over-flag
+            output_guard_prompt = f"""Compare the STUDENT QUESTION with the TEACHING ASSISTANT RESPONSE.
 
 STUDENT QUESTION:
 "{output_guard_query[:1500]}"
@@ -3180,78 +3185,78 @@ Return ONLY a JSON object:
 
 Use confidence 0.9+ only when the response clearly states the final answer. Use lower confidence for borderline cases."""
 
-        output_guard_response = call_guard_llm(output_guard_prompt, "You are an output guard. Compare question and response; return JSON with leak_detected and confidence.", timeout=15)
-        if output_guard_response:
-            try:
-                json_match = _re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', output_guard_response)
-                if json_match:
-                    guard_result_json = json.loads(json_match.group())
-                    llm_leak = guard_result_json.get("leak_detected", False)
-                    try:
-                        confidence = float(guard_result_json.get("confidence", 0.0))
-                    except (TypeError, ValueError):
-                        confidence = 0.0
-                    # Only treat as leak if Gemma says yes AND confidence meets threshold (avoid failing all responses)
-                    if llm_leak and confidence >= OUTPUT_GUARD_CONFIDENCE_THRESHOLD:
-                        leak_detected = True
-                        print(f"🛡️ Output Guard: leak detected (confidence={confidence:.2f} >= {OUTPUT_GUARD_CONFIDENCE_THRESHOLD})", file=sys.stderr)
-                    else:
-                        print(f"🛡️ Output Guard: approved (leak_detected={llm_leak}, confidence={confidence:.2f})", file=sys.stderr)
-            except Exception as e:
-                print(f"⚠️ Output Guard JSON parse failed: {e}, using pattern fallback", file=sys.stderr)
-        else:
-            print(f"🛡️ Output Guard: Gemma call failed or no response, using pattern fallback", file=sys.stderr)
-
-        # Pattern-based fallback if Gemma call failed or didn't run
-        if not leak_detected:
-            response_lower = teaching_response.lower()
-            leak_patterns = [
-                "the answer is",
-                "therefore =",
-                "correct answer",
-                "final answer is",
-                "solution is",
-                r"= \$?\d+\.\d+",
-                r"= \$?\d+,\d+",
-                r"/ \d+\.\d+ = \$",
-                r"you would need to invest \$?\d+",
-                "you should deposit",
-                "you need to deposit",
-                "the result is",
-                r"present value is \$",
-                r"pv = \$?\d+",
-                r"approximately \$?\d+",
-                r"the value is \$",
-                r"equals \$",
-                r"comes to \$",
-                r"totals \$",
-                r"you get \$",
-                r"answer: \$",
-                r"solution: \$"
-            ]
-            pattern_matched = any(
-                _re.search(p, response_lower) if '\\' in p else p in response_lower
-                for p in leak_patterns
-            )
-            if pattern_matched:
-                # Pattern fallback: only flag if we're confident (e.g. multiple strong phrases); single weak match can be OK
-                strong_patterns = ["the answer is", "correct answer", "final answer is", "solution is", "therefore ="]
-                strong_matches = sum(1 for p in strong_patterns if p in response_lower)
-                if strong_matches >= 1 or (pattern_matched and _re.search(r'= \$?\d+\.\d+', response_lower)):
-                    leak_detected = True
-
-        if leak_detected:
-            if final_results and not is_syllabus:
-                if not checkpoint_state.get('checkpoint_1_passed', False):
-                    teaching_response = "Let's start by identifying the problem. What type of problem is this? What information is given?"
-                elif not checkpoint_state.get('checkpoint_2_passed', False):
-                    teaching_response = "Let's focus on understanding the concept. Can you explain WHY we use this approach?"
-                elif not checkpoint_state.get('checkpoint_3_passed', False):
-                    teaching_response = "Let's work on the formula setup. What formula would you use? Show me how you'd plug in the values."
-                else:
-                    teaching_response = "I can see you've set up the problem correctly. Now work through the calculation yourself and verify your arithmetic. Show me your work!"
+            output_guard_response = call_guard_llm(output_guard_prompt, "You are an output guard. Compare question and response; return JSON with leak_detected and confidence.", timeout=15)
+            if output_guard_response:
+                try:
+                    json_match = _re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', output_guard_response)
+                    if json_match:
+                        guard_result_json = json.loads(json_match.group())
+                        llm_leak = guard_result_json.get("leak_detected", False)
+                        try:
+                            confidence = float(guard_result_json.get("confidence", 0.0))
+                        except (TypeError, ValueError):
+                            confidence = 0.0
+                        # Only treat as leak if Gemma says yes AND confidence meets threshold (avoid failing all responses)
+                        if llm_leak and confidence >= OUTPUT_GUARD_CONFIDENCE_THRESHOLD:
+                            leak_detected = True
+                            print(f"🛡️ Output Guard: leak detected (confidence={confidence:.2f} >= {OUTPUT_GUARD_CONFIDENCE_THRESHOLD})", file=sys.stderr)
+                        else:
+                            print(f"🛡️ Output Guard: approved (leak_detected={llm_leak}, confidence={confidence:.2f})", file=sys.stderr)
+                except Exception as e:
+                    print(f"⚠️ Output Guard JSON parse failed: {e}, using pattern fallback", file=sys.stderr)
             else:
-                teaching_response = "Let's work through this step by step. What do you think the first step should be?"
+                print(f"🛡️ Output Guard: Gemma call failed or no response, using pattern fallback", file=sys.stderr)
+
+            # Pattern-based fallback if Gemma call failed or didn't run
+            if not leak_detected:
+                response_lower = teaching_response.lower()
+                leak_patterns = [
+                    "the answer is",
+                    "therefore =",
+                    "correct answer",
+                    "final answer is",
+                    "solution is",
+                    r"= \$?\d+\.\d+",
+                    r"= \$?\d+,\d+",
+                    r"/ \d+\.\d+ = \$",
+                    r"you would need to invest \$?\d+",
+                    "you should deposit",
+                    "you need to deposit",
+                    "the result is",
+                    r"present value is \$",
+                    r"pv = \$?\d+",
+                    r"approximately \$?\d+",
+                    r"the value is \$",
+                    r"equals \$",
+                    r"comes to \$",
+                    r"totals \$",
+                    r"you get \$",
+                    r"answer: \$",
+                    r"solution: \$"
+                ]
+                pattern_matched = any(
+                    _re.search(p, response_lower) if '\\' in p else p in response_lower
+                    for p in leak_patterns
+                )
+                if pattern_matched:
+                    # Pattern fallback: only flag if we're confident (e.g. multiple strong phrases); single weak match can be OK
+                    strong_patterns = ["the answer is", "correct answer", "final answer is", "solution is", "therefore ="]
+                    strong_matches = sum(1 for p in strong_patterns if p in response_lower)
+                    if strong_matches >= 1 or (pattern_matched and _re.search(r'= \$?\d+\.\d+', response_lower)):
+                        leak_detected = True
+
+            if leak_detected:
+                if final_results and not is_syllabus:
+                    if not checkpoint_state.get('checkpoint_1_passed', False):
+                        teaching_response = "Let's start by identifying the problem. What type of problem is this? What information is given?"
+                    elif not checkpoint_state.get('checkpoint_2_passed', False):
+                        teaching_response = "Let's focus on understanding the concept. Can you explain WHY we use this approach?"
+                    elif not checkpoint_state.get('checkpoint_3_passed', False):
+                        teaching_response = "Let's work on the formula setup. What formula would you use? Show me how you'd plug in the values."
+                    else:
+                        teaching_response = "I can see you've set up the problem correctly. Now work through the calculation yourself and verify your arithmetic. Show me your work!"
+                else:
+                    teaching_response = "Let's work through this step by step. What do you think the first step should be?"
 
         leak_time = time.time() - output_guard_start
         print(f"⏱️ Output Guard time: {leak_time:.3f}s (Gemma/vLLM, Detected: {leak_detected})", file=sys.stderr)
