@@ -29,35 +29,49 @@ rag_bp = Blueprint("rag", __name__)
 
 
 def _derive_persistent_attachments_from_history(conversation):
-    """If cachedContext has no persistent_attachments, derive from messageHistory so 'Documents in this chat' persists."""
+    """If cachedContext has no persistent_attachments or persistent_images, derive from messageHistory so 'Documents/Images in this chat' persists."""
     if not conversation:
         return conversation
     cached = conversation.get("cachedContext") or {}
-    pa = (cached.get("persistent_attachments") or []) if isinstance(cached, dict) else []
-    if pa and len(pa) > 0:
-        return conversation
+    if not isinstance(cached, dict):
+        cached = {}
+    pa = (cached.get("persistent_attachments") or [])[:3]
+    pi = (cached.get("persistent_images") or [])[:3]
     history = conversation.get("messageHistory") or []
-    seen = set()
-    derived = []
-    for msg in history:
-        if isinstance(msg, dict) and msg.get("role") == "user":
-            for att in (msg.get("attachments") or []):
-                name = (att.get("name") if isinstance(att, dict) else None) or "Document"
-                if name not in seen:
-                    seen.add(name)
-                    derived.append({"name": name, "summary": ""})
-    # Fallback for old convos: if first assistant message mentions uploaded PDF/doc, add a placeholder
-    if not derived and history:
+    need_derived_pa = len(pa) == 0
+    need_derived_pi = len(pi) == 0
+    if need_derived_pa or need_derived_pi:
+        seen_doc = set()
+        seen_img = set()
+        derived_pa = list(pa)
+        derived_pi = list(pi)
         for msg in history:
-            if isinstance(msg, dict) and msg.get("role") == "assistant":
-                content = (msg.get("content") or "").lower()
-                if "uploaded a pdf" in content or "attached" in content or "uploaded a document" in content:
-                    derived = [{"name": "Document", "summary": ""}]
-                break
-    if derived:
-        out = dict(conversation)
-        out["cachedContext"] = {**(cached if isinstance(cached, dict) else {}), "persistent_attachments": derived[:3]}
-        return out
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                for att in (msg.get("attachments") or []):
+                    if not isinstance(att, dict):
+                        continue
+                    name = att.get("name") or "Document"
+                    is_image = (att.get("type") or "").lower().startswith("image")
+                    if is_image:
+                        if name not in seen_img and len(derived_pi) < 3:
+                            seen_img.add(name)
+                            derived_pi.append({"name": name})
+                    else:
+                        if name not in seen_doc and len(derived_pa) < 3:
+                            seen_doc.add(name)
+                            derived_pa.append({"name": name, "summary": ""})
+        if need_derived_pa and not derived_pa and history:
+            for msg in history:
+                if isinstance(msg, dict) and msg.get("role") == "assistant":
+                    content = (msg.get("content") or "").lower()
+                    if "uploaded a pdf" in content or "attached" in content or "uploaded a document" in content:
+                        derived_pa = [{"name": "Document", "summary": ""}]
+                    break
+        if derived_pa or derived_pi:
+            out = dict(conversation)
+            new_cached = {**cached, "persistent_attachments": derived_pa[:3], "persistent_images": derived_pi[:3]}
+            out["cachedContext"] = new_cached
+            return out
     return conversation
 
 # Cache the loaded RAG module so we only import once (used by ai_response and by startup preload)
@@ -297,57 +311,10 @@ def ai_response():
                 if ct.lower().startswith('image/'):
                     has_image_attachment = True
             request_data["attachments"] = attachments_list
-        preferred_model_norm = (preferred_model or '').strip().lower()
-        image_unsupported_msg = (
-            "This model doesn't support image attachments as input. Please switch to Claude to use images."
-        )
-        if has_image_attachment and preferred_model_norm != 'claude':
-            updated_history = list(conversation.get('messageHistory', []))
-            now_iso = datetime.now().isoformat()
-            attachments_for_message = [
-                {"name": a.get("name", "attachment"), "type": "image" if (a.get("type") or "").startswith("image/") else "file"}
-                for a in request_data.get("attachments", [])
-            ]
-            user_msg = {"role": "user", "content": message, "timestamp": now_iso}
-            if attachments_for_message:
-                user_msg["attachments"] = attachments_for_message
-            updated_history.append(user_msg)
-            updated_history.append({
-                "role": "assistant",
-                "content": image_unsupported_msg,
-                "timestamp": now_iso,
-            })
-            db_service.update_rag_conversation(session_id, {"messageHistory": updated_history})
-            if stream:
-                def early_stream():
-                    sse_content = json.dumps({"content": image_unsupported_msg}, ensure_ascii=False)
-                    yield f"data: {sse_content}\n\n".encode('utf-8')
-                    done_data = json.dumps({
-                        "done": True,
-                        "content": image_unsupported_msg,
-                        "modelUsed": preferred_model,
-                        "mode": "rag",
-                        "contentFound": False,
-                        "timeTaken": 0
-                    }, ensure_ascii=False)
-                    yield f"data: {done_data}\n\n".encode('utf-8')
-                return Response(
-                    stream_with_context(early_stream()),
-                    mimetype='text/event-stream',
-                    headers={
-                        'Cache-Control': 'no-cache',
-                        'X-Accel-Buffering': 'no',
-                        'Connection': 'keep-alive'
-                    }
-                )
-            return jsonify({
-                "response": image_unsupported_msg,
-                "mode": "rag",
-                "contentFound": False,
-                "modelUsed": preferred_model,
-                "timeTaken": 0
-            })
-        
+        # When the user attaches images and the model is not Claude, we do NOT early-return here.
+        # The RAG service will run on the text query, then prepend an image notice (with file names)
+        # and return the RAG response so the user still gets an answer from the corpus.
+
         # ── RabbitMQ Queue Mode ──────────────────────────────────────────
         # If RabbitMQ is available, publish to queue and return taskId instantly.
         # Workers will process the request and stream results via Redis pub/sub.
