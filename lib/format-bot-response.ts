@@ -8,9 +8,12 @@
  * 3. Replace CP1/CP2/CP3 → Checkpoint 1/2/3
  * 4. Ensure numbered lists have proper spacing
  * 5. Clean up excessive blank lines
+ * 6. Insert first emoji during streaming after first "sealed" sentence
  *
- * NOTE: Emoji insertion is handled separately via addResponseEmojis()
- * which is called ONCE when streaming ends (not during rendering).
+ * Emoji strategy:
+ *  - During streaming (formatBotResponse): ONE emoji after first sealed sentence
+ *    (a sentence that's complete AND has more text after it → stable position/choice)
+ *  - At stream end (addResponseEmojis): second emoji at the end of the response
  */
 
 // Emoji regex covering common emoji ranges
@@ -119,6 +122,43 @@ function insertEmojis(text: string, emojis: string[]): string {
 }
 
 /**
+ * Insert ONE emoji during streaming after the first "sealed" sentence.
+ * A sealed sentence = a line ending with punctuation that has substantive text AFTER it.
+ * Once more text follows a sentence, that sentence can't change → emoji position & choice are stable.
+ * Idempotent: if an emoji already exists anywhere, returns text unchanged.
+ */
+function addStreamingEmoji(text: string): string {
+  // Already has emojis (LLM-generated or previously inserted) — skip
+  if (countEmojis(text) > 0) return text
+  if (text.length < 30) return text
+
+  const lines = text.split('\n')
+
+  // Find first sealed sentence: ends with punctuation and has substantive text after it
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    if (trimmed.length < 10) continue
+
+    // Check if this line ends with sentence-ending punctuation
+    if (/[.!?]\s*$/.test(trimmed)) {
+      // Check there's more substantive text AFTER this line (not just whitespace/blank lines)
+      const hasMoreText = lines.slice(i + 1).some(l => l.trim().length > 5)
+      if (hasMoreText) {
+        // Pick emoji based ONLY on text up to this line (stable keyword set)
+        const textUpToHere = lines.slice(0, i + 1).join('\n')
+        const emojis = pickEmojis(textUpToHere, 1)
+        if (emojis.length > 0) {
+          lines[i] = lines[i].trimEnd() + ' ' + emojis[0]
+        }
+        return lines.join('\n')
+      }
+    }
+  }
+
+  return text // No sealed sentence found yet — wait for more text
+}
+
+/**
  * Main formatting function — call this on every render of an assistant message.
  * Designed to be idempotent (safe to call repeatedly on the same text).
  */
@@ -152,6 +192,9 @@ export function formatBotResponse(text: string): string {
   // Step 7: Clean up excessive blank lines
   text = text.replace(/\n{4,}/g, '\n\n\n')
 
+  // Step 8: Insert first emoji after the first sealed sentence (stable during streaming)
+  text = addStreamingEmoji(text)
+
   // Final cleanup
   text = text.trim()
   text = text.replace(/\n{3,}/g, '\n\n')
@@ -160,16 +203,40 @@ export function formatBotResponse(text: string): string {
 }
 
 /**
- * Add 1-2 contextual emojis to a completed response.
- * Called ONCE when streaming ends — NOT during rendering (avoids emoji flickering).
+ * Add a second emoji at the end of a completed response.
+ * Called ONCE when streaming ends. If streaming already placed one emoji,
+ * this adds a second at the end. If no emojis at all, adds 1-2.
  */
 export function addResponseEmojis(text: string): string {
   if (!text || text.trim().length < 20) return text
 
   const existingEmojiCount = countEmojis(text)
-  if (existingEmojiCount > 0) return text // LLM already added emojis
 
-  const emojiCount = text.length > 200 ? 2 : 1
-  const emojis = pickEmojis(text, emojiCount)
-  return insertEmojis(text, emojis)
+  if (existingEmojiCount >= 2) return text // Already has enough emojis
+
+  if (existingEmojiCount === 1 && text.length > 200) {
+    // Streaming already added one emoji — add a second at the end
+    const emojis = pickEmojis(text, 2)
+    // Find an emoji that's NOT already in the text
+    const existingEmojis: string[] = Array.from(text.match(EMOJI_REGEX) || [])
+    const secondEmoji = emojis.find(e => !existingEmojis.includes(e)) || emojis[emojis.length - 1]
+    // Append to last non-empty line
+    const lines = text.split('\n')
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].trim().length > 0) {
+        lines[i] = lines[i].trimEnd() + ' ' + secondEmoji
+        break
+      }
+    }
+    return lines.join('\n')
+  }
+
+  if (existingEmojiCount === 0) {
+    // No emoji at all (very short response or no sealed sentence was found during streaming)
+    const emojiCount = text.length > 200 ? 2 : 1
+    const emojis = pickEmojis(text, emojiCount)
+    return insertEmojis(text, emojis)
+  }
+
+  return text // 1 emoji on a short response is fine
 }
