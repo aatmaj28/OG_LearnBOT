@@ -2164,7 +2164,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                   </div>
                   <div className="space-y-2">
                     <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>Chat Type</label>
-                    <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+                    <Select value={chatType} onValueChange={(val) => { setChatType(val as ChatType); if (val === 'syllabus') { setDeepThinking(false); setAttachments([]); setAttachmentPreviews([]); } }}>
                       <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
                         <SelectValue />
                       </SelectTrigger>
@@ -2313,7 +2313,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+                  <Select value={chatType} onValueChange={(val) => { setChatType(val as ChatType); if (val === 'syllabus') { setDeepThinking(false); setAttachments([]); setAttachmentPreviews([]); } }}>
                     <SelectTrigger className={`h-8 w-[160px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
                       <SelectValue />
                     </SelectTrigger>
@@ -2628,26 +2628,26 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         type="button"
                         variant="ghost"
                         size="icon"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={loading || hasCorpusPdfs === false || (
+                        onClick={() => chatType !== 'syllabus' && fileInputRef.current?.click()}
+                        disabled={loading || chatType === 'syllabus' || hasCorpusPdfs === false || (
                           ((currentConversation?.cachedContext?.persistent_attachments?.length || 0) + attachments.filter(f => !f.type.startsWith('image/')).length >= 3) &&
                           ((currentConversation?.cachedContext?.persistent_images?.length || 0) + attachments.filter(f => f.type.startsWith('image/')).length >= 3)
                         )}
-                        className={`h-8 w-8 ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                        title="Attach file or image"
+                        className={`h-8 w-8 ${chatType === 'syllabus' ? 'opacity-50 cursor-not-allowed' : ''} ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                        title={chatType === 'syllabus' ? 'Attachments not available for Syllabus/Schedule chat' : 'Attach file or image'}
                       >
                         <Paperclip className="h-4 w-4" />
                       </Button>
 
-                      {/* Deep Thinking Mode - Brain Icon */}
+                      {/* Deep Thinking Mode - Brain Icon (only for Class Material) */}
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         onClick={toggleDeepThinking}
-                        disabled={loading || (hasCorpusPdfs === false && selectedClassId !== 'entire-corpus')}
-                        className={`h-8 w-8 ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                        title={hasCorpusPdfs === false && selectedClassId !== 'entire-corpus' ? "Deep thinking mode requires course materials" : "Deep thinking mode"}
+                        disabled={loading || chatType === 'syllabus' || (hasCorpusPdfs === false && selectedClassId !== 'entire-corpus')}
+                        className={`h-8 w-8 ${chatType === 'syllabus' ? 'opacity-50 cursor-not-allowed' : ''} ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                        title={chatType === 'syllabus' ? 'Deep thinking is only for Class Material chat' : (hasCorpusPdfs === false && selectedClassId !== 'entire-corpus' ? "Deep thinking mode requires course materials" : "Deep thinking mode")}
                       >
                         <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
                       </Button>

@@ -1675,7 +1675,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
               <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
                 Chat Type
               </label>
-              <Select value={chatType} onValueChange={(val) => setChatType(val as ChatType)}>
+              <Select value={chatType} onValueChange={(val) => { setChatType(val as ChatType); if (val === 'syllabus') { setDeepThinking(false); setAttachments([]); setAttachmentPreviews([]); } }}>
                 <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
                   <SelectValue />
                 </SelectTrigger>
@@ -2040,13 +2040,13 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={loading || hasCorpusPdfs === false || (
+                    onClick={() => chatType !== 'syllabus' && fileInputRef.current?.click()}
+                    disabled={loading || chatType === 'syllabus' || hasCorpusPdfs === false || (
                       ((currentConversation?.cachedContext?.persistent_attachments?.length || 0) + attachments.filter(f => !f.type.startsWith('image/')).length >= 3) &&
                       ((currentConversation?.cachedContext?.persistent_images?.length || 0) + attachments.filter(f => f.type.startsWith('image/')).length >= 3)
                     )}
-                    className={`h-8 w-8 ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                    title="Attach file or image"
+                    className={`h-8 w-8 ${chatType === 'syllabus' ? 'opacity-50 cursor-not-allowed' : ''} ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                    title={chatType === 'syllabus' ? 'Attachments not available for Syllabus/Schedule chat' : 'Attach file or image'}
                   >
                     <Paperclip className="h-4 w-4" />
                   </Button>
@@ -2056,9 +2056,9 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     variant="ghost"
                     size="icon"
                     onClick={toggleDeepThinking}
-                    disabled={loading || hasCorpusPdfs === false}
-                    className={`h-8 w-8 ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                    title="Deep thinking mode"
+                    disabled={loading || chatType === 'syllabus' || hasCorpusPdfs === false}
+                    className={`h-8 w-8 ${chatType === 'syllabus' ? 'opacity-50 cursor-not-allowed' : ''} ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                    title={chatType === 'syllabus' ? 'Deep thinking is only for Class Material chat' : 'Deep thinking mode'}
                   >
                     <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
                   </Button>
