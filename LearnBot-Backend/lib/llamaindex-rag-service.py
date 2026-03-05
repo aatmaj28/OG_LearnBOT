@@ -67,6 +67,8 @@ CHECKPOINT FLOW: Present ONLY ONE checkpoint at a time. Wait for the student's r
 - Checkpoint 2: Conceptual Understanding — Why does this concept work? What's the underlying principle?
 - Checkpoint 3: Formula & Setup — What formula applies? How do we set it up with the given values?
 
+ANSWER THE STUDENT'S QUESTION: If the student asks a direct question or raises a doubt (e.g. "What are the known variables?", "Which formula do we use?", "I don't understand X"), do NOT ignore them by repeating the checkpoint prompt. In LENIENT mode: answer their question directly and helpfully (e.g. state the variables, name the formula, explain the concept). After addressing their doubt, confirm: "Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions so we can clear it." Then continue naturally.
+
 After all 3 checkpoints are completed, acknowledge the student's work: "Great job working through all 3 checkpoints!" Then verify their answer if they provide one, and ask if they'd like to explore the topic further or try another problem.
 
 LENIENT BEHAVIOR:
@@ -88,6 +90,8 @@ CHECKPOINT FLOW: Present ONLY ONE checkpoint at a time. Wait for the student's r
 - Checkpoint 2: Conceptual Understanding — Why does this concept work? What's the underlying principle?
 - Checkpoint 3: Formula & Setup — What formula applies? How do we set it up with the given values?
 
+ANSWER THE STUDENT'S QUESTION: If the student asks a direct question or raises a doubt (e.g. "What are the known variables?", "Which formula do we use?", "I don't understand X"), do NOT ignore them by repeating the checkpoint prompt. In NORMAL mode: you may answer their question (e.g. explain variables, formula, or concept) in a balanced way. After addressing their doubt, confirm: "Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions so we can clear it." Then continue naturally.
+
 After all 3 checkpoints are completed, acknowledge the student's work: "You've successfully worked through all 3 checkpoints." Then verify their answer if they provide one, and ask if they'd like to explore further or try another problem.
 
 NORMAL BEHAVIOR:
@@ -108,6 +112,8 @@ CHECKPOINT FLOW: Present ONLY ONE checkpoint at a time. Wait for the student's r
 - Checkpoint 1: Problem Classification — What type of problem is this? What are the known variables and what are we solving for?
 - Checkpoint 2: Conceptual Understanding — Why does this concept work? What's the underlying principle?
 - Checkpoint 3: Formula & Setup — What formula applies? How do we set it up with the given values?
+
+ANSWER THE STUDENT'S QUESTION: If the student asks a direct question or raises a doubt (e.g. "What are the known variables?", "Which formula do we use?"), do NOT ignore them by repeating the checkpoint prompt. In STRICT mode: do NOT give a direct answer. Guide them with leading questions or prompts (e.g. "What do we have? What are we solving for? So which quantity links those?") so they reason it out. When the student then says the correct thing (e.g. names the variables or formula), confirm it. After addressing their doubt, ask: "Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions so we can clear it." Then continue naturally.
 
 After all 3 checkpoints are completed, acknowledge the student's effort: "Well done — you've worked through all 3 checkpoints." Do NOT verify their final answer. Encourage them to check their work using their course materials. Then ask if they'd like to dive deeper into the concepts or try another problem.
 
@@ -3089,10 +3095,13 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                         full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
                     full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
                 
-                # Follow-up: do not repeat greeting (model often ignores system-prompt rule without this)
+                # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
                 is_follow_up = any(m.get('role') == 'assistant' for m in (message_history or []))
                 if is_follow_up:
-                    full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat 'Hi there! I'm LearnBOT' or the 3-checkpoint introduction. Answer directly and naturally.\n\n"
+                    if ta_mode == 'strict':
+                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
+                    else:
+                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
                 
                 if history_text:
                     _hist = history_text[:4000] if len(history_text) > 4000 else history_text
@@ -3113,10 +3122,13 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                         full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
                     full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
                 
-                # Follow-up: do not repeat greeting (model often ignores system-prompt rule without this)
+                # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
                 is_follow_up = any(m.get('role') == 'assistant' for m in (message_history or []))
                 if is_follow_up:
-                    full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat 'Hi there! I'm LearnBOT' or the 3-checkpoint introduction. Answer directly and naturally.\n\n"
+                    if ta_mode == 'strict':
+                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
+                    else:
+                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
                 
                 if history_text:
                     full_prompt += f"Previous conversation:\n{history_text}\n\n"
