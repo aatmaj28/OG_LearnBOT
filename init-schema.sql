@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS classes (
   description TEXT,
   faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   vector_store_folder VARCHAR(255),
+  syllabus_vector_store_folder VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

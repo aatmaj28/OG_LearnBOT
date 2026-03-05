@@ -2279,8 +2279,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                      <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">🧠 Claude</span>
+                      <SelectItem value="claude" disabled className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">🧠 Claude (temporarily unavailable)</span>
                       </SelectItem>
                       <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
                         <span className="text-sm">⚡ Gemma (Blackwell)</span>
