@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MessageSquare, Send, Plus, Bot, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Paperclip, File, Brain, X } from "lucide-react"
+import { MessageSquare, Send, Plus, Bot, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Paperclip, File, Image as ImageIcon, Brain, X } from "lucide-react"
 import type { RAGConversation, Class, ModelBackend, ChatAttachment } from "@/lib/types"
 import { getConversationCardTitle } from "@/lib/utils"
 import { ChatMessage } from "@/components/chat-message"
@@ -390,32 +390,48 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         }))
       : []
 
-    // If API returned null cachedContext, derive so "Documents in this chat" persists
+    // If API returned null cachedContext, derive so "Documents in this chat" and "Images in this chat" persist
     let cachedContext = conversation.cachedContext ?? undefined
-    if (!cachedContext?.persistent_attachments?.length && messageHistory.length > 0) {
-      const fromHistory: Array<{ name?: string; summary?: string }> = []
-      const seen = new Set<string>()
+    const hasDocs = (cachedContext?.persistent_attachments?.length ?? 0) > 0
+    const hasImages = (cachedContext?.persistent_images?.length ?? 0) > 0
+    if ((!hasDocs || !hasImages) && messageHistory.length > 0) {
+      const fromHistoryDocs: Array<{ name?: string; summary?: string }> = []
+      const fromHistoryImages: Array<{ name?: string }> = []
+      const seenDoc = new Set<string>()
+      const seenImg = new Set<string>()
       for (const msg of messageHistory) {
         if (msg?.role === 'user' && Array.isArray(msg.attachments)) {
           for (const att of msg.attachments) {
             const name = att?.name || 'Document'
-            if (!seen.has(name)) {
-              seen.add(name)
-              fromHistory.push({ name, summary: '' })
+            const isImage = (att?.type ?? '').toString().toLowerCase().startsWith('image')
+            if (isImage) {
+              if (!seenImg.has(name) && fromHistoryImages.length < 3) {
+                seenImg.add(name)
+                fromHistoryImages.push({ name })
+              }
+            } else {
+              if (!seenDoc.has(name) && fromHistoryDocs.length < 3) {
+                seenDoc.add(name)
+                fromHistoryDocs.push({ name, summary: '' })
+              }
             }
           }
         }
       }
       // Fallback for old convos: if first assistant message mentions uploaded PDF/doc, show a placeholder
-      if (fromHistory.length === 0) {
+      if (!hasDocs && fromHistoryDocs.length === 0) {
         const firstAssistant = messageHistory.find((m: any) => m?.role === 'assistant')
         const content = (firstAssistant?.content || '').toLowerCase()
         if (/uploaded a pdf|attached a (document|pdf|file)|uploaded a document/.test(content)) {
-          fromHistory.push({ name: 'Document', summary: '' })
+          fromHistoryDocs.push({ name: 'Document', summary: '' })
         }
       }
-      if (fromHistory.length > 0) {
-        cachedContext = { ...(cachedContext || {}), persistent_attachments: fromHistory.slice(0, 3) }
+      if (fromHistoryDocs.length > 0 || fromHistoryImages.length > 0) {
+        cachedContext = {
+          ...(cachedContext || {}),
+          persistent_attachments: hasDocs ? (cachedContext?.persistent_attachments ?? []).slice(0, 3) : fromHistoryDocs.slice(0, 3),
+          persistent_images: hasImages ? (cachedContext?.persistent_images ?? []).slice(0, 3) : fromHistoryImages.slice(0, 3)
+        }
       }
     }
 
@@ -590,32 +606,50 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
     if (validFiles.length === 0) return
 
-    // Calculate persistent attachments already uploaded in this chat session
-    const persistentCount = currentConversation?.cachedContext?.persistent_attachments?.length || 0;
-    const currentAttachmentsCount = attachments.length;
+    // Enforce 3 docs + 3 images per chat session (separate limits)
+    const persistentDocs = currentConversation?.cachedContext?.persistent_attachments?.length || 0
+    const persistentImages = currentConversation?.cachedContext?.persistent_images?.length || 0
+    const currentDocs = attachments.filter(f => !f.type.startsWith('image/')).length
+    const currentImages = attachments.filter(f => f.type.startsWith('image/')).length
+    const allowedDocs = Math.max(0, 3 - (persistentDocs + currentDocs))
+    const allowedImages = Math.max(0, 3 - (persistentImages + currentImages))
 
-    // Calculate how many more *can* be added to reach exactly 3
-    const allowedCount = Math.max(0, 3 - (persistentCount + currentAttachmentsCount));
-
-    if (allowedCount === 0) {
-      toast.error('MAX Upload Limit reached (3). You cannot attach more documents to this chat.');
-      return;
+    let docsAdded = 0
+    let imagesAdded = 0
+    const capped: File[] = []
+    for (const file of validFiles) {
+      const isImage = file.type.startsWith('image/')
+      if (isImage) {
+        if (imagesAdded >= allowedImages) {
+          toast.error('MAX image upload limit reached (3). You cannot attach more images to this chat.')
+          break
+        }
+        capped.push(file)
+        imagesAdded++
+      } else {
+        if (docsAdded >= allowedDocs) {
+          toast.error('MAX document upload limit reached (3). You cannot attach more documents to this chat.')
+          break
+        }
+        capped.push(file)
+        docsAdded++
+      }
     }
-
-    if (validFiles.length > allowedCount) {
-      toast.error(`MAX Upload Limit reached. Only ${allowedCount} more document(s) can be attached.`);
-      validFiles = validFiles.slice(0, allowedCount);
+    if (capped.length === 0) {
+      if (allowedDocs === 0 && allowedImages === 0) {
+        toast.error('MAX upload limit reached (3 documents + 3 images). You cannot attach more to this chat.')
+      }
+      return
     }
-
-    if (validFiles.length === 0) return;
+    const validFilesCapped = capped
 
     // Limit the current message attachments array
-    const newFiles = [...attachments, ...validFiles]
+    const newFiles = [...attachments, ...validFilesCapped]
     setAttachments(newFiles)
 
     // Generate previews for images
     const newPreviews: Array<{ file: File; preview: string }> = []
-    validFiles.forEach(file => {
+    validFilesCapped.forEach(file => {
       if (file.type.startsWith('image/')) {
         const preview = URL.createObjectURL(file)
         newPreviews.push({ file, preview })
@@ -856,17 +890,19 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       }
     })
 
-    // Optimistically update persistent_attachments count so the 3-attachment limit is enforced
-    // before the backend responds (avoids allowing 3 more when 1 was already sent in a prior message)
+    // Optimistically update persistent_attachments (docs) and persistent_images so 3-doc + 3-image limits are enforced
     if (messageAttachments.length > 0) {
       setCurrentConversation(prev => {
         if (!prev) return prev
-        const existing = prev.cachedContext?.persistent_attachments || []
-        const added = messageAttachments.map(f => ({ name: f.name, summary: '(pending)' }))
-        const merged = [...existing, ...added].slice(0, 3)
+        const existingDocs = prev.cachedContext?.persistent_attachments || []
+        const existingImages = prev.cachedContext?.persistent_images || []
+        const docFiles = messageAttachments.filter(f => !f.type.startsWith('image/'))
+        const imageFiles = messageAttachments.filter(f => f.type.startsWith('image/'))
+        const mergedDocs = [...existingDocs, ...docFiles.map(f => ({ name: f.name, summary: '(pending)' }))].slice(0, 3)
+        const mergedImages = [...existingImages, ...imageFiles.map(f => ({ name: f.name }))].slice(0, 3)
         return {
           ...prev,
-          cachedContext: { ...prev.cachedContext, persistent_attachments: merged }
+          cachedContext: { ...prev.cachedContext, persistent_attachments: mergedDocs, persistent_images: mergedImages }
         }
       })
     }
@@ -1939,6 +1975,25 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   </div>
                 )}
 
+                {/* Images in this chat - persistent image attachments (no download icon) */}
+                {currentConversation?.cachedContext?.persistent_images?.length > 0 && (
+                  <div className={`flex flex-wrap items-center gap-2 mb-2 ${isDarkMode ? 'text-white/80' : 'text-gray-600'}`}>
+                    <span className="text-xs font-medium shrink-0">Images in this chat:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {currentConversation.cachedContext.persistent_images.map((att: { name?: string }, i: number) => (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs ${isDarkMode ? 'bg-white/10 text-white/90' : 'bg-gray-200 text-gray-700'}`}
+                          title={att.name}
+                        >
+                          <ImageIcon className="h-3 w-3 shrink-0 opacity-70" />
+                          <span className="max-w-[120px] truncate">{att.name || 'Image'}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Chat input pill - same design as student portal */}
                 <div className={`flex items-center gap-4 px-5 py-3.5 rounded-3xl ${isDarkMode
                   ? 'bg-white/5 border border-white/10 hover:border-white/20'
@@ -1957,7 +2012,10 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     variant="ghost"
                     size="icon"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={loading || hasCorpusPdfs === false || (attachments.length + (currentConversation?.cachedContext?.persistent_attachments?.length || 0)) >= 3}
+                    disabled={loading || hasCorpusPdfs === false || (
+                      ((currentConversation?.cachedContext?.persistent_attachments?.length || 0) + attachments.filter(f => !f.type.startsWith('image/')).length >= 3) &&
+                      ((currentConversation?.cachedContext?.persistent_images?.length || 0) + attachments.filter(f => f.type.startsWith('image/')).length >= 3)
+                    )}
                     className={`h-8 w-8 ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
                     title="Attach file or image"
                   >

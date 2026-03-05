@@ -2460,6 +2460,7 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         
         # Load persistent attachment context from DB once (for prompt injection and for appending new attachments)
         _injected_persistent_attachments = []
+        _injected_persistent_images = []  # Max 3 image names per session (like docs)
         if conversation_id and conversation_id != "undefined":
             try:
                 _backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -2469,6 +2470,7 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                 _conv = _db_svc.get_rag_conversation_by_id(conversation_id)
                 if _conv and _conv.get('cachedContext'):
                     _injected_persistent_attachments = list((_conv['cachedContext'].get('persistent_attachments') or [])[:3])
+                    _injected_persistent_images = list((_conv['cachedContext'].get('persistent_images') or [])[:3])
             except Exception:
                 pass
         
@@ -2486,11 +2488,16 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                 else:
                     document_attachments.append(att)
         
-        # Model fallback: If images are present and preferred_model is not Claude, fallback to Claude
-        # (This is already handled in TypeScript, but we check here too for safety)
+        # When images are present and model is not Claude: do NOT switch to Claude (e.g. Claude may be off).
+        # We run RAG on the text query only, then prepend an image notice (with file names) and return the RAG response.
+        image_notice = None  # Set when we have image_attachments and preferred_model != 'claude'
         if has_images and preferred_model != 'claude':
-            print(f"🔄 Image attachment detected with {preferred_model} - falling back to Claude API for image support", file=sys.stderr)
-            preferred_model = 'claude'
+            image_names = [att.get('name', 'image') for att in image_attachments]
+            image_notice = (
+                f"You attached image(s): {', '.join(image_names)}. "
+                "This model doesn't support image input. Please switch to Claude to ask image-related questions."
+            )
+            print(f"📷 [PYTHON] Image(s) in message with non-Claude model - will prepend notice and still run RAG on text", file=sys.stderr)
         
         # Process attachments for text extraction (for non-image attachments or when not using Claude)
         attachment_text = ""
@@ -2507,11 +2514,8 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                     sys.stderr.flush()
                     
                     if att_type.startswith('image/'):
-                        # Images will be handled directly by Claude API in the message content
-                        # For other models, we can't process images, so just note it
-                        if preferred_model != 'claude':
-                            attachment_text += f"\n[Image attachment: {att_name} - cannot process with {preferred_model}, please use Claude API]\n"
-                        print(f"   📷 [PYTHON] Image attachment: {att_name} (will be sent to Claude API)", file=sys.stderr)
+                        # Images are handled by Claude API when model is Claude; for other models we prepend image_notice and run RAG on text only (do not add to attachment_text so query stays clean)
+                        print(f"   📷 [PYTHON] Image attachment: {att_name} (will be sent to Claude API if model is Claude, else notice only)", file=sys.stderr)
                         sys.stderr.flush()
                     elif att_type == 'application/pdf':
                         # Extract text from PDF
@@ -2744,6 +2748,32 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
             else:
                 print(f"⚠️ [PYTHON] No attachment text to append (extraction may have failed or attachment was image-only)", file=sys.stderr)
                 sys.stderr.flush()
+            
+            # When current message has image attachments: merge into persistent_images (max 3) and save to DB
+            if image_attachments and conversation_id and conversation_id != "undefined":
+                persistent_images = list(_injected_persistent_images)
+                seen_img = {p.get("name") for p in persistent_images if isinstance(p, dict)}
+                for att in image_attachments:
+                    if len(persistent_images) >= 3:
+                        break
+                    name = att.get("name") or "image"
+                    if name not in seen_img:
+                        seen_img.add(name)
+                        persistent_images.append({"name": name})
+                if len(persistent_images) > len(_injected_persistent_images):
+                    try:
+                        _backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                        if _backend_root not in sys.path:
+                            sys.path.insert(0, _backend_root)
+                        from services import db_service as _db_svc
+                        _conv = _db_svc.get_rag_conversation_by_id(conversation_id)
+                        cached_ctx = (_conv.get('cachedContext') or {}).copy() if _conv else {}
+                        cached_ctx["persistent_images"] = persistent_images[:3]
+                        _db_svc.update_rag_conversation(conversation_id, {"cachedContext": cached_ctx})
+                        _injected_persistent_images[:] = persistent_images[:3]
+                        print(f"💾 [PYTHON] Saved persistent_images to DB (Total: {len(persistent_images)}/3)", file=sys.stderr)
+                    except Exception as db_err:
+                        print(f"⚠️ Failed to update DB with persistent_images: {db_err}", file=sys.stderr)
         
         # SYLLABUS-SPECIFIC OPTIMIZATIONS: Only apply to syllabus queries
         is_syllabus = chat_type == 'syllabus'
@@ -3205,6 +3235,9 @@ before and after. This is MANDATORY, not optional.
             if deep_thinking:
                 print(f"🧠 Deep thinking mode enabled (combined with TA mode)", file=sys.stderr)
             
+            # When message has images and model is not Claude: stream the image notice first so the user sees it before the RAG answer
+            if image_notice and stream_callback:
+                stream_callback(image_notice + "\n\n")
             # Teaching LLM Stage - Use streaming for real-time response
             print(f"[RAG] 📌 Teaching LLM stage - preferred_model={preferred_model!r} (Gemma/Blackwell uses 'remote-blackwell')", file=sys.stderr)
             llm_start = time.time()
@@ -3252,6 +3285,10 @@ before and after. This is MANDATORY, not optional.
                     + teaching_response
                 )
                 print(f"📎 [PYTHON] Prefixed response with document acknowledgement ({ack_type})", file=sys.stderr)
+            # Prepend image notice when user attached images and model is not Claude (so stored/returned content is complete; streaming already sent notice first)
+            if image_notice:
+                teaching_response = image_notice + "\n\n" + teaching_response
+                print(f"📷 [PYTHON] Prefixed response with image notice (switch to Claude for image questions)", file=sys.stderr)
             
             time_taken = int(llm_time_ms)
         
