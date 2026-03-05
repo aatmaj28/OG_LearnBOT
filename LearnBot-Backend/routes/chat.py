@@ -60,11 +60,16 @@ def _derive_persistent_attachments_from_history(conversation):
                         if name not in seen_doc and len(derived_pa) < 3:
                             seen_doc.add(name)
                             derived_pa.append({"name": name, "summary": ""})
+        # Only add placeholder "Document" when assistant clearly refers to a document/PDF, not when they only said "attached image(s)"
         if need_derived_pa and not derived_pa and history:
             for msg in history:
                 if isinstance(msg, dict) and msg.get("role") == "assistant":
                     content = (msg.get("content") or "").lower()
-                    if "uploaded a pdf" in content or "attached" in content or "uploaded a document" in content:
+                    doc_phrase = (
+                        "uploaded a pdf" in content or "uploaded a document" in content
+                        or "attached a document" in content or "attached a pdf" in content or "attached a file" in content
+                    )
+                    if doc_phrase and "attached image" not in content:
                         derived_pa = [{"name": "Document", "summary": ""}]
                     break
         if derived_pa or derived_pi:
@@ -644,12 +649,15 @@ def internal_process_query():
                 updated_history = conversation.get("messageHistory", [])
                 now_iso = datetime.now().isoformat()
                 
-                # Add user message
-                updated_history.append({
-                    "role": "user",
-                    "content": request_data.get("query", ""),
-                    "timestamp": now_iso,
-                })
+                # Add user message (include attachments so "Documents/Images in this chat" persists when user returns)
+                attachments_for_message = [
+                    {"name": a.get("name", "attachment"), "type": "image" if (a.get("type") or "").lower().startswith("image") else "file"}
+                    for a in request_data.get("attachments", [])
+                ]
+                user_msg = {"role": "user", "content": request_data.get("query", ""), "timestamp": now_iso}
+                if attachments_for_message:
+                    user_msg["attachments"] = attachments_for_message
+                updated_history.append(user_msg)
                 
                 # Add assistant message
                 if final_response:

@@ -431,7 +431,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       if (!hasDocs && fromHistoryDocs.length === 0) {
         const firstAssistant = messageHistory.find((m: any) => m?.role === 'assistant')
         const content = (firstAssistant?.content || '').toLowerCase()
-        if (/uploaded a pdf|attached a (document|pdf|file)|uploaded a document/.test(content)) {
+        const docPhrase = /uploaded a pdf|attached a (document|pdf|file)|uploaded a document/.test(content)
+        if (docPhrase && !/attached image/.test(content)) {
           fromHistoryDocs.push({ name: 'Document', summary: '' })
         }
       }
