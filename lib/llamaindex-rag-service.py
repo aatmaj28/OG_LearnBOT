@@ -1656,9 +1656,8 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
                 user_content_clean = str(user_content)
             # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
             if user_content_clean.strip().startswith("You are LearnBOT"):
-                # Syllabus prompts can be ~13K chars (system prompt + full syllabus context)
-                # Gemma 3 12B has 128K token context, so 16K chars (~4K tokens) is safe
-                combined_user_content = user_content_clean[:16000] if len(user_content_clean) > 16000 else user_content_clean
+                # Gemma 3 12B has 128K token context — 32K chars (~8K tokens) is safe
+                combined_user_content = user_content_clean[:32000] if len(user_content_clean) > 32000 else user_content_clean
             else:
                 user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
                 combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
@@ -1970,9 +1969,8 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                 user_content_clean = str(user_content)
             # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
             if user_content_clean.strip().startswith("You are LearnBOT"):
-                # Syllabus prompts can be ~13K chars (system prompt + full syllabus context)
-                # Gemma 3 12B has 128K token context, so 16K chars (~4K tokens) is safe
-                combined_user_content = user_content_clean[:16000] if len(user_content_clean) > 16000 else user_content_clean
+                # Gemma 3 12B has 128K token context — 32K chars (~8K tokens) is safe
+                combined_user_content = user_content_clean[:32000] if len(user_content_clean) > 32000 else user_content_clean
             else:
                 user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
                 combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
