@@ -2469,8 +2469,10 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                 from services import db_service as _db_svc
                 _conv = _db_svc.get_rag_conversation_by_id(conversation_id)
                 if _conv and _conv.get('cachedContext'):
-                    _injected_persistent_attachments = list((_conv['cachedContext'].get('persistent_attachments') or [])[:3])
-                    _injected_persistent_images = list((_conv['cachedContext'].get('persistent_images') or [])[:3])
+                    _raw_pa = _conv['cachedContext'].get('persistent_attachments') or []
+                    _injected_persistent_attachments = [x for x in list(_raw_pa)[:3] if isinstance(x, dict)]
+                    _raw_pi = _conv['cachedContext'].get('persistent_images') or []
+                    _injected_persistent_images = [x for x in list(_raw_pi)[:3] if isinstance(x, dict)]
             except Exception:
                 pass
         
@@ -3025,6 +3027,8 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 # Use consistent labels: "USER" and "AI TA" for both types
                 if is_syllabus:
                     for i, msg in enumerate(recent_history):
+                        if not isinstance(msg, dict):
+                            continue
                         role = "USER" if msg.get('role') == 'user' else "AI TA"
                         content = msg.get('content', '')
                         content_lines = [line for line in content.split('\n') if not line.startswith('CHECKPOINT_UPDATE:')]
@@ -3049,6 +3053,8 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     }
                     
                     for msg in recent_history:
+                        if not isinstance(msg, dict):
+                            continue
                         role = "USER" if msg.get('role') == 'user' else "AI TA"
                         content = msg.get('content', '')
                         
@@ -3081,6 +3087,8 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 cp_progress = {'1': False, '2': False, '3': False}
                 if message_history:
                     for msg in message_history:
+                        if not isinstance(msg, dict):
+                            continue
                         content = msg.get('content', '')
                         if msg.get('role') == 'assistant' and 'CHECKPOINT_UPDATE:' in content:
                             import re
@@ -3122,11 +3130,14 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
                     full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
                     for idx, att in enumerate(_injected_persistent_attachments):
-                        full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                        if isinstance(att, dict):
+                            full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                        else:
+                            full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
                     full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
                 
                 # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
-                is_follow_up = any(m.get('role') == 'assistant' for m in (message_history or []))
+                is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
                 if is_follow_up:
                     if ta_mode == 'strict':
                         full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
@@ -3149,11 +3160,14 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
                     full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
                     for idx, att in enumerate(_injected_persistent_attachments):
-                        full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                        if isinstance(att, dict):
+                            full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                        else:
+                            full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
                     full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
                 
                 # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
-                is_follow_up = any(m.get('role') == 'assistant' for m in (message_history or []))
+                is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
                 if is_follow_up:
                     if ta_mode == 'strict':
                         full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"

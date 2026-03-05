@@ -701,6 +701,15 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
         }))
       : []
 
+    const dedupeByName = <T extends { name?: string }>(arr: T[], max: number) => {
+      const seen = new Set<string>()
+      return arr.filter((x) => {
+        const n = x.name || ''
+        if (seen.has(n) || seen.size >= max) return false
+        seen.add(n)
+        return true
+      })
+    }
     // If API returned null cachedContext, derive so "Documents in this chat" and "Images in this chat" persist
     let cachedContext = conversation.cachedContext ?? undefined
     const hasDocs = (cachedContext?.persistent_attachments?.length ?? 0) > 0
@@ -739,9 +748,18 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       if (fromHistoryDocs.length > 0 || fromHistoryImages.length > 0) {
         cachedContext = {
           ...(cachedContext || {}),
-          persistent_attachments: hasDocs ? (cachedContext?.persistent_attachments ?? []).slice(0, 3) : fromHistoryDocs.slice(0, 3),
-          persistent_images: hasImages ? (cachedContext?.persistent_images ?? []).slice(0, 3) : fromHistoryImages.slice(0, 3)
+          persistent_attachments: dedupeByName(hasDocs ? (cachedContext?.persistent_attachments ?? []) : fromHistoryDocs, 3),
+          persistent_images: dedupeByName(hasImages ? (cachedContext?.persistent_images ?? []) : fromHistoryImages, 3)
         }
+      }
+    }
+    // Always dedupe API-returned or derived lists so we never show duplicate chips
+    if (cachedContext) {
+      if (cachedContext.persistent_attachments?.length) {
+        cachedContext = { ...cachedContext, persistent_attachments: dedupeByName(cachedContext.persistent_attachments as { name?: string }[], 3) }
+      }
+      if (cachedContext.persistent_images?.length) {
+        cachedContext = { ...cachedContext, persistent_images: dedupeByName(cachedContext.persistent_images as { name?: string }[], 3) }
       }
     }
 
@@ -954,10 +972,13 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     const allowedDocs = Math.max(0, 3 - (persistentDocs + currentDocs))
     const allowedImages = Math.max(0, 3 - (persistentImages + currentImages))
 
+    const existingNames = new Set(attachments.map(f => f.name))
     let docsAdded = 0
     let imagesAdded = 0
     const capped: File[] = []
     for (const file of validFiles) {
+      if (existingNames.has(file.name)) continue
+      existingNames.add(file.name)
       const isImage = file.type.startsWith('image/')
       if (isImage) {
         if (imagesAdded >= allowedImages) {
@@ -1173,9 +1194,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     const messageAttachments = attachments // Store attachments before clearing
     setInput("")
     setAttachments([])
-    // Clean up preview URLs
-    attachmentPreviews.forEach(({ preview }) => {
-      if (preview.startsWith('blob:')) {
+    // Clean up preview URLs except for images we're sending (keep those so the sent message shows the preview)
+    attachmentPreviews.forEach(({ file, preview }) => {
+      if (preview.startsWith('blob:') && !messageAttachments.some(f => f === file)) {
         URL.revokeObjectURL(preview)
       }
     })
@@ -1197,7 +1218,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       metadata: {},
       attachments: messageAttachments.length > 0 ? messageAttachments.map(file => ({
         type: (file.type.startsWith('image/') ? 'image' : 'file') as 'image' | 'file',
-        url: '', // Will be set by backend after upload
+        url: file.type.startsWith('image/') ? (attachmentPreviews.find(p => p.file === file)?.preview ?? '') : '',
         name: file.name,
         mimeType: file.type,
         size: file.size
@@ -1213,7 +1234,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       }
     })
 
-    // Optimistically update persistent_attachments (docs) and persistent_images so 3-doc + 3-image limits are enforced
+    // Optimistically update persistent_attachments (docs) and persistent_images; dedupe by name so same file never shows twice
     if (messageAttachments.length > 0) {
       setCurrentConversation(prev => {
         if (!prev) return prev
@@ -1221,8 +1242,24 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
         const existingImages = prev.cachedContext?.persistent_images || []
         const docFiles = messageAttachments.filter(f => !f.type.startsWith('image/'))
         const imageFiles = messageAttachments.filter(f => f.type.startsWith('image/'))
-        const mergedDocs = [...existingDocs, ...docFiles.map(f => ({ name: f.name, summary: '(pending)' }))].slice(0, 3)
-        const mergedImages = [...existingImages, ...imageFiles.map(f => ({ name: f.name }))].slice(0, 3)
+        const seenDoc = new Set((existingDocs as { name?: string }[]).map(d => d.name))
+        const mergedDocs = [...existingDocs]
+        for (const f of docFiles) {
+          if (mergedDocs.length >= 3) break
+          if (!seenDoc.has(f.name)) {
+            seenDoc.add(f.name)
+            mergedDocs.push({ name: f.name, summary: '(pending)' })
+          }
+        }
+        const seenImg = new Set((existingImages as { name?: string }[]).map(d => d.name))
+        const mergedImages = [...existingImages]
+        for (const f of imageFiles) {
+          if (mergedImages.length >= 3) break
+          if (!seenImg.has(f.name)) {
+            seenImg.add(f.name)
+            mergedImages.push({ name: f.name })
+          }
+        }
         return {
           ...prev,
           cachedContext: { ...prev.cachedContext, persistent_attachments: mergedDocs, persistent_images: mergedImages }

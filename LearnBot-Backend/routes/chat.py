@@ -612,17 +612,19 @@ def internal_process_query():
         # Accumulated response for final save
         accumulated_response = ""
         
-        def stream_callback(chunk_data: dict) -> None:
-            """Called by RAG service for each generated token/chunk."""
+        def stream_callback(chunk_data) -> None:
+            """Called by RAG service for each generated token/chunk. Accepts dict or raw str (e.g. image notice)."""
             nonlocal accumulated_response
-            if chunk_data.get("type") == "chunk":
+            if isinstance(chunk_data, str):
+                if chunk_data:
+                    accumulated_response += chunk_data
+                    redis_service.publish_chunk(task_id, {"content": chunk_data})
+                return
+            if isinstance(chunk_data, dict) and chunk_data.get("type") == "chunk":
                 chunk_text = chunk_data.get("chunk", "")
                 if chunk_text:
                     accumulated_response += chunk_text
-                    # Publish chunk to Redis pub/sub for SSE endpoint
-                    redis_service.publish_chunk(task_id, {
-                        "content": chunk_text,
-                    })
+                    redis_service.publish_chunk(task_id, {"content": chunk_text})
         
         # Call process_query with streaming
         result = process_query(request_data, stream_callback=stream_callback)

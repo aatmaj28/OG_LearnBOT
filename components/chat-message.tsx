@@ -249,19 +249,25 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
               {attachments.map((attachment, index) => (
                 <div key={index} className="relative">
                   {attachment.type === 'image' ? (
-                    <div className="relative rounded-lg overflow-hidden border border-gray-300 max-w-xs">
-                      {attachment.url ? (
+                    attachment.url ? (
+                      <div className="relative rounded-lg overflow-hidden border border-gray-300 max-w-xs">
                         <img
                           src={attachment.url}
                           alt={attachment.name}
                           className="max-h-48 object-contain"
                         />
-                      ) : (
-                        <div className="w-32 h-32 bg-gray-100 flex items-center justify-center">
-                          <ImageIcon className="h-8 w-8 text-gray-400" />
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${isDarkMode
+                            ? 'bg-white/5 border-white/20 text-white'
+                            : 'bg-gray-50 border-gray-300 text-gray-700'
+                          }`}
+                      >
+                        <ImageIcon className="h-4 w-4 shrink-0" />
+                        <span className="text-sm max-w-[150px] truncate">{attachment.name || 'Image'}</span>
+                      </div>
+                    )
                   ) : (
                     <div
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${isDarkMode
