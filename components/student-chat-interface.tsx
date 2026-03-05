@@ -521,30 +521,40 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     if (!hasNonASCII) return content // Early exit for ASCII-only
 
     // Character whitelist filter (same as Python side)
+    // Use codePointAt for proper emoji handling (emojis are multi-byte surrogate pairs)
     let result = ''
     for (let i = 0; i < content.length; i++) {
-      const code = content.charCodeAt(i)
-      // Allow: ASCII (0-127), safe Unicode ranges, and emojis
-      if (code <= 127 ||
-        (code >= 0x2000 && code <= 0x206F) ||  // General Punctuation
-        (code >= 0x20A0 && code <= 0x20CF) ||  // Currency symbols
-        (code >= 0x2100 && code <= 0x214F) ||  // Letterlike Symbols
-        (code >= 0x2190 && code <= 0x21FF) ||  // Arrows
-        (code >= 0x2200 && code <= 0x22FF) ||  // Mathematical Operators
-        (code >= 0x2300 && code <= 0x23FF) ||  // Miscellaneous Technical
-        (code >= 0x2400 && code <= 0x243F) ||  // Control Pictures
-        (code >= 0x25A0 && code <= 0x25FF) ||  // Geometric Shapes
-        (code >= 0x2600 && code <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
-        (code >= 0x2700 && code <= 0x27BF) ||  // Dingbats
-        (code >= 0x1F300 && code <= 0x1F9FF) || // Emoticons and Symbols
-        (code >= 0x1F600 && code <= 0x1F64F) || // Emoticons
-        (code >= 0x1F900 && code <= 0x1F9FF) || // Supplemental Symbols and Pictographs
-        (code >= 0x1FA00 && code <= 0x1FAFF) || // Symbols and Pictographs Extended-A
-        (code >= 0xFE00 && code <= 0xFE0F) ||   // Variation Selectors
-        (code >= 0xFE20 && code <= 0xFE2F)) {   // Combining Half Marks
-        result += content[i]
+      const codePoint = content.codePointAt(i) || 0
+      // Skip surrogate pair second halves (already consumed with first half)
+      if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
+        continue
       }
-      // Skip corrupted sequences but allow emojis
+
+      // Allow: ASCII (0-127), safe Unicode ranges, and emojis
+      if (codePoint <= 127 ||
+        (codePoint >= 0x2000 && codePoint <= 0x206F) ||  // General Punctuation
+        (codePoint >= 0x20A0 && codePoint <= 0x20CF) ||  // Currency symbols
+        (codePoint >= 0x2100 && codePoint <= 0x214F) ||  // Letterlike Symbols
+        (codePoint >= 0x2190 && codePoint <= 0x21FF) ||  // Arrows
+        (codePoint >= 0x2200 && codePoint <= 0x22FF) ||  // Mathematical Operators
+        (codePoint >= 0x2300 && codePoint <= 0x23FF) ||  // Miscellaneous Technical
+        (codePoint >= 0x2400 && codePoint <= 0x243F) ||  // Control Pictures
+        (codePoint >= 0x25A0 && codePoint <= 0x25FF) ||  // Geometric Shapes
+        (codePoint >= 0x2600 && codePoint <= 0x26FF) ||  // Miscellaneous Symbols (includes some emojis)
+        (codePoint >= 0x2700 && codePoint <= 0x27BF) ||  // Dingbats
+        (codePoint >= 0x1F300 && codePoint <= 0x1F9FF) || // Emoticons and Symbols
+        (codePoint >= 0x1F600 && codePoint <= 0x1F64F) || // Emoticons
+        (codePoint >= 0x1F900 && codePoint <= 0x1F9FF) || // Supplemental Symbols and Pictographs
+        (codePoint >= 0x1FA00 && codePoint <= 0x1FAFF) || // Symbols and Pictographs Extended-A
+        (codePoint >= 0xFE00 && codePoint <= 0xFE0F) ||   // Variation Selectors
+        (codePoint >= 0xFE20 && codePoint <= 0xFE2F)) {   // Combining Half Marks
+        result += String.fromCodePoint(codePoint)
+        // Skip the next char index if this was a supplementary-plane code point (surrogate pair)
+        if (codePoint > 0xFFFF) {
+          i++
+        }
+      }
+      // Skip corrupted/unknown sequences
     }
 
     // Clean up multiple spaces (but preserve newlines)
