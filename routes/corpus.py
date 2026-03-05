@@ -6,10 +6,13 @@ from flask import Blueprint, request, jsonify
 from services import db_service
 import os
 import pathlib
-import subprocess
 import json
+import threading
 
 bp = Blueprint("corpus", __name__)
+
+# Limit concurrent indexing to 3 to keep at least 2 Gunicorn workers free for chat
+_indexing_semaphore = threading.Semaphore(3)
 
 def get_vector_store_path_by_folder(folder_name: str) -> str:
     """Gets vector store path by folder name"""
@@ -35,10 +38,8 @@ def upload():
         folder_suffix = "_syllabus" if is_syllabus else ""
         
         if not current_folder:
-            vector_store_folder = db_service.generate_vector_store_folder_name(cls['name']) + folder_suffix
-            # Update class with vector store folder
-            # This would require an update function - for now, assume it exists
-            current_folder = vector_store_folder
+            current_folder = db_service.generate_vector_store_folder_name(cls['name']) + folder_suffix
+            db_service.update_class_vector_store_folder(class_id, current_folder, is_syllabus=is_syllabus)
         
         store_path = get_vector_store_path_by_folder(current_folder)
         pdf_dir = pathlib.Path(store_path) / "source_pdfs"
@@ -72,8 +73,25 @@ def upload():
 
 @bp.route("/index", methods=["POST"])
 def index():
-    """Index corpus endpoint - migrated from app/api/corpus/index/route.ts"""
+    """Index corpus endpoint - calls indexing service in-process (no subprocess).
+    
+    Uses Flask's pre-loaded embedding model for instant indexing (no 5-10s PyTorch startup).
+    A semaphore limits concurrent indexing to 3 to keep at least 2 Gunicorn workers free for chat.
+    """
+    # Try to acquire the semaphore (non-blocking check first for immediate feedback)
+    acquired = _indexing_semaphore.acquire(timeout=0)
+    if not acquired:
+        # All 3 indexing slots are busy — wait with a timeout
+        print("[CORPUS] INDEX: 3 concurrent indexing jobs running, waiting for a slot...", flush=True)
+        acquired = _indexing_semaphore.acquire(timeout=600)  # Wait up to 10 min
+        if not acquired:
+            return jsonify({
+                "error": "Server is busy with other indexing requests. Please try again in a few minutes.",
+                "success": False
+            }), 503
+
     try:
+        print("[CORPUS] INDEX request received (Start indexing clicked)", flush=True)
         data = request.get_json()
         if not data:
             return jsonify({"error": "Request body is required"}), 400
@@ -81,6 +99,7 @@ def index():
         class_id = data.get("classId")
         material_type = data.get("materialType", "class_material")
         is_syllabus = material_type == "syllabus"
+        print(f"[CORPUS] INDEX params: classId={class_id} materialType={material_type} is_syllabus={is_syllabus}", flush=True)
         
         if not class_id:
             return jsonify({"error": "Class ID is required"}), 400
@@ -91,79 +110,91 @@ def index():
         
         vector_store_folder = cls.get('syllabusVectorStoreFolder' if is_syllabus else 'vectorStoreFolder')
         if not vector_store_folder:
-            return jsonify({"error": f"Class {material_type} vector store not configured"}), 400
+            vector_store_folder = db_service.generate_vector_store_folder_name(cls.get('name', 'class')) + ('_syllabus' if is_syllabus else '')
+            db_service.update_class_vector_store_folder(class_id, vector_store_folder, is_syllabus=is_syllabus)
+            print(f"[CORPUS] INDEX assigned vector_store_folder={vector_store_folder} for class id={class_id}", flush=True)
+        print(f"[CORPUS] INDEX class name={cls.get('name')} vector_store_folder={vector_store_folder}", flush=True)
         
+        backend_root = pathlib.Path(__file__).resolve().parent.parent
         store_path = get_vector_store_path_by_folder(vector_store_folder)
-        pdf_dir = pathlib.Path(store_path) / "source_pdfs"
+        pdf_dir = (backend_root / store_path / "source_pdfs").resolve()
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+        output_path_abs = (backend_root / store_path).resolve()
+        print(f"[CORPUS] INDEX backend_root={backend_root} store_path={store_path} pdf_dir={pdf_dir} output_path_abs={output_path_abs}", flush=True)
         
         if not pdf_dir.exists():
             return jsonify({"error": "No PDFs directory found. Upload PDFs first."}), 400
         
-        # Get all PDF files
         pdf_files = [str(f) for f in pdf_dir.glob("*.pdf")]
+        print(f"[CORPUS] INDEX pdf_dir.exists=True pdf_files ({len(pdf_files)}): {pdf_files}", flush=True)
         
         if not pdf_files:
             return jsonify({"error": "No PDF files found to index"}), 400
         
-        # Use existing Python indexing service
-        indexing_service_path = pathlib.Path('lib') / 'llamaindex-indexing-service.py'
+        # Call indexing service directly (in-process, no subprocess)
+        # The embedding model is either already loaded by the RAG service or will be
+        # lazily initialized by the indexing service on first use.
+        import time as _time
+        start_time = _time.time()
+        print(f"[CORPUS] INDEX calling index_pdfs() in-process (no subprocess)...", flush=True)
         
-        # Determine Python executable
-        venv_python = pathlib.Path('venv') / ('Scripts' if os.name == 'nt' else 'bin') / 'python'
-        python_exec = str(venv_python) if venv_python.exists() else (os.getenv('PYTHON_PATH', 'python'))
-        
-        args = [
-            str(indexing_service_path),
-            str(store_path),
-            'true' if is_syllabus else 'false',
-            class_id,
-            cls.get('name', ''),
-            *pdf_files
-        ]
-        
-        # Execute indexing service
-        result = subprocess.run(
-            [python_exec] + args,
-            capture_output=True,
-            text=True,
-            timeout=600  # 10 minute timeout
-        )
-        
-        if result.returncode != 0:
-            return jsonify({
-                "error": f"Indexing failed: {result.stderr}",
-                "success": False
-            }), 500
-        
-        # Parse result from last line of stdout
         try:
-            last_line = result.stdout.strip().split('\n')[-1]
-            index_result = json.loads(last_line)
-            
-            # Mark files as indexed in database
-            if 'chunks_per_file' in index_result:
-                for file_name, chunk_count in index_result['chunks_per_file'].items():
-                    safe_name = pathlib.Path(file_name).name
-                    db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
-            
+            from lib import indexing_service
+            index_result = indexing_service.index_pdfs(
+                pdf_paths=pdf_files,
+                output_path=str(output_path_abs),
+                is_syllabus=is_syllabus,
+                class_id=class_id,
+                class_name=cls.get('name', '')
+            )
+        except Exception as idx_err:
+            elapsed = _time.time() - start_time
+            print(f"[CORPUS] INDEX index_pdfs() raised exception after {elapsed:.1f}s: {idx_err}", flush=True)
+            import traceback
+            traceback.print_exc()
             return jsonify({
-                "success": True,
-                "chunks": index_result.get('chunks', 0),
-                "pdfs": index_result.get('pdfs', len(pdf_files)),
-                "newChunks": index_result.get('newChunks', 0)
-            })
-        except json.JSONDecodeError:
-            return jsonify({
-                "error": "Failed to parse indexing result",
+                "error": f"Indexing failed: {idx_err}",
                 "success": False
             }), 500
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "Indexing timed out"}), 500
+        
+        elapsed = _time.time() - start_time
+        print(f"[CORPUS] INDEX index_pdfs() completed in {elapsed:.1f}s: success={index_result.get('success')}", flush=True)
+        
+        # Handle failure from indexing service
+        if index_result.get('success') is False:
+            err = index_result.get('error', 'Indexing failed')
+            print(f"[CORPUS] INDEX index_pdfs() reported success=false: error={err}", flush=True)
+            return jsonify({"error": err, "success": False}), 500
+        
+        chunks_per_file = index_result.get('chunks_per_file') or {}
+        print(f"[CORPUS] INDEX success: chunks={index_result.get('chunks')} pdfs={index_result.get('pdfs')} newChunks={index_result.get('new_chunks')} chunks_per_file={chunks_per_file}", flush=True)
+        
+        # Mark every attempted PDF as indexed in the database
+        print("[CORPUS] INDEX marking corpus files as indexed in DB...", flush=True)
+        for pdf_path in pdf_files:
+            safe_name = pathlib.Path(pdf_path).name
+            chunk_count = chunks_per_file.get(safe_name)
+            if chunk_count is None:
+                chunk_count = chunks_per_file.get(pdf_path, 0)
+            if not isinstance(chunk_count, int):
+                chunk_count = int(chunk_count) if chunk_count is not None else 0
+            db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
+            print(f"[CORPUS] INDEX marked: {safe_name} -> chunk_count={chunk_count}", flush=True)
+        
+        print(f"[CORPUS] INDEX completed successfully in {elapsed:.1f}s.", flush=True)
+        return jsonify({
+            "success": True,
+            "chunks": index_result.get('chunks', 0),
+            "pdfs": index_result.get('pdfs', len(pdf_files)),
+            "newChunks": index_result.get('new_chunks', 0)
+        })
     except Exception as error:
         print(f"[CORPUS] INDEX ERROR: {error}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Internal server error"}), 500
+    finally:
+        _indexing_semaphore.release()
 
 @bp.route("/files", methods=["GET", "DELETE"])
 def files():
@@ -182,7 +213,12 @@ def files():
             
             corpus_files = db_service.get_corpus_files_by_class(class_id, material_type)
             files = [f['fileName'] for f in corpus_files]
-            return jsonify({"files": files})
+            total_chunks = sum(f.get('chunkCount', 0) or 0 for f in corpus_files)
+            return jsonify({
+                "files": files,
+                "totalChunks": total_chunks,
+                "filesData": [{"fileName": f["fileName"], "chunkCount": f.get("chunkCount", 0)} for f in corpus_files]
+            })
         
         elif request.method == "DELETE":
             class_id = request.args.get("classId")
@@ -199,9 +235,11 @@ def files():
             
             vector_store_folder = cls.get('syllabusVectorStoreFolder' if is_syllabus else 'vectorStoreFolder')
             if not vector_store_folder:
-                return jsonify({"error": "Class not found"}), 404
+                vector_store_folder = db_service.generate_vector_store_folder_name(cls.get('name', 'class')) + ('_syllabus' if is_syllabus else '')
+                db_service.update_class_vector_store_folder(class_id, vector_store_folder, is_syllabus=is_syllabus)
             
-            base_path = pathlib.Path(get_vector_store_path_by_folder(vector_store_folder))
+            backend_root = pathlib.Path(__file__).resolve().parent.parent
+            base_path = (backend_root / get_vector_store_path_by_folder(vector_store_folder)).resolve()
             pdf_dir = base_path / "source_pdfs"
             file_path = pdf_dir / filename
             
@@ -256,17 +294,46 @@ def merge_all():
 
 @bp.route("/stats", methods=["GET"])
 def stats():
-    """Stats endpoint - migrated from app/api/corpus/stats/route.ts"""
+    """Stats endpoint - supports classId (for student chat) or collectionName (legacy)."""
     try:
+        class_id = request.args.get("classId")
+        material_type = request.args.get("materialType", "class_material")
+        student_id = request.args.get("studentId")
+
+        # Class-based stats (for student portal "has PDFs" check)
+        if class_id:
+            cls = db_service.get_class_by_id(class_id)
+            if not cls:
+                return jsonify({"error": "Class not found"}), 404
+
+            # Optional: check student enrollment
+            is_enrolled = True
+            if student_id:
+                student_ids = cls.get("studentIds") or []
+                is_enrolled = student_id in [str(s) for s in student_ids]
+
+            files = db_service.get_corpus_files_by_class(class_id, material_type)
+            indexed = [f for f in files if f.get("isIndexed")]
+            pdf_count = len(indexed)
+            chunk_count = sum(int(f.get("chunkCount") or 0) for f in indexed)
+            has_indexed_files = pdf_count > 0
+            can_chat = has_indexed_files and is_enrolled
+
+            return jsonify({
+                "pdfCount": pdf_count,
+                "chunkCount": chunk_count,
+                "isEnrolled": is_enrolled if student_id else None,
+                "hasIndexedFiles": has_indexed_files,
+                "canChat": can_chat,
+            })
+
+        # Legacy: collectionName (e.g. for corpus management)
         collection_name = request.args.get("collectionName")
         if not collection_name:
-            return jsonify({"error": "Collection name is required"}), 400
-        
-        # Get stats from Qdrant
-        # This would require Qdrant client - for now return placeholder
+            return jsonify({"error": "classId or collectionName is required"}), 400
         return jsonify({
             "totalChunks": 0,
-            "collectionName": collection_name
+            "collectionName": collection_name,
         })
     except Exception as error:
         print(f"[CORPUS] STATS ERROR: {error}")

@@ -18,7 +18,7 @@ module.exports = {
 
       // Load environment variables from .env file (PM2 will merge these)
       env_file: '.env',
-      
+
       // Default = UAT (when you do NOT pass --env production)
       // Dynamic port from environment (K8s-compliant)
       env: {
@@ -29,7 +29,7 @@ module.exports = {
 
       // Overrides when you start with: `--env production`
       env_production: {
-        PORT: process.env.PORT || 8030, // PROD port (default 8030, can be overridden)
+        PORT: process.env.PORT || 8030,
         NAMESPACE: 'prod',
       },
 
@@ -41,11 +41,51 @@ module.exports = {
       time: true,
       autorestart: true,
       watch: false,
-      max_memory_restart: '2G',
+      max_memory_restart: '9G',  // RAG pipeline loads in Flask now (~1.4 GB × 5 Gunicorn gthread procs)
       restart_delay: 4000,
       min_uptime: '10s',
       max_restarts: 10,
       kill_timeout: 5000,
+      listen_timeout: 10000,
+    },
+
+    // ── LearnBOT Chat Workers (thin HTTP dispatchers) ──────────────
+    // 5 workers × 10 threads = 50 concurrent HTTP dispatches to Flask
+    {
+      name:
+        process.env.NAMESPACE === 'prod' ? 'learnbot-worker' : 'learnbot-worker-uat',
+      cwd: process.cwd(),
+      interpreter: 'venv/bin/python',
+      script: 'worker.py',
+      instances: 5,
+      exec_mode: 'fork',
+
+      namespace: process.env.NAMESPACE || 'uat',
+      env_file: '.env',
+
+      env: {
+        WORKER_MAX_CONCURRENT: '10',
+        WORKER_TASK_TIMEOUT: '120',
+        FLASK_INTERNAL_URL: `http://localhost:${process.env.NAMESPACE === 'prod' ? '8030' : '8031'}`,
+      },
+
+      // Overrides when you start with: `--env production`
+      env_production: {
+        NAMESPACE: 'prod',
+      },
+
+      error_file: './logs/worker.err.log',
+      out_file: './logs/worker.out.log',
+      log_file: './logs/worker.combined.log',
+
+      time: true,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '500M',  // Thin HTTP dispatcher, no ML models loaded (~36 MB)
+      restart_delay: 15000,
+      min_uptime: '10s',
+      max_restarts: 10,
+      kill_timeout: 30000,    // 30s to finish active tasks before SIGKILL
       listen_timeout: 10000,
     }
   ]

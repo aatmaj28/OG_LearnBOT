@@ -46,6 +46,101 @@ def map_row_to_user(row: Dict) -> Dict:
     }
 
 # ============================================================================
+# AUTH SESSIONS (shared across workers; fixes "Invalid or expired session")
+# ============================================================================
+
+def _ensure_auth_sessions_table(conn) -> None:
+    """Create auth_sessions table if it does not exist."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                id VARCHAR(128) PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TIMESTAMP NOT NULL
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error ensuring auth_sessions table: {e}')
+        raise
+    finally:
+        cursor.close()
+
+def session_create(session_id: str, user_id: str, expires_at: datetime) -> None:
+    """Insert a session row. Table is created if missing."""
+    conn = get_connection()
+    cursor = None
+    try:
+        _ensure_auth_sessions_table(conn)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO auth_sessions (id, user_id, expires_at) VALUES (%s, %s, %s)',
+            (session_id, int(user_id), expires_at)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error creating session: {e}')
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        return_connection(conn)  # required: never leak pool connection
+
+def session_get(session_id: str) -> Optional[Dict]:
+    """Get session by id. Returns dict with user_id, expires_at or None. Deletes if expired."""
+    conn = get_connection()
+    cursor = None
+    try:
+        _ensure_auth_sessions_table(conn)
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute(
+            'SELECT user_id, expires_at FROM auth_sessions WHERE id = %s',
+            (session_id,)
+        )
+        row = cursor.fetchone()
+        cursor.close()
+        cursor = None
+        if not row:
+            return None
+        row = dict(row)
+        expires_at = row['expires_at'] if isinstance(row['expires_at'], datetime) else datetime.fromisoformat(str(row['expires_at']))
+        if expires_at < datetime.now():
+            del_cursor = conn.cursor()
+            del_cursor.execute('DELETE FROM auth_sessions WHERE id = %s', (session_id,))
+            conn.commit()
+            del_cursor.close()
+            return None
+        return {'user_id': str(row['user_id']), 'expires_at': expires_at}
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error getting session: {e}')
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        return_connection(conn)  # required: never leak pool connection
+
+def session_delete(session_id: str) -> None:
+    """Delete a session by id."""
+    conn = get_connection()
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM auth_sessions WHERE id = %s', (session_id,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error deleting session: {e}')
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        return_connection(conn)  # required: never leak pool connection
+
+# ============================================================================
 # USER OPERATIONS
 # ============================================================================
 
@@ -284,9 +379,28 @@ def get_user_ta_mode(user_id: str) -> Optional[str]:
 # ============================================================================
 
 def generate_vector_store_folder_name(class_name: str) -> str:
-    """Generates vector store folder name from class name"""
+    """Generates vector store folder name from class name (safe for paths and Qdrant)."""
     import re
-    return re.sub(r'[^a-z0-9\s]', '', class_name.lower()).replace(r'\s+', '_').strip()
+    cleaned = re.sub(r'[^a-z0-9\s]', '', class_name.lower())
+    return re.sub(r'\s+', '_', cleaned).strip() or 'default'
+
+
+def update_class_vector_store_folder(class_id: str, folder_name: str, is_syllabus: bool = False) -> bool:
+    """Sets vector_store_folder or syllabus_vector_store_folder for a class. Returns True if updated."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        col = 'syllabus_vector_store_folder' if is_syllabus else 'vector_store_folder'
+        cursor.execute(f'UPDATE classes SET {col} = %s WHERE id = %s', (folder_name, class_id))
+        updated = cursor.rowcount > 0
+        conn.commit()
+        cursor.close()
+        return updated
+    except Exception as e:
+        print(f'[DB] Error updating class vector store folder: {e}')
+        raise
+    finally:
+        return_connection(conn)
 
 # ============================================================================
 # PENDING REGISTRATIONS (for OTP verification)
@@ -375,7 +489,7 @@ def get_class_by_id(class_id: str) -> Optional[Dict]:
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
             WHERE c.id = %s
-            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, 
+            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
         """, (class_id,))
         
@@ -417,7 +531,7 @@ def get_classes_by_faculty(faculty_id: str) -> List[Dict]:
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
             WHERE c.faculty_id = %s
-            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, 
+            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
             ORDER BY c.created_at DESC
         """, (faculty_id,))
@@ -456,7 +570,7 @@ def get_classes_by_student(student_id: str) -> List[Dict]:
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
             WHERE cs.student_id = %s
-            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder, 
+            GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
             ORDER BY c.created_at DESC
         """, (student_id,))
@@ -805,6 +919,18 @@ def delete_resource_by_id(resource_id: str) -> bool:
 # RAG CONVERSATION OPERATIONS
 # ============================================================================
 
+def _parse_json_field(value: Any, default: Any = None) -> Any:
+    """Parse JSON from DB: psycopg2 may return JSONB as dict/list already, or as str."""
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    import json
+    try:
+        return json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        return default
+
 def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None, 
                                    chat_type: Optional[str] = None) -> List[Dict]:
     """Gets RAG conversations by user"""
@@ -831,10 +957,19 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
         rows = cursor.fetchall()
         cursor.close()
         
-        import json
         conversations = []
         for row in rows:
             row_dict = dict(row)
+            message_history = _parse_json_field(row_dict.get('message_history'), [])
+            # First user message snippet for list card title (avoid "Chat (Date)" on frontend)
+            title_snippet = None
+            if isinstance(message_history, list):
+                for msg in message_history:
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        content = (msg.get('content') or '').strip()
+                        if content:
+                            title_snippet = content[:45].strip() + ('...' if len(content) > 45 else '')
+                        break
             conversations.append({
                 'id': str(row_dict['id']),
                 'userId': str(row_dict['user_id']),
@@ -842,17 +977,18 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
                 'classId': str(row_dict['class_id']) if row_dict.get('class_id') else None,
                 'chatType': row_dict.get('chat_type'),
                 'title': row_dict['title'],
+                'titleSnippet': title_snippet,
                 'createdAt': row_dict['created_at'],
                 'updatedAt': row_dict['updated_at'],
                 'status': row_dict['status'],
                 'currentTopic': row_dict.get('current_topic'),
-                'checkpointState': json.loads(row_dict['checkpoint_state']) if row_dict.get('checkpoint_state') else {},
-                'messageHistory': json.loads(row_dict['message_history']) if row_dict.get('message_history') else [],
-                'studentProblemData': json.loads(row_dict['student_problem_data']) if row_dict.get('student_problem_data') else {},
-                'cachedContext': json.loads(row_dict['cached_context']) if row_dict.get('cached_context') else None,
+                'checkpointState': _parse_json_field(row_dict.get('checkpoint_state'), {}),
+                'messageHistory': message_history,
+                'studentProblemData': _parse_json_field(row_dict.get('student_problem_data'), {}),
+                'cachedContext': _parse_json_field(row_dict.get('cached_context')),
                 'lastRetrievalTopic': row_dict.get('last_retrieval_topic'),
                 'cachedSentiment': float(row_dict['cached_sentiment']) if row_dict.get('cached_sentiment') else None,
-                'cachedTopics': json.loads(row_dict['cached_topics']) if row_dict.get('cached_topics') else None,
+                'cachedTopics': _parse_json_field(row_dict.get('cached_topics')),
                 'analyticsLastUpdated': row_dict.get('analytics_last_updated'),
                 'conversationSummary': row_dict.get('conversation_summary')
             })
@@ -864,12 +1000,14 @@ def get_rag_conversations_by_user(user_id: str, class_id: Optional[str] = None,
     finally:
         return_connection(conn)
 
-def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
-    """Gets RAG conversation by ID"""
+def get_rag_conversation_by_id(conversation_id: str, conn=None) -> Optional[Dict]:
+    """Gets RAG conversation by ID. If conn is provided, uses it (caller owns it); otherwise gets and returns a pool connection."""
     if not conversation_id or conversation_id in ('undefined', 'null'):
         return None
-    
-    conn = get_connection()
+
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
     try:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute('SELECT * FROM rag_conversations WHERE id = %s', (conversation_id,))
@@ -879,7 +1017,6 @@ def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
         if not row:
             return None
         
-        import json
         row_dict = dict(row)
         return {
             'id': str(row_dict['id']),
@@ -892,13 +1029,13 @@ def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
             'updatedAt': row_dict['updated_at'],
             'status': row_dict['status'],
             'currentTopic': row_dict.get('current_topic'),
-            'checkpointState': json.loads(row_dict['checkpoint_state']) if row_dict.get('checkpoint_state') else {},
-            'messageHistory': json.loads(row_dict['message_history']) if row_dict.get('message_history') else [],
-            'studentProblemData': json.loads(row_dict['student_problem_data']) if row_dict.get('student_problem_data') else {},
-            'cachedContext': json.loads(row_dict['cached_context']) if row_dict.get('cached_context') else None,
+            'checkpointState': _parse_json_field(row_dict.get('checkpoint_state'), {}),
+            'messageHistory': _parse_json_field(row_dict.get('message_history'), []),
+            'studentProblemData': _parse_json_field(row_dict.get('student_problem_data'), {}),
+            'cachedContext': _parse_json_field(row_dict.get('cached_context')),
             'lastRetrievalTopic': row_dict.get('last_retrieval_topic'),
             'cachedSentiment': float(row_dict['cached_sentiment']) if row_dict.get('cached_sentiment') else None,
-            'cachedTopics': json.loads(row_dict['cached_topics']) if row_dict.get('cached_topics') else None,
+            'cachedTopics': _parse_json_field(row_dict.get('cached_topics')),
             'analyticsLastUpdated': row_dict.get('analytics_last_updated'),
             'conversationSummary': row_dict.get('conversation_summary')
         }
@@ -906,7 +1043,8 @@ def get_rag_conversation_by_id(conversation_id: str) -> Optional[Dict]:
         print(f'[DB] Error getting RAG conversation by ID: {e}')
         raise
     finally:
-        return_connection(conn)
+        if own_conn:
+            return_connection(conn)
 
 def create_rag_conversation(user_id: str, title: Optional[str] = None, 
                             class_id: Optional[str] = None, 
@@ -1030,8 +1168,8 @@ def update_rag_conversation(conversation_id: str, updates: Dict) -> Optional[Dic
             values.append(updates['conversationSummary'])
         
         if not update_fields:
-            return get_rag_conversation_by_id(conversation_id)
-        
+            return get_rag_conversation_by_id(conversation_id, conn=conn)
+
         update_fields.append('updated_at = %s')
         values.append(datetime.now())
         values.append(conversation_id)
@@ -1043,8 +1181,8 @@ def update_rag_conversation(conversation_id: str, updates: Dict) -> Optional[Dic
         )
         conn.commit()
         cursor.close()
-        
-        return get_rag_conversation_by_id(conversation_id)
+
+        return get_rag_conversation_by_id(conversation_id, conn=conn)
     except Exception as e:
         print(f'[DB] Error updating RAG conversation: {e}')
         raise
@@ -1114,8 +1252,8 @@ def get_corpus_file(class_id: str, file_name: str, material_type: str) -> Option
     try:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute(
-            'SELECT * FROM corpus_files WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s',
-            (class_id, file_name, file_name, material_type)
+            'SELECT * FROM corpus_files WHERE class_id = %s AND file_name = %s AND material_type = %s',
+            (class_id, file_name, material_type)
         )
         row = cursor.fetchone()
         cursor.close()
@@ -1142,39 +1280,28 @@ def get_corpus_file(class_id: str, file_name: str, material_type: str) -> Option
 
 def create_corpus_file(class_id: str, file_name: str, material_type: str, 
                        file_size: Optional[int] = None, uploaded_by: Optional[str] = None) -> Dict:
-    """Creates a corpus file record"""
+    """Creates a corpus file record (uploaded_by kept for API compatibility; DB may not have column)."""
     conn = get_connection()
     try:
-        # Get faculty ID from class if not provided
-        faculty_id = uploaded_by
-        if not faculty_id:
-            cursor = conn.cursor()
-            cursor.execute('SELECT faculty_id FROM classes WHERE id = %s', (class_id,))
-            row = cursor.fetchone()
-            if row:
-                faculty_id = str(row[0])
-            cursor.close()
-        
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            # Try minimal columns first (corpus_files may not have uploaded_by or status)
             cursor.execute(
-                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size, uploaded_by, status)
-                   VALUES (%s, %s, %s, %s, %s, 'pending')
+                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size)
+                   VALUES (%s, %s, %s, %s)
                    ON CONFLICT (class_id, file_name, material_type) 
                    DO UPDATE SET file_size = EXCLUDED.file_size
                    RETURNING *""",
-                [class_id, file_name, material_type, file_size, faculty_id]
+                [class_id, file_name, material_type, file_size]
             )
         except Exception as e:
-            # If status column doesn't exist or has different constraint, try without it
+            # If ON CONFLICT constraint differs, try without it
             conn.rollback()
             cursor.execute(
-                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size, uploaded_by)
-                   VALUES (%s, %s, %s, %s, %s)
-                   ON CONFLICT (class_id, file_name, material_type) 
-                   DO UPDATE SET file_size = EXCLUDED.file_size
+                """INSERT INTO corpus_files (class_id, file_name, material_type, file_size)
+                   VALUES (%s, %s, %s, %s)
                    RETURNING *""",
-                [class_id, file_name, material_type, file_size, faculty_id]
+                [class_id, file_name, material_type, file_size]
             )
         
         row = cursor.fetchone()
@@ -1205,8 +1332,8 @@ def delete_corpus_file(class_id: str, file_name: str, material_type: str) -> boo
     try:
         cursor = conn.cursor()
         cursor.execute(
-            'DELETE FROM corpus_files WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s',
-            (class_id, file_name, file_name, material_type)
+            'DELETE FROM corpus_files WHERE class_id = %s AND file_name = %s AND material_type = %s',
+            (class_id, file_name, material_type)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -1234,26 +1361,16 @@ def delete_all_corpus_files(class_id: str, material_type: str) -> int:
         return_connection(conn)
 
 def mark_corpus_file_as_indexed(class_id: str, file_name: str, material_type: str, chunk_count: int) -> bool:
-    """Marks a corpus file as indexed"""
+    """Marks a corpus file as indexed (schema: is_indexed, chunk_count, indexed_at)."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """UPDATE corpus_files 
-                   SET status = 'indexed', chunk_count = %s, indexed_at = CURRENT_TIMESTAMP
-                   WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s""",
-                (chunk_count, class_id, file_name, file_name, material_type)
-            )
-        except Exception as e:
-            # If columns don't exist, try without them
-            conn.rollback()
-            cursor.execute(
-                """UPDATE corpus_files 
-                   SET status = 'indexed'
-                   WHERE class_id = %s AND (file_name = %s OR filename = %s) AND material_type = %s""",
-                (class_id, file_name, file_name, material_type)
-            )
+        cursor.execute(
+            """UPDATE corpus_files 
+               SET is_indexed = true, chunk_count = %s, indexed_at = CURRENT_TIMESTAMP
+               WHERE class_id = %s AND file_name = %s AND material_type = %s""",
+            (chunk_count, class_id, file_name, material_type)
+        )
         conn.commit()
         return cursor.rowcount > 0
     except Exception as e:

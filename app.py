@@ -14,8 +14,9 @@ load_dotenv()
 app = Flask(__name__)
 
 # Configure CORS
-# Allow frontend origins (local dev and production)
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://129.10.224.227:3030,http://129.10.224.227:3031").split(",")
+# Allow frontend origins (local dev and production); strip whitespace so "origin1, origin2" works
+_allowed_default = "https://learnbot.dashlab.studio,http://learnbot.dashlab.studio,http://localhost:3000,http://129.10.224.227:3030,http://129.10.224.227:3031"
+allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", _allowed_default).split(",") if o.strip()]
 CORS(app, resources={
     r"/api/*": {
         "origins": allowed_origins,
@@ -61,6 +62,9 @@ try:
     # Register RAG endpoints under /api/rag for backward compatibility
     if hasattr(chat, 'rag_bp'):
         app.register_blueprint(chat.rag_bp, url_prefix="/api/rag")
+    # Load RAG module at startup so embedding + vector store preload start immediately (reduces first-request TTFT)
+    if hasattr(chat, 'trigger_rag_preload_at_startup'):
+        chat.trigger_rag_preload_at_startup()
 except ImportError:
     pass
 

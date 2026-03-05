@@ -5,6 +5,7 @@ set -euo pipefail
 case "$PWD" in
   "/opt/Learnbot-Server-UAT")
     APP_FLASK="learnbot-flask-uat"
+    APP_WORKER="learnbot-worker-uat"
     NS="uat"
     DEFAULT_BRANCH="dynamic-update"
     PM2_ENV=""  # don't pass --env production
@@ -12,6 +13,7 @@ case "$PWD" in
     ;;
   "/opt/Learnbot-Server")
     APP_FLASK="learnbot-flask"
+    APP_WORKER="learnbot-worker"
     NS="prod"
     DEFAULT_BRANCH="main"
     PM2_ENV="--env production"  # applies env_production
@@ -43,7 +45,7 @@ mkdir -p "$STORAGE_DIR"
 chmod 755 "$STORAGE_DIR" 2>/dev/null || sudo chmod 755 "$STORAGE_DIR" || true
 echo "✅ Storage directory ready: $STORAGE_DIR"
 
-# --- Start Docker Compose services (Qdrant) ---
+# --- Start Docker Compose services (Qdrant + RabbitMQ) ---
 echo "🐳 Starting Docker Compose services..."
 COMPOSE_FILE=""
 if [[ -f docker-compose.yml ]]; then
@@ -75,41 +77,45 @@ if [[ -n "$COMPOSE_FILE" ]]; then
         exit 1
     fi
     
-    # Clean up existing container to avoid conflicts
-    echo "🧹 Cleaning up existing Qdrant container..."
+    # Clean up existing containers to avoid conflicts
+    echo "🧹 Cleaning up existing containers..."
     if [[ "$COMPOSE_DIR" == ".." ]]; then
-        (cd .. && $COMPOSE_CMD down qdrant 2>/dev/null || true)
+        (cd .. && $COMPOSE_CMD down 2>/dev/null || true)
         sudo docker stop learnbot-qdrant 2>/dev/null || docker stop learnbot-qdrant 2>/dev/null || true
         sudo docker rm -f learnbot-qdrant 2>/dev/null || docker rm -f learnbot-qdrant 2>/dev/null || true
+        sudo docker stop learnbot-rabbitmq 2>/dev/null || docker stop learnbot-rabbitmq 2>/dev/null || true
+        sudo docker rm -f learnbot-rabbitmq 2>/dev/null || docker rm -f learnbot-rabbitmq 2>/dev/null || true
     else
-        $COMPOSE_CMD down qdrant 2>/dev/null || true
+        $COMPOSE_CMD down 2>/dev/null || true
         sudo docker stop learnbot-qdrant 2>/dev/null || docker stop learnbot-qdrant 2>/dev/null || true
         sudo docker rm -f learnbot-qdrant 2>/dev/null || docker rm -f learnbot-qdrant 2>/dev/null || true
+        sudo docker stop learnbot-rabbitmq 2>/dev/null || docker stop learnbot-rabbitmq 2>/dev/null || true
+        sudo docker rm -f learnbot-rabbitmq 2>/dev/null || docker rm -f learnbot-rabbitmq 2>/dev/null || true
     fi
     sleep 2
     
-    # Start Qdrant
-    echo "🚀 Starting Qdrant container..."
+    # Start all services (Qdrant + RabbitMQ)
+    echo "🚀 Starting Qdrant + RabbitMQ containers..."
     if [[ "$COMPOSE_DIR" == ".." ]]; then
-        if (cd .. && $COMPOSE_CMD up -d qdrant 2>/dev/null); then
-            echo "✅ Qdrant started (Docker Compose)"
+        if (cd .. && $COMPOSE_CMD up -d 2>/dev/null); then
+            echo "✅ Containers started (Docker Compose)"
         else
             echo "⚠️ Docker permission denied, trying with sudo..."
-            (cd .. && sudo $COMPOSE_CMD up -d qdrant)
-            echo "✅ Qdrant started (Docker Compose with sudo)"
+            (cd .. && sudo $COMPOSE_CMD up -d)
+            echo "✅ Containers started (Docker Compose with sudo)"
         fi
     else
-        if $COMPOSE_CMD up -d qdrant 2>/dev/null; then
-            echo "✅ Qdrant started (Docker Compose)"
+        if $COMPOSE_CMD up -d 2>/dev/null; then
+            echo "✅ Containers started (Docker Compose)"
         else
             echo "⚠️ Docker permission denied, trying with sudo..."
-            sudo $COMPOSE_CMD up -d qdrant
-            echo "✅ Qdrant started (Docker Compose with sudo)"
+            sudo $COMPOSE_CMD up -d
+            echo "✅ Containers started (Docker Compose with sudo)"
         fi
     fi
     
-    # Wait for Qdrant to be ready
-    echo "⏳ Waiting for Qdrant to be ready..."
+    # Wait for services to be ready
+    echo "⏳ Waiting for services to be ready..."
     sleep 5
     
     # Verify Qdrant health (LearnBot uses host port 6335 per docker-compose)
@@ -119,8 +125,16 @@ if [[ -n "$COMPOSE_FILE" ]]; then
         echo "⚠️  Warning: Qdrant health check failed (may still be starting)"
         echo "   Check logs with: docker logs learnbot-qdrant"
     fi
+
+    # Verify RabbitMQ health (LearnBot uses host port 5673)
+    if curl -f http://localhost:15673/api/health/checks/alarms -u learnbot:learnbot123 >/dev/null 2>&1; then
+        echo "✅ RabbitMQ is healthy (port 5673)"
+    else
+        echo "⚠️  Warning: RabbitMQ health check failed (may still be starting)"
+        echo "   Check logs with: docker logs learnbot-rabbitmq"
+    fi
 else
-    echo "⚠️ docker-compose.yml not found - Qdrant container management skipped"
+    echo "⚠️ docker-compose.yml not found - container management skipped"
     echo "   Expected location: ./docker-compose.yml or ../docker-compose.yml"
 fi
 
@@ -147,6 +161,18 @@ if pm2 describe "$APP_FLASK" >/dev/null 2>&1; then
   pm2 reload "$APP_FLASK" --namespace "$NS" --update-env
 else
   NAMESPACE="$NS" pm2 start ecosystem.config.js $PM2_ENV --only "$APP_FLASK" --namespace "$NS"
+fi
+
+# Workers: restart so they stay in sync; if "Process not found" (stale state), delete and start fresh
+if pm2 describe "$APP_WORKER" --namespace "$NS" >/dev/null 2>&1; then
+  if ! pm2 restart "$APP_WORKER" --namespace "$NS" --update-env 2>/dev/null; then
+    echo "🔄 Workers stale (Process not found), resyncing..."
+    pm2 delete "$APP_WORKER" --namespace "$NS" 2>/dev/null || true
+    NAMESPACE="$NS" pm2 start ecosystem.config.js $PM2_ENV --only "$APP_WORKER" --namespace "$NS"
+  fi
+else
+  echo "🔄 Starting workers from ecosystem..."
+  NAMESPACE="$NS" pm2 start ecosystem.config.js $PM2_ENV --only "$APP_WORKER" --namespace "$NS"
 fi
 
 pm2 save
