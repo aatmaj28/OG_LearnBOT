@@ -91,11 +91,11 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
   const deleteIndexedFile = async (filename: string) => {
     if (!selectedClassId) return
-    if (!confirm(`Delete ${filename}?\n\nThis will remove the PDF and its embeddings from the index.`)) return
+    if (!confirm(`Delete ${filename}?\n\nThis will remove the file and its embeddings from the index.`)) return
     try {
       const { corpusApi } = await import("@/lib/flask-api-client")
       await corpusApi.deleteFile(selectedClassId, filename, materialType)
-      toast.success("PDF and embeddings removed")
+      toast.success("File and embeddings removed")
       await loadServerFiles()
       await loadIndexStats()
     } catch (e) {
@@ -108,10 +108,17 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
     fileInputRef.current?.click()
   }
 
+  // Supported file types for corpus indexing
+  const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt']
+  const ACCEPT_STRING = '.pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain'
+
   const onFilesChosen: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const files = Array.from(e.target.files || [])
-    const pdfs = files.filter(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"))
-    setSelectedFiles(prev => [...prev, ...pdfs])
+    const supported = files.filter(f => {
+      const name = f.name.toLowerCase()
+      return SUPPORTED_EXTENSIONS.some(ext => name.endsWith(ext))
+    })
+    setSelectedFiles(prev => [...prev, ...supported])
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
@@ -122,19 +129,19 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
     setIsUploading(true)
 
     try {
-      // Step 1: Upload PDFs
+      // Step 1: Upload files (PDF, Word, TXT)
       const materialLabel = materialType === "syllabus" ? "Syllabus/Schedule" : "Class Material"
-      toast.info(`Uploading ${selectedFiles.length} ${materialLabel} PDF(s)...`)
+      toast.info(`Uploading ${selectedFiles.length} ${materialLabel} file(s)...`)
       const { corpusApi } = await import("@/lib/flask-api-client")
       await corpusApi.upload(selectedClassId, selectedFiles, materialType)
 
-      toast.success("PDFs uploaded. Starting indexing...")
+      toast.success("Files uploaded. Starting indexing...")
 
-      // Step 2: Index all PDFs (including newly uploaded ones)
+      // Step 2: Index all files (including newly uploaded ones)
       const indexData = await corpusApi.index(selectedClassId, materialType)
 
       if (indexData.success) {
-        toast.success("PDF indexed successfully")
+        toast.success("Files indexed successfully")
         // Update stats from response
         if (indexData.pdfs !== undefined) {
           setIndexedPdfCount(indexData.pdfs)
@@ -143,7 +150,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
           setIndexedChunkCount(indexData.chunks)
         }
         setSelectedFiles([]) // Clear selected files after successful indexing
-        await loadServerFiles() // Reload to show all indexed PDFs
+        await loadServerFiles() // Reload to show all indexed files
         await loadIndexStats()
       } else {
         toast.error("Indexing failed")
@@ -159,15 +166,15 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
   const onForceReindex = async () => {
     if (!selectedClassId) return
-    if (!confirm("Force Re-index will delete all existing chunks and re-process all PDFs from scratch.\n\nThis is useful if the indexed data seems corrupted or incomplete.\n\nContinue?")) return
+    if (!confirm("Force Re-index will delete all existing chunks and re-process all files from scratch.\n\nThis is useful if the indexed data seems corrupted or incomplete.\n\nContinue?")) return
 
     setIsIndexing(true)
     try {
       const { corpusApi } = await import("@/lib/flask-api-client")
-      toast.info("Force re-indexing all PDFs from scratch...")
+      toast.info("Force re-indexing all files from scratch...")
       const indexData = await corpusApi.index(selectedClassId, materialType, true)
       if (indexData.success) {
-        toast.success(`Re-indexed successfully: ${indexData.chunks} chunks from ${indexData.pdfs} PDF(s)`)
+        toast.success(`Re-indexed successfully: ${indexData.chunks} chunks from ${indexData.pdfs} file(s)`)
         if (indexData.pdfs !== undefined) setIndexedPdfCount(indexData.pdfs)
         if (indexData.chunks !== undefined) setIndexedChunkCount(indexData.chunks)
         await loadServerFiles()
@@ -196,14 +203,14 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
           </div>
           <div>
             <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Corpus Management</h2>
-            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Upload PDFs and build vector index for different content types</p>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Upload documents (PDF, Word, TXT) and build vector index for different content types</p>
           </div>
         </div>
         {selectedClassId && (
           <div className="flex gap-4 items-center bg-indigo-50 dark:bg-indigo-950 px-4 py-2 rounded-lg">
             <div className="text-center">
               <div className="text-2xl font-bold text-indigo-600">{indexedPdfCount}</div>
-              <div className="text-xs text-muted-foreground">PDFs Indexed</div>
+              <div className="text-xs text-muted-foreground">Files Indexed</div>
             </div>
             <div className="h-8 w-px bg-indigo-200"></div>
             <div className="text-center">
@@ -249,14 +256,14 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="application/pdf"
+                    accept={ACCEPT_STRING}
                     multiple
                     className="hidden"
                     onChange={onFilesChosen}
                   />
                   <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
                     <Upload className="h-4 w-4 mr-2" />
-                    Upload PDFs
+                    Upload Files
                   </Button>
 
                   {selectedFiles.length > 0 && (
@@ -285,7 +292,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                         className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
                       >
                         <PlayCircle className="h-4 w-4 mr-2" />
-                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} PDF${selectedFiles.length > 1 ? 's' : ''})`}
+                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''})`}
                       </Button>
                     </div>
                   )}
@@ -295,7 +302,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
             <Card className="p-4 col-span-1 lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-medium">Indexed PDFs in Corpus ({filesOnServer.length})</h3>
+                <h3 className="font-medium">Indexed Files in Corpus ({filesOnServer.length})</h3>
                 {selectedClassId && filesOnServer.length > 0 && (
                   <Button
                     size="sm"
@@ -313,7 +320,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                 <div className="text-sm text-muted-foreground">Select a class</div>
               ) : filesOnServer.length === 0 ? (
                 <div className="space-y-2">
-                  <div className="text-sm text-muted-foreground">No files indexed yet. Upload and index PDFs to get started.</div>
+                  <div className="text-sm text-muted-foreground">No files indexed yet. Upload and index documents to get started.</div>
                   {indexedChunkCount > 0 && (
                     <div className="pt-2 border-t">
                       <div className="text-xs text-muted-foreground mb-2">
@@ -405,14 +412,14 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="application/pdf"
+                    accept={ACCEPT_STRING}
                     multiple
                     className="hidden"
                     onChange={onFilesChosen}
                   />
                   <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
                     <Upload className="h-4 w-4 mr-2" />
-                    Upload PDFs
+                    Upload Files
                   </Button>
 
                   {selectedFiles.length > 0 && (
@@ -441,7 +448,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                         className="w-full"
                       >
                         <PlayCircle className="h-4 w-4 mr-2" />
-                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} PDF${selectedFiles.length > 1 ? 's' : ''})`}
+                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''})`}
                       </Button>
                     </div>
                   )}
