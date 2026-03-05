@@ -644,12 +644,15 @@ def internal_process_query():
                 updated_history = conversation.get("messageHistory", [])
                 now_iso = datetime.now().isoformat()
                 
-                # Add user message
-                updated_history.append({
-                    "role": "user",
-                    "content": request_data.get("query", ""),
-                    "timestamp": now_iso,
-                })
+                # Add user message (include attachments so "Documents/Images in this chat" persists when user returns)
+                attachments_for_message = [
+                    {"name": a.get("name", "attachment"), "type": "image" if (a.get("type") or "").lower().startswith("image") else "file"}
+                    for a in request_data.get("attachments", [])
+                ]
+                user_msg = {"role": "user", "content": request_data.get("query", ""), "timestamp": now_iso}
+                if attachments_for_message:
+                    user_msg["attachments"] = attachments_for_message
+                updated_history.append(user_msg)
                 
                 # Add assistant message
                 if final_response:
