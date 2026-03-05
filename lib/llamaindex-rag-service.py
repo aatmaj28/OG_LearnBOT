@@ -1656,7 +1656,9 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
                 user_content_clean = str(user_content)
             # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
             if user_content_clean.strip().startswith("You are LearnBOT"):
-                combined_user_content = user_content_clean[:8000] if len(user_content_clean) > 8000 else user_content_clean
+                # Syllabus prompts can be ~13K chars (system prompt + full syllabus context)
+                # Gemma 3 12B has 128K token context, so 16K chars (~4K tokens) is safe
+                combined_user_content = user_content_clean[:16000] if len(user_content_clean) > 16000 else user_content_clean
             else:
                 user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
                 combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
@@ -1968,7 +1970,9 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                 user_content_clean = str(user_content)
             # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
             if user_content_clean.strip().startswith("You are LearnBOT"):
-                combined_user_content = user_content_clean[:8000] if len(user_content_clean) > 8000 else user_content_clean
+                # Syllabus prompts can be ~13K chars (system prompt + full syllabus context)
+                # Gemma 3 12B has 128K token context, so 16K chars (~4K tokens) is safe
+                combined_user_content = user_content_clean[:16000] if len(user_content_clean) > 16000 else user_content_clean
             else:
                 user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
                 combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
@@ -2982,12 +2986,13 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                 except Exception as e:
                     print(f"⚠️ Reranking failed: {e}, falling back to Qdrant scores", file=sys.stderr)
                     for result in filtered_results:
-                        result["rerank_score"] = -result["score"]
+                        result["rerank_score"] = result["score"]
                     filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
                     rerank_method = "⚠️ Fallback (Qdrant scores)"
             else:
+                # Use Qdrant cosine similarity scores directly (higher = more relevant)
                 for result in filtered_results:
-                    result["rerank_score"] = -result["score"]
+                    result["rerank_score"] = result["score"]
                 filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
                 rerank_method = "⚡ SKIPPED (Qdrant scores only)"
             
@@ -3115,9 +3120,12 @@ Could you try rephrasing your question, or ask about a specific topic from the c
             
             # Build final prompt for LLM (Blackwell gets compressed prompt to avoid vLLM long-prompt limits)
             if preferred_model == 'remote-blackwell':
-                # Syllabus gets larger context window (fewer, more important chunks)
-                ctx_limit = 6000 if is_syllabus else 4000
-                _ctx = context_text[:ctx_limit] if len(context_text) > ctx_limit else context_text
+                # Syllabus: send ALL chunks (typically only 6-8 chunks, ~11K chars, well within Gemma 128K context)
+                # Class materials: truncate to 4000 chars (many chunks, compressed prompt)
+                if is_syllabus:
+                    _ctx = context_text  # No truncation — syllabus has few chunks, all are important
+                else:
+                    _ctx = context_text[:4000] if len(context_text) > 4000 else context_text
                 if is_syllabus:
                     compressed_system = SYLLABUS_SYSTEM_PROMPT
                 else:
