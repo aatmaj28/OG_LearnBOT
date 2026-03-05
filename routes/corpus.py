@@ -11,6 +11,9 @@ import threading
 
 bp = Blueprint("corpus", __name__)
 
+# Supported file extensions for corpus indexing
+SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt'}
+
 # Limit concurrent indexing to 3 to keep at least 2 Gunicorn workers free for chat
 _indexing_semaphore = threading.Semaphore(3)
 
@@ -52,10 +55,12 @@ def upload():
         files = request.files.getlist('files')
         
         for file in files:
-            if file.filename and file.filename.lower().endswith('.pdf'):
-                safe_name = file.filename.replace('/', '_').replace('\\', '_')
-                dest = pdf_dir / safe_name
-                file.save(str(dest))
+            if file.filename:
+                ext = os.path.splitext(file.filename.lower())[1]
+                if ext in SUPPORTED_EXTENSIONS:
+                    safe_name = file.filename.replace('/', '_').replace('\\', '_')
+                    dest = pdf_dir / safe_name
+                    file.save(str(dest))
                 
                 # Store metadata in database
                 db_service.create_corpus_file(
@@ -124,13 +129,21 @@ def index():
         print(f"[CORPUS] INDEX backend_root={backend_root} store_path={store_path} pdf_dir={pdf_dir} output_path_abs={output_path_abs}", flush=True)
         
         if not pdf_dir.exists():
-            return jsonify({"error": "No PDFs directory found. Upload PDFs first."}), 400
+            return jsonify({"error": "No documents directory found. Upload files first."}), 400
         
-        pdf_files = [str(f) for f in pdf_dir.glob("*.pdf")]
-        print(f"[CORPUS] INDEX pdf_dir.exists=True pdf_files ({len(pdf_files)}): {pdf_files}", flush=True)
+        # Collect all supported file types (PDF, Word, TXT)
+        doc_files = []
+        for ext in SUPPORTED_EXTENSIONS:
+            doc_files.extend([str(f) for f in pdf_dir.glob(f'*{ext}')])
+        # Also check uppercase extensions
+        for ext in SUPPORTED_EXTENSIONS:
+            doc_files.extend([str(f) for f in pdf_dir.glob(f'*{ext.upper()}')])
+        # Deduplicate (in case of case-insensitive filesystem)
+        doc_files = list(dict.fromkeys(doc_files))
+        print(f"[CORPUS] INDEX pdf_dir.exists=True doc_files ({len(doc_files)}): {doc_files}", flush=True)
         
-        if not pdf_files:
-            return jsonify({"error": "No PDF files found to index"}), 400
+        if not doc_files:
+            return jsonify({"error": "No supported files found to index (PDF, Word, TXT)"}), 400
         
         # Force reindex: delete existing Qdrant collection and metadata so indexing starts fresh
         if force_reindex:
@@ -176,7 +189,7 @@ def index():
         try:
             from lib import indexing_service
             index_result = indexing_service.index_pdfs(
-                pdf_paths=pdf_files,
+                pdf_paths=doc_files,
                 output_path=str(output_path_abs),
                 is_syllabus=is_syllabus,
                 class_id=class_id,
@@ -204,13 +217,13 @@ def index():
         chunks_per_file = index_result.get('chunks_per_file') or {}
         print(f"[CORPUS] INDEX success: chunks={index_result.get('chunks')} pdfs={index_result.get('pdfs')} newChunks={index_result.get('new_chunks')} chunks_per_file={chunks_per_file}", flush=True)
         
-        # Mark every attempted PDF as indexed in the database
+        # Mark every attempted file as indexed in the database
         print("[CORPUS] INDEX marking corpus files as indexed in DB...", flush=True)
-        for pdf_path in pdf_files:
-            safe_name = pathlib.Path(pdf_path).name
+        for doc_path in doc_files:
+            safe_name = pathlib.Path(doc_path).name
             chunk_count = chunks_per_file.get(safe_name)
             if chunk_count is None:
-                chunk_count = chunks_per_file.get(pdf_path, 0)
+                chunk_count = chunks_per_file.get(doc_path, 0)
             if not isinstance(chunk_count, int):
                 chunk_count = int(chunk_count) if chunk_count is not None else 0
             db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
@@ -220,7 +233,7 @@ def index():
         return jsonify({
             "success": True,
             "chunks": index_result.get('chunks', 0),
-            "pdfs": index_result.get('pdfs', len(pdf_files)),
+            "pdfs": index_result.get('pdfs', len(doc_files)),
             "newChunks": index_result.get('new_chunks', 0)
         })
     except Exception as error:

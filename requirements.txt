@@ -11,6 +11,7 @@ psycopg2-binary==2.9.9
 # AI/ML Libraries
 sentence-transformers
 pypdf
+docx2txt
 numpy
 requests
 llama-index
