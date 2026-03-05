@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Upload, PlayCircle, FileText, Database, Trash2, BookOpen, Calendar } from "lucide-react"
+import { Upload, PlayCircle, FileText, Database, Trash2, BookOpen, Calendar, RefreshCw } from "lucide-react"
 import type { Class } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -157,6 +157,32 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
     }
   }
 
+  const onForceReindex = async () => {
+    if (!selectedClassId) return
+    if (!confirm("Force Re-index will delete all existing chunks and re-process all PDFs from scratch.\n\nThis is useful if the indexed data seems corrupted or incomplete.\n\nContinue?")) return
+
+    setIsIndexing(true)
+    try {
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      toast.info("Force re-indexing all PDFs from scratch...")
+      const indexData = await corpusApi.index(selectedClassId, materialType, true)
+      if (indexData.success) {
+        toast.success(`Re-indexed successfully: ${indexData.chunks} chunks from ${indexData.pdfs} PDF(s)`)
+        if (indexData.pdfs !== undefined) setIndexedPdfCount(indexData.pdfs)
+        if (indexData.chunks !== undefined) setIndexedChunkCount(indexData.chunks)
+        await loadServerFiles()
+        await loadIndexStats()
+      } else {
+        toast.error("Force re-index failed")
+      }
+    } catch (e) {
+      console.error("Force reindex error", e)
+      toast.error("Force re-index failed")
+    } finally {
+      setIsIndexing(false)
+    }
+  }
+
   const removeSelectedFile = (index: number) => {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index))
   }
@@ -268,7 +294,21 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
             </Card>
 
             <Card className="p-4 col-span-1 lg:col-span-2">
-              <h3 className="font-medium mb-3">Indexed PDFs in Corpus ({filesOnServer.length})</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium">Indexed PDFs in Corpus ({filesOnServer.length})</h3>
+                {selectedClassId && filesOnServer.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50"
+                    onClick={onForceReindex}
+                    disabled={isIndexing}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Force Re-index
+                  </Button>
+                )}
+              </div>
               {!selectedClassId ? (
                 <div className="text-sm text-muted-foreground">Select a class</div>
               ) : filesOnServer.length === 0 ? (
@@ -410,7 +450,21 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
             </Card>
 
             <Card className="p-4 col-span-1 lg:col-span-2">
-              <h3 className="font-medium mb-3">Indexed Syllabus/Schedule PDFs ({filesOnServer.length})</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium">Indexed Syllabus/Schedule PDFs ({filesOnServer.length})</h3>
+                {selectedClassId && filesOnServer.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50"
+                    onClick={onForceReindex}
+                    disabled={isIndexing}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Force Re-index
+                  </Button>
+                )}
+              </div>
               {!selectedClassId ? (
                 <div className="text-sm text-muted-foreground">Select a class</div>
               ) : filesOnServer.length === 0 ? (

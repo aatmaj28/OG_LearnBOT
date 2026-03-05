@@ -455,10 +455,10 @@ export const corpusApi = {
     }).then(res => res.json())
   },
 
-  index: async (classId: string, materialType: string = 'class_material') => {
+  index: async (classId: string, materialType: string = 'class_material', forceReindex: boolean = false) => {
     return apiRequest('/api/corpus/index', {
       method: 'POST',
-      body: JSON.stringify({ classId, materialType }),
+      body: JSON.stringify({ classId, materialType, forceReindex }),
     })
   },
 
