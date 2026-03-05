@@ -98,8 +98,9 @@ def index():
         
         class_id = data.get("classId")
         material_type = data.get("materialType", "class_material")
+        force_reindex = data.get("forceReindex", False)
         is_syllabus = material_type == "syllabus"
-        print(f"[CORPUS] INDEX params: classId={class_id} materialType={material_type} is_syllabus={is_syllabus}", flush=True)
+        print(f"[CORPUS] INDEX params: classId={class_id} materialType={material_type} is_syllabus={is_syllabus} forceReindex={force_reindex}", flush=True)
         
         if not class_id:
             return jsonify({"error": "Class ID is required"}), 400
@@ -130,6 +131,40 @@ def index():
         
         if not pdf_files:
             return jsonify({"error": "No PDF files found to index"}), 400
+        
+        # Force reindex: delete existing Qdrant collection and metadata so indexing starts fresh
+        if force_reindex:
+            print(f"[CORPUS] INDEX forceReindex=True — deleting existing collection and metadata...", flush=True)
+            try:
+                from lib import indexing_service as _idx_svc
+                collection_name = _idx_svc.get_collection_name(str(output_path_abs))
+                qdrant_client = _idx_svc.get_or_init_qdrant_client()
+                try:
+                    qdrant_client.delete_collection(collection_name)
+                    print(f"[CORPUS] INDEX forceReindex: deleted Qdrant collection '{collection_name}'", flush=True)
+                except Exception as del_err:
+                    print(f"[CORPUS] INDEX forceReindex: could not delete collection '{collection_name}': {del_err}", flush=True)
+                # Also clear metadata.json so files aren't skipped
+                metadata_json = output_path_abs / "metadata.json"
+                if metadata_json.exists():
+                    metadata_json.unlink()
+                    print(f"[CORPUS] INDEX forceReindex: deleted metadata.json", flush=True)
+                # Clear cached vector store in RAG service so it reloads from Qdrant
+                try:
+                    import sys as _sys
+                    for mod_name, mod in list(_sys.modules.items()):
+                        if hasattr(mod, 'vector_stores') and hasattr(mod, 'normalize_vector_store_path'):
+                            norm_path = mod.normalize_vector_store_path(str(output_path_abs))
+                            if norm_path in mod.vector_stores:
+                                del mod.vector_stores[norm_path]
+                                print(f"[CORPUS] INDEX forceReindex: cleared cached vector store '{norm_path}' from {mod_name}", flush=True)
+                            break
+                except Exception as cache_err:
+                    print(f"[CORPUS] INDEX forceReindex: could not clear cache: {cache_err}", flush=True)
+            except Exception as force_err:
+                print(f"[CORPUS] INDEX forceReindex: cleanup error (continuing anyway): {force_err}", flush=True)
+                import traceback
+                traceback.print_exc()
         
         # Call indexing service directly (in-process, no subprocess)
         # The embedding model is either already loaded by the RAG service or will be

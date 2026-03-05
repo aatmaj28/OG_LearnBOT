@@ -136,12 +136,15 @@ BLACKWELL_DEEP_THINKING_SUFFIX = (
 # Syllabus/Schedule chat prompt — simple Q&A RAG, no checkpoint pedagogical approach
 SYLLABUS_SYSTEM_PROMPT = """You are LearnBOT, a helpful AI assistant for answering questions about the course syllabus, schedule, and logistics.
 
-Your role is to answer student questions directly and accurately based on the syllabus/schedule content provided in the context. This is NOT a teaching/tutoring session — just answer the question.
+Your role is to answer student questions directly and accurately based on the syllabus/schedule content provided in the context below. This is NOT a teaching/tutoring session — just answer the question.
+
+IMPORTANT: The context below contains real text extracted from the course syllabus PDF. Read it carefully and thoroughly — the answer to the student's question is very likely in the context. Look for relevant details even if they appear in different formatting (tables, lists, headers, etc.).
 
 Guidelines:
-- Answer questions directly and concisely based on the provided syllabus/schedule context.
-- If the answer is found in the context, provide it clearly.
-- If the information is not in the provided context, say so honestly: "I don't see that information in the syllabus. You may want to check with your instructor."
+- FIRST, carefully read ALL of the context provided. The answer is usually there.
+- Answer questions directly and concisely. Extract the specific information requested.
+- If you find the answer in the context, provide it clearly and confidently.
+- Only say you cannot find information if you have thoroughly searched all the provided context and the information is genuinely not there.
 - Be friendly and helpful. Use a conversational tone.
 - Do NOT use the 3-checkpoint teaching approach. Do NOT ask the student to work through problems.
 - Do NOT make up information that is not in the syllabus/schedule.
@@ -2932,7 +2935,16 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         for node in retrieved_nodes:
             # Get metadata from node
             node_metadata = node.metadata if hasattr(node, 'metadata') else {}
-            node_text = node.text if hasattr(node, 'text') else node.get_content() if hasattr(node, 'get_content') else ""
+            # Try multiple ways to get text from NodeWithScore (LlamaIndex version compatibility)
+            node_text = ""
+            if hasattr(node, 'text') and node.text:
+                node_text = node.text
+            elif hasattr(node, 'node') and hasattr(node.node, 'text') and node.node.text:
+                node_text = node.node.text
+            elif hasattr(node, 'node') and hasattr(node.node, 'get_content'):
+                node_text = node.node.get_content()
+            elif hasattr(node, 'get_content'):
+                node_text = node.get_content()
             
             # Get similarity score (Qdrant returns this in node.score)
             score = node.score if hasattr(node, 'score') else 0.0
@@ -3024,6 +3036,13 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 for i, result in enumerate(final_results)
             ])
             
+            # Debug: log context content to diagnose empty/missing chunk text issues
+            if is_syllabus:
+                print(f"[SYLLABUS DEBUG] context_text length: {len(context_text)} chars, {len(final_results)} chunks", file=sys.stderr)
+                for i, result in enumerate(final_results):
+                    ct = result['metadata'].get('chunk_text', '')
+                    print(f"[SYLLABUS DEBUG] Chunk {i+1}: {len(ct)} chars, score={result.get('score', 'N/A')}, preview: {ct[:150]!r}...", file=sys.stderr)
+            
             # Build message history context
             history_text = ""
             if message_history and len(message_history) > 0:
@@ -3096,7 +3115,9 @@ Could you try rephrasing your question, or ask about a specific topic from the c
             
             # Build final prompt for LLM (Blackwell gets compressed prompt to avoid vLLM long-prompt limits)
             if preferred_model == 'remote-blackwell':
-                _ctx = context_text[:4000] if len(context_text) > 4000 else context_text
+                # Syllabus gets larger context window (fewer, more important chunks)
+                ctx_limit = 6000 if is_syllabus else 4000
+                _ctx = context_text[:ctx_limit] if len(context_text) > ctx_limit else context_text
                 if is_syllabus:
                     compressed_system = SYLLABUS_SYSTEM_PROMPT
                 else:
@@ -3177,6 +3198,8 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                     full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
                 if is_syllabus:
                     full_prompt += "Answer the student's question directly and accurately based on the syllabus/schedule context above."
+                    print(f"[SYLLABUS DEBUG] Blackwell full_prompt length: {len(full_prompt)} chars, _ctx length: {len(_ctx)} chars", file=sys.stderr)
+                    print(f"[SYLLABUS DEBUG] _ctx preview (first 500 chars): {_ctx[:500]!r}", file=sys.stderr)
                 else:
                     full_prompt += "Provide a helpful educational response following the rules above."
             else:
