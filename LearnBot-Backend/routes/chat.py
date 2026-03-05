@@ -363,13 +363,17 @@ def ai_response():
                 result_container = {'result': None, 'error': None}
                 
                 def stream_callback(chunk_data):
-                    """Callback function called by RAG service for each chunk"""
+                    """Callback function called by RAG service for each chunk. Accepts dict or raw str (e.g. image notice)."""
                     nonlocal accumulated_response
-                    if chunk_data.get('type') == 'chunk':
+                    if isinstance(chunk_data, str):
+                        if chunk_data:
+                            accumulated_response += chunk_data
+                            chunk_queue.put(('chunk', chunk_data))
+                        return
+                    if isinstance(chunk_data, dict) and chunk_data.get('type') == 'chunk':
                         chunk_text = chunk_data.get('chunk', '')
                         if chunk_text:
                             accumulated_response += chunk_text
-                            # Put chunk in queue for generator to yield
                             chunk_queue.put(('chunk', chunk_text))
                 
                 # Update conversation with user message first (include attachments for persistence)
