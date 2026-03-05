@@ -60,18 +60,6 @@ def _derive_persistent_attachments_from_history(conversation):
                         if name not in seen_doc and len(derived_pa) < 3:
                             seen_doc.add(name)
                             derived_pa.append({"name": name, "summary": ""})
-        # Only add placeholder "Document" when assistant clearly refers to a document/PDF, not when they only said "attached image(s)"
-        if need_derived_pa and not derived_pa and history:
-            for msg in history:
-                if isinstance(msg, dict) and msg.get("role") == "assistant":
-                    content = (msg.get("content") or "").lower()
-                    doc_phrase = (
-                        "uploaded a pdf" in content or "uploaded a document" in content
-                        or "attached a document" in content or "attached a pdf" in content or "attached a file" in content
-                    )
-                    if doc_phrase and "attached image" not in content:
-                        derived_pa = [{"name": "Document", "summary": ""}]
-                    break
         if derived_pa or derived_pi:
             out = dict(conversation)
             new_cached = {**cached, "persistent_attachments": derived_pa[:3], "persistent_images": derived_pi[:3]}

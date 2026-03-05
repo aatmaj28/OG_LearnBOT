@@ -738,14 +738,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           }
         }
       }
-      if (!hasDocs && fromHistoryDocs.length === 0) {
-        const firstAssistant = messageHistory.find((m: any) => m?.role === 'assistant')
-        const content = (firstAssistant?.content || '').toLowerCase()
-        const docPhrase = /uploaded a pdf|attached a (document|pdf|file)|uploaded a document/.test(content)
-        if (docPhrase && !/attached image/.test(content)) {
-          fromHistoryDocs.push({ name: 'Document', summary: '' })
-        }
-      }
       if (fromHistoryDocs.length > 0 || fromHistoryImages.length > 0) {
         cachedContext = {
           ...(cachedContext || {}),
