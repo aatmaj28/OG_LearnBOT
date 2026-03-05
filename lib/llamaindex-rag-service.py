@@ -132,17 +132,25 @@ BLACKWELL_DEEP_THINKING_SUFFIX = (
     "Do NOT give a short answer. Break down every concept thoroughly, explain the 'why' and 'how' in extreme depth, "
     "use real-world analogies, and connect concepts to the broader context. Your priority is depth, exhaustive reasoning, and a high word count."
 )
-# Single system prompt for Syllabus/Schedule chat. No TA mode, no checkpoints — only this prompt guides responses.
-BLACKWELL_SYLLABUS_SYSTEM = """You are LearnBOT, an AI assistant helping students with course syllabus and schedule information.
 
-Your role: Answer questions using ONLY the provided syllabus/schedule context. Do not use general knowledge; stick to what is in the sources.
+# Syllabus/Schedule chat prompt — simple Q&A RAG, no checkpoint pedagogical approach
+SYLLABUS_SYSTEM_PROMPT = """You are LearnBOT, a helpful AI assistant for answering questions about the course syllabus, schedule, and logistics.
 
-Rules:
-- Provide clear, concise answers. If the syllabus states a percentage, date, or policy, state it directly.
-- When you find information in the context, say it confidently (e.g. "The syllabus states...", "According to the schedule...").
-- If the information is not in the provided context, say so and suggest the student check their syllabus or ask the instructor.
-- Be helpful and direct. No teaching checkpoints or step-by-step pedagogy — this is Q&A about the syllabus/schedule only.
-- Use **bold** for important terms (e.g. deadlines, percentages). Keep formatting clean."""
+Your role is to answer student questions directly and accurately based on the syllabus/schedule content provided in the context. This is NOT a teaching/tutoring session — just answer the question.
+
+Guidelines:
+- Answer questions directly and concisely based on the provided syllabus/schedule context.
+- If the answer is found in the context, provide it clearly.
+- If the information is not in the provided context, say so honestly: "I don't see that information in the syllabus. You may want to check with your instructor."
+- Be friendly and helpful. Use a conversational tone.
+- Do NOT use the 3-checkpoint teaching approach. Do NOT ask the student to work through problems.
+- Do NOT make up information that is not in the syllabus/schedule.
+- You can answer questions about: instructor info, office hours, grading policies, assignment due dates, exam schedules, course policies, required textbooks, class schedule, topics covered each week, attendance policies, late submission policies, etc.
+
+FORMATTING:
+- Use **bold** for key terms, dates, and important details.
+- Use bullet points or numbered lists when listing multiple items.
+- Keep responses clear and well-organized."""
 
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
@@ -3090,93 +3098,93 @@ Could you try rephrasing your question, or ask about a specific topic from the c
             if preferred_model == 'remote-blackwell':
                 _ctx = context_text[:4000] if len(context_text) > 4000 else context_text
                 if is_syllabus:
-                    # Syllabus/Schedule: single system prompt, no TA mode, no checkpoints, no deep thinking
-                    full_prompt = ""
-                    if history_text:
-                        _hist = history_text[:4000] if len(history_text) > 4000 else history_text
-                        full_prompt += f"Previous conversation:\n{_hist}\n\n"
-                    full_prompt += f"Context from syllabus/schedule:\n{_ctx}\n\n"
-                    full_prompt += f"Student question: {query}\n\n"
-                    full_prompt += "Answer the student's question using the syllabus context above. Be direct and concise."
-                    print(f"[RAG] Syllabus chat: using BLACKWELL_SYLLABUS_SYSTEM (no TA mode, no checkpoints)", file=sys.stderr)
+                    compressed_system = SYLLABUS_SYSTEM_PROMPT
                 else:
                     compressed_system = BLACKWELL_COMPRESSED_SYSTEMS.get(ta_mode, BLACKWELL_COMPRESSED_SYSTEMS["normal"])
-                    if deep_thinking:
-                        compressed_system = compressed_system + BLACKWELL_DEEP_THINKING_SUFFIX
-                        print(f"🧠 Deep thinking mode enabled for Blackwell (Gemma) — reasoning + in-depth, vLLM-friendly", file=sys.stderr)
-                    full_prompt = f"{compressed_system}\n\n"
+                if deep_thinking:
+                    compressed_system = compressed_system + BLACKWELL_DEEP_THINKING_SUFFIX
+                    print(f"🧠 Deep thinking mode enabled for Blackwell (Gemma) — reasoning + in-depth, vLLM-friendly", file=sys.stderr)
+                full_prompt = f"{compressed_system}\n\n"
                 
-                    # Parse checkpoint progress from ALL messages (not just recent window)
-                    cp_progress = {'1': False, '2': False, '3': False}
-                    if message_history:
-                        for msg in message_history:
-                            if not isinstance(msg, dict):
-                                continue
-                            content = msg.get('content', '')
-                            if msg.get('role') == 'assistant' and 'CHECKPOINT_UPDATE:' in content:
-                                import re
-                                cp_match = re.search(r'CHECKPOINT_UPDATE:\s*1=(true|false)\s*,\s*2=(true|false)\s*,\s*3=(true|false)', content, re.IGNORECASE)
-                                if cp_match:
-                                    cp_progress['1'] = cp_match.group(1).lower() == 'true' or cp_progress['1']
-                                    cp_progress['2'] = cp_match.group(2).lower() == 'true' or cp_progress['2']
-                                    cp_progress['3'] = cp_match.group(3).lower() == 'true' or cp_progress['3']
-                            # Also detect checkpoints from conversation content (fallback if CHECKPOINT_UPDATE missing)
-                            if msg.get('role') == 'assistant':
-                                content_lower = content.lower()
-                                if 'checkpoint 1' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
-                                    cp_progress['1'] = True
-                                if 'checkpoint 2' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
-                                    cp_progress['2'] = True
-                                if 'checkpoint 3' in content_lower and ('formula' in content_lower or 'setup' in content_lower):
-                                    cp_progress['3'] = True
+                # Parse checkpoint progress from ALL messages (not just recent window)
+                cp_progress = {'1': False, '2': False, '3': False}
+                if not is_syllabus and message_history:
+                    for msg in message_history:
+                        if not isinstance(msg, dict):
+                            continue
+                        content = msg.get('content', '')
+                        if msg.get('role') == 'assistant' and 'CHECKPOINT_UPDATE:' in content:
+                            import re
+                            cp_match = re.search(r'CHECKPOINT_UPDATE:\s*1=(true|false)\s*,\s*2=(true|false)\s*,\s*3=(true|false)', content, re.IGNORECASE)
+                            if cp_match:
+                                cp_progress['1'] = cp_match.group(1).lower() == 'true' or cp_progress['1']
+                                cp_progress['2'] = cp_match.group(2).lower() == 'true' or cp_progress['2']
+                                cp_progress['3'] = cp_match.group(3).lower() == 'true' or cp_progress['3']
+                        # Also detect checkpoints from conversation content (fallback if CHECKPOINT_UPDATE missing)
+                        if msg.get('role') == 'assistant':
+                            content_lower = content.lower()
+                            if 'checkpoint 1' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
+                                cp_progress['1'] = True
+                            if 'checkpoint 2' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
+                                cp_progress['2'] = True
+                            if 'checkpoint 3' in content_lower and ('formula' in content_lower or 'setup' in content_lower):
+                                cp_progress['3'] = True
                 
-                    # Inject checkpoint progress into prompt
-                    any_passed = any(cp_progress.values())
-                    if any_passed:
-                        cp_status = []
-                        if cp_progress['1']:
-                            cp_status.append("Checkpoint 1 (Classification): COMPLETED")
-                        if cp_progress['2']:
-                            cp_status.append("Checkpoint 2 (Conceptual): COMPLETED")
-                        if cp_progress['3']:
-                            cp_status.append("Checkpoint 3 (Formula & Setup): COMPLETED")
-                        next_cp = "1" if not cp_progress['1'] else ("2" if not cp_progress['2'] else ("3" if not cp_progress['3'] else "ALL DONE"))
-                        full_prompt += f"CHECKPOINT PROGRESS (DO NOT RESTART — continue from where we left off):\n"
-                        full_prompt += "\n".join(cp_status) + "\n"
-                        if next_cp != "ALL DONE":
-                            full_prompt += f"→ Continue with Checkpoint {next_cp}. Do NOT repeat completed checkpoints.\n\n"
+                # Inject checkpoint progress into prompt
+                any_passed = any(cp_progress.values())
+                if any_passed and not is_syllabus:
+                    cp_status = []
+                    if cp_progress['1']:
+                        cp_status.append("Checkpoint 1 (Classification): COMPLETED")
+                    if cp_progress['2']:
+                        cp_status.append("Checkpoint 2 (Conceptual): COMPLETED")
+                    if cp_progress['3']:
+                        cp_status.append("Checkpoint 3 (Formula & Setup): COMPLETED")
+                    next_cp = "1" if not cp_progress['1'] else ("2" if not cp_progress['2'] else ("3" if not cp_progress['3'] else "ALL DONE"))
+                    full_prompt += f"CHECKPOINT PROGRESS (DO NOT RESTART — continue from where we left off):\n"
+                    full_prompt += "\n".join(cp_status) + "\n"
+                    if next_cp != "ALL DONE":
+                        full_prompt += f"→ Continue with Checkpoint {next_cp}. Do NOT repeat completed checkpoints.\n\n"
+                    else:
+                        full_prompt += f"→ All checkpoints completed. Help the student verify their work.\n\n"
+                
+                # Inject persistent attachment context (loaded from DB at start of process_query)
+                if _injected_persistent_attachments:
+                    full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
+                    full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
+                    for idx, att in enumerate(_injected_persistent_attachments):
+                        if isinstance(att, dict):
+                            full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
                         else:
-                            full_prompt += f"→ All checkpoints completed. Help the student verify their work.\n\n"
+                            full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
+                    full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
                 
-                    # Inject persistent attachment context (loaded from DB at start of process_query)
-                    if _injected_persistent_attachments:
-                        full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
-                        full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
-                        for idx, att in enumerate(_injected_persistent_attachments):
-                            if isinstance(att, dict):
-                                full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
-                            else:
-                                full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
-                        full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
-                
-                    # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
-                    is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
-                    if is_follow_up:
-                        if ta_mode == 'strict':
-                            full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
-                        else:
-                            full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
-                
-                    if history_text:
-                        _hist = history_text[:4000] if len(history_text) > 4000 else history_text
-                        full_prompt += f"Previous conversation:\n{_hist}\n\n"
-                    full_prompt += f"Context from textbook:\n{_ctx}\n\n"
-                    full_prompt += f"Student question: {query}\n\n"
-                    if bypass_attempt_occurred:
-                        full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
+                # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
+                is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
+                if is_follow_up and not is_syllabus:
+                    if ta_mode == 'strict':
+                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
+                    else:
+                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
+
+                if history_text:
+                    _hist = history_text[:4000] if len(history_text) > 4000 else history_text
+                    full_prompt += f"Previous conversation:\n{_hist}\n\n"
+                context_label = "Context from syllabus/schedule" if is_syllabus else "Context from textbook"
+                full_prompt += f"{context_label}:\n{_ctx}\n\n"
+                full_prompt += f"Student question: {query}\n\n"
+                if bypass_attempt_occurred and not is_syllabus:
+                    full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
+                if is_syllabus:
+                    full_prompt += "Answer the student's question directly and accurately based on the syllabus/schedule context above."
+                else:
                     full_prompt += "Provide a helpful educational response following the rules above."
             else:
-                full_prompt = f"{system_prompt}\n\n"
+                if is_syllabus:
+                    full_prompt = f"{SYLLABUS_SYSTEM_PROMPT}\n\n"
+                    final_system_prompt = SYLLABUS_SYSTEM_PROMPT
+                else:
+                    full_prompt = f"{system_prompt}\n\n"
                 
                 # Inject persistent attachment context for fallback models (loaded from DB at start)
                 if _injected_persistent_attachments:
@@ -3191,7 +3199,7 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 
                 # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
                 is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
-                if is_follow_up:
+                if is_follow_up and not is_syllabus:
                     if ta_mode == 'strict':
                         full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
                     else:
@@ -3199,11 +3207,15 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 
                 if history_text:
                     full_prompt += f"Previous conversation:\n{history_text}\n\n"
-                full_prompt += f"Context from textbook:\n{context_text}\n\n"
+                context_label = "Context from syllabus/schedule" if is_syllabus else "Context from textbook"
+                full_prompt += f"{context_label}:\n{context_text}\n\n"
                 full_prompt += f"Student question: {query}\n\n"
-                if bypass_attempt_occurred:
+                if bypass_attempt_occurred and not is_syllabus:
                     full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
-                full_prompt += """Please provide a helpful, educational response.
+                if is_syllabus:
+                    full_prompt += "Answer the student's question directly and accurately based on the syllabus/schedule context above. Use **bold** for key details like dates, names, and policies. Keep the response clear and well-organized."
+                else:
+                    full_prompt += """Please provide a helpful, educational response.
 
 ================================================================================
 CRITICAL FORMATTING REQUIREMENTS - YOU MUST FOLLOW THESE EXACTLY:
@@ -3268,8 +3280,10 @@ before and after. This is MANDATORY, not optional.
             # Deep thinking mode is already integrated into the system prompt from TypeScript
             # The system_prompt passed from TypeScript already includes deep thinking instructions
             # if deep_thinking was enabled, so we just use it as-is
-            # For syllabus chat use the dedicated syllabus system prompt; for class material use the one from request (or with deep thinking)
-            final_system_prompt = BLACKWELL_SYLLABUS_SYSTEM if is_syllabus else system_prompt
+            if is_syllabus:
+                final_system_prompt = SYLLABUS_SYSTEM_PROMPT
+            else:
+                final_system_prompt = system_prompt
             if deep_thinking:
                 print(f"🧠 Deep thinking mode enabled (combined with TA mode)", file=sys.stderr)
             
