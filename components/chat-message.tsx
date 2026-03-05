@@ -7,6 +7,7 @@ import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import { Bot, User, Image as ImageIcon, File } from 'lucide-react'
 import type { ChatAttachment } from '@/lib/types'
+import { formatBotResponse } from '@/lib/format-bot-response'
 
 interface ChatMessageProps {
   role: 'user' | 'assistant'
@@ -93,6 +94,12 @@ function sanitizeContent(content: string): string {
 
 export function ChatMessage({ role, content, timestamp, metadata, attachments, isDarkMode = false }: ChatMessageProps) {
   let sanitizedContent = sanitizeContent(content)
+
+  // Apply frontend formatting (removes markdown headers, bullets, renames checkpoints, adds emojis)
+  // This runs on every render so streamed text is always formatted — no blink/swap needed.
+  if (role === 'assistant') {
+    sanitizedContent = formatBotResponse(sanitizedContent)
+  }
 
   // Debug: Log content to see what we're working with
   if (role === 'assistant') {

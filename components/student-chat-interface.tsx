@@ -1623,12 +1623,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                           setIsDeepThinking(false)
                         }
 
-                        // Use the formatted response from the done event (includes emojis)
-                        // If data.content is provided, it's the final formatted response from Python
-                        const finalFormattedContent = data.content || accumulatedResponse
+                        // Use the streamed response directly (formatting is applied in ChatMessage rendering)
+                        // No content swap — prevents the visible blink/glitch at end of streaming.
+                        const finalContent = accumulatedResponse
 
-                        console.log("[v0] Final formatted content length:", finalFormattedContent.length)
-                        console.log("[v0] Final formatted content preview:", finalFormattedContent.substring(0, 200))
+                        console.log("[v0] Final content length:", finalContent.length)
+                        console.log("[v0] Final content preview:", finalContent.substring(0, 200))
 
                         // Capture modelUsed from the done event and update metadata
                         // Use modelUsed from done event if available, otherwise fallback to preferredModel
@@ -1641,7 +1641,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                           if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
                             messages[messages.length - 1] = {
                               ...messages[messages.length - 1],
-                              content: finalFormattedContent, // Use formatted response with emojis
+                              content: finalContent, // Streamed response — formatting applied at render time
                               metadata: {
                                 ...messages[messages.length - 1].metadata,
                                 modelUsed: actualModelUsed
@@ -1652,7 +1652,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         })
 
                         // Update accumulatedResponse for consistency
-                        accumulatedResponse = finalFormattedContent
+                        accumulatedResponse = finalContent
 
                         break
                       }
