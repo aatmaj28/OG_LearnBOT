@@ -8,7 +8,9 @@
  * 3. Replace CP1/CP2/CP3 → Checkpoint 1/2/3
  * 4. Ensure numbered lists have proper spacing
  * 5. Clean up excessive blank lines
- * 6. Add 1-2 emojis if none are present
+ *
+ * NOTE: Emoji insertion is handled separately via addResponseEmojis()
+ * which is called ONCE when streaming ends (not during rendering).
  */
 
 // Emoji regex covering common emoji ranges
@@ -150,18 +152,24 @@ export function formatBotResponse(text: string): string {
   // Step 7: Clean up excessive blank lines
   text = text.replace(/\n{4,}/g, '\n\n\n')
 
-  // Step 8: Add 1-2 emojis if text doesn't already have any
-  const existingEmojiCount = countEmojis(text)
-  if (existingEmojiCount === 0 && text.length > 20) {
-    // Pick how many: 1 for short responses, 2 for longer ones
-    const emojiCount = text.length > 200 ? 2 : 1
-    const emojis = pickEmojis(text, emojiCount)
-    text = insertEmojis(text, emojis)
-  }
-
   // Final cleanup
   text = text.trim()
   text = text.replace(/\n{3,}/g, '\n\n')
 
   return text
+}
+
+/**
+ * Add 1-2 contextual emojis to a completed response.
+ * Called ONCE when streaming ends — NOT during rendering (avoids emoji flickering).
+ */
+export function addResponseEmojis(text: string): string {
+  if (!text || text.trim().length < 20) return text
+
+  const existingEmojiCount = countEmojis(text)
+  if (existingEmojiCount > 0) return text // LLM already added emojis
+
+  const emojiCount = text.length > 200 ? 2 : 1
+  const emojis = pickEmojis(text, emojiCount)
+  return insertEmojis(text, emojis)
 }

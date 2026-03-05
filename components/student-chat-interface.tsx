@@ -12,6 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LogoutButton } from "@/components/logout-button"
 import { ChatMessage } from "@/components/chat-message"
+import { addResponseEmojis } from "@/lib/format-bot-response"
 import { MessageSquare, Send, Plus, Bot, BookOpen, Trash2, Zap, Calendar, PanelLeftClose, PanelLeftOpen, Sun, Moon, Download, Clock, FileText, FolderOpen, ChevronLeft, ChevronRight, X, ExternalLink, Upload, CheckCircle2, Mic, MicOff, Paperclip, File, Image as ImageIcon, Brain, BrainCircuit } from "lucide-react"
 import { VoiceWave } from "@/components/voice-wave"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -1625,7 +1626,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
                         // Use the streamed response directly (formatting is applied in ChatMessage rendering)
                         // No content swap — prevents the visible blink/glitch at end of streaming.
-                        const finalContent = accumulatedResponse
+                        // Add emojis ONCE here (not during rendering, which would cause flickering).
+                        const finalContent = addResponseEmojis(accumulatedResponse)
 
                         console.log("[v0] Final content length:", finalContent.length)
                         console.log("[v0] Final content preview:", finalContent.substring(0, 200))
