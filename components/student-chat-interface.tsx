@@ -1646,6 +1646,15 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         const actualModelUsed = data.modelUsed || preferredModel
                         console.log("[v0] Using modelUsed:", actualModelUsed)
 
+                        // Calculate ALL timing metadata here so we can do a SINGLE state update
+                        // (eliminates the double re-render that caused visual blink at stream end)
+                        const lastTokenTimestamp = Date.now()
+                        const doneResponseTime = lastTokenTimestamp - sendTimestamp
+                        const doneTtft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
+                        console.log(`[v0] 📊 Total Response Time: ${doneResponseTime}ms, TTFT: ${doneTtft}ms`)
+
+                        // Single setCurrentConversation call with ALL final metadata
+                        // This eliminates the double re-render that caused the blink
                         setCurrentConversation(prev => {
                           if (!prev) return prev
                           const messages = [...(prev.messageHistory || [])]
@@ -1655,7 +1664,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                               content: finalContent, // Streamed response — formatting applied at render time
                               metadata: {
                                 ...messages[messages.length - 1].metadata,
-                                modelUsed: actualModelUsed
+                                modelUsed: actualModelUsed,
+                                timeToFirstToken: doneTtft,
+                                totalResponseTime: doneResponseTime
                               }
                             }
                           }
@@ -1674,37 +1685,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                 }
               }
 
-              // Calculate total response time (send to last token)
-              const lastTokenTimestamp = Date.now()
-              const totalResponseTime = lastTokenTimestamp - sendTimestamp
-              const ttft = firstTokenTimestamp ? firstTokenTimestamp - sendTimestamp : null
-              console.log(`[v0] 📊 Total Response Time: ${totalResponseTime}ms`)
-
-              // Capture modelUsed from the last message (set during done event)
-              let capturedModelUsed: string | undefined = undefined
-              setCurrentConversation(prev => {
-                if (!prev || !prev.messageHistory) return prev
-                const messages = [...prev.messageHistory]
-                if (messages.length > 0) {
-                  const lastMsg = messages[messages.length - 1]
-                  if (lastMsg.role === 'assistant') {
-                    capturedModelUsed = lastMsg.metadata?.modelUsed
-                    // Update metadata but preserve the original timestamp to prevent blink
-                    messages[messages.length - 1] = {
-                      ...lastMsg,
-                      // Content is already updated during streaming, just update metadata
-                      metadata: {
-                        ...lastMsg.metadata,
-                        timeToFirstToken: ttft,
-                        totalResponseTime: totalResponseTime,
-                        // Preserve modelUsed that was set during done event
-                        modelUsed: capturedModelUsed || lastMsg.metadata?.modelUsed || preferredModel
-                      }
-                    }
-                  }
-                }
-                return { ...prev, messageHistory: messages }
-              })
+              // All timing metadata (TTFT, totalResponseTime, modelUsed) is now set in the done
+              // handler above in a SINGLE setCurrentConversation call to prevent double re-render blink.
 
               // Silently refresh conversations list in background (don't reload current conversation to avoid blink)
               loadConversations().catch(err => console.error("[v0] Failed to refresh conversations list:", err))

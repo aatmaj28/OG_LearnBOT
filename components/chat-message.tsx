@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -93,139 +93,67 @@ function sanitizeContent(content: string): string {
 }
 
 export function ChatMessage({ role, content, timestamp, metadata, attachments, isDarkMode = false }: ChatMessageProps) {
-  let sanitizedContent = sanitizeContent(content)
+  // Memoize the entire content formatting pipeline — only recalculate when content or role changes.
+  // This prevents expensive re-processing when only metadata changes (e.g. at stream end),
+  // eliminating the visual blink caused by re-rendering ReactMarkdown with identical content.
+  const sanitizedContent = useMemo(() => {
+    let processed = sanitizeContent(content)
 
-  // Apply frontend formatting (removes markdown headers, bullets, renames checkpoints, adds emojis)
-  // This runs on every render so streamed text is always formatted — no blink/swap needed.
-  if (role === 'assistant') {
-    sanitizedContent = formatBotResponse(sanitizedContent)
-  }
-
-  // Debug: Log content to see what we're working with
-  if (role === 'assistant') {
-    const emojiRegex = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]/gu
-    const emojisInOriginal = content.match(emojiRegex) || []
-    const emojisInSanitized = sanitizedContent.match(emojiRegex) || []
-    console.log('[CHAT MESSAGE DEBUG] Original content length:', content.length)
-    console.log('[CHAT MESSAGE DEBUG] Emojis in ORIGINAL content:', emojisInOriginal)
-    console.log('[CHAT MESSAGE DEBUG] Emojis in SANITIZED content:', emojisInSanitized)
-    console.log('[CHAT MESSAGE DEBUG] First 300 chars of sanitized:', sanitizedContent.substring(0, 300))
-  }
-
-  // Convert "1) " format to "1. " format for ReactMarkdown (it only recognizes "1. " as numbered lists)
-  const beforeConversion = sanitizedContent
-  // Check for numbered lines - match "1)" or "1) " at start of line
-  const numberedLinesBefore = beforeConversion.split('\n').filter(line => /^\s*\d+\)/.test(line))
-
-  if (role === 'assistant') {
-    console.log('[CHAT MESSAGE DEBUG] Lines with "1)" format BEFORE conversion:', numberedLinesBefore.length)
-    if (numberedLinesBefore.length > 0) {
-      console.log('[CHAT MESSAGE DEBUG] Sample numbered lines:', numberedLinesBefore.slice(0, 3))
+    // Apply frontend formatting (removes markdown headers, bullets, renames checkpoints)
+    if (role === 'assistant') {
+      processed = formatBotResponse(processed)
     }
-  }
 
-  // Convert "1) " to "1. " - handle both "1)" and "1) " formats
-  // Pattern 1: "1) " at start of line (with space after parenthesis)
-  sanitizedContent = sanitizedContent.replace(/^(\s*)(\d+)\)\s+/gm, '$1$2. ')
-  // Pattern 2: "1)" at start of line (without space, but followed by text or end of line)
-  sanitizedContent = sanitizedContent.replace(/^(\s*)(\d+)\)([^\s])/gm, '$1$2. $3')
+    // Convert "1) " to "1. " for ReactMarkdown recognition
+    processed = processed.replace(/^(\s*)(\d+)\)\s+/gm, '$1$2. ')
+    processed = processed.replace(/^(\s*)(\d+)\)([^\s])/gm, '$1$2. $3')
 
-  if (role === 'assistant') {
-    const numberedLinesAfter = sanitizedContent.split('\n').filter(line => /^\s*\d+\.\s/.test(line))
-    console.log('[CHAT MESSAGE DEBUG] Lines with "1." format AFTER conversion:', numberedLinesAfter.length)
-    if (numberedLinesAfter.length > 0) {
-      console.log('[CHAT MESSAGE DEBUG] Sample converted lines:', numberedLinesAfter.slice(0, 3))
-      console.log('[CHAT MESSAGE DEBUG] First 300 chars AFTER conversion:', sanitizedContent.substring(0, 300))
-    } else if (numberedLinesBefore.length > 0) {
-      // This is not necessarily an error - the lines might have been processed differently
-      // Only log as warning, not error
-      console.warn('[CHAT MESSAGE DEBUG] Note: Found', numberedLinesBefore.length, 'numbered lines before conversion but 0 after. This may be normal if they were processed differently.')
-      console.warn('[CHAT MESSAGE DEBUG] Original numbered lines:', numberedLinesBefore)
-      console.warn('[CHAT MESSAGE DEBUG] Content after conversion (first 300 chars):', sanitizedContent.substring(0, 300))
-    }
-  }
+    // Ensure numbered list items are on separate lines
+    processed = processed.replace(/(\d+\.\s[^\n]+?)\s+(\d+\.\s)/g, '$1\n$2')
+    processed = processed.replace(/\n{3,}/g, '\n\n')
 
-  // IMPORTANT: Preserve numbered list formatting for ReactMarkdown
-  // ReactMarkdown recognizes numbered lists when items start with "1. " at the beginning of a line
-  // Each numbered item MUST be on its own line, and there should be a blank line before the list
+    // Process line by line to ensure proper numbered list formatting for ReactMarkdown
+    const lines = processed.split('\n')
+    const processedLines: string[] = []
+    let inNumberedList = false
 
-  // First, ensure numbered list items are on separate lines (in case they got collapsed)
-  // This regex finds numbered items that might be on the same line and splits them
-  sanitizedContent = sanitizedContent.replace(/(\d+\.\s[^\n]+?)\s+(\d+\.\s)/g, '$1\n$2')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const isNumberedItem = /^\s*\d+\.\s/.test(line)
+      const nextIsNumbered = i + 1 < lines.length && /^\s*\d+\.\s/.test(lines[i + 1])
+      const isBlank = line.trim() === ''
 
-  // Normalize multiple newlines to double (but preserve list structure)
-  sanitizedContent = sanitizedContent.replace(/\n{3,}/g, '\n\n')
-
-  // Process line by line to ensure proper formatting
-  const lines = sanitizedContent.split('\n')
-  const processedLines: string[] = []
-  let inNumberedList = false
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const isNumberedItem = /^\s*\d+\.\s/.test(line)
-    const nextIsNumbered = i + 1 < lines.length && /^\s*\d+\.\s/.test(lines[i + 1])
-    const isBlank = line.trim() === ''
-
-    if (isNumberedItem) {
-      // Numbered list item
-      if (!inNumberedList) {
-        // First numbered item - ensure blank line before it
-        if (processedLines.length > 0 && processedLines[processedLines.length - 1].trim() !== '') {
-          processedLines.push('')
+      if (isNumberedItem) {
+        if (!inNumberedList) {
+          if (processedLines.length > 0 && processedLines[processedLines.length - 1].trim() !== '') {
+            processedLines.push('')
+          }
+          inNumberedList = true
         }
-        inNumberedList = true
-      }
-      // Add the numbered item as-is (on its own line)
-      processedLines.push(line)
-
-      // If next line is not numbered and not blank, end the list
-      if (!nextIsNumbered && !isBlank && i + 1 < lines.length && lines[i + 1].trim() !== '') {
-        processedLines.push('')  // Blank line after list
+        processedLines.push(line)
+        if (!nextIsNumbered && !isBlank && i + 1 < lines.length && lines[i + 1].trim() !== '') {
+          processedLines.push('')
+          inNumberedList = false
+        }
+      } else if (isBlank) {
+        processedLines.push(line)
+        if (inNumberedList && i + 1 < lines.length && !/^\s*\d+\.\s/.test(lines[i + 1])) {
+          inNumberedList = false
+        }
+      } else {
         inNumberedList = false
+        processedLines.push(line)
       }
-    } else if (isBlank) {
-      // Blank line - preserve it
-      processedLines.push(line)
-      if (inNumberedList && i + 1 < lines.length && !/^\s*\d+\.\s/.test(lines[i + 1])) {
-        inNumberedList = false
-      }
-    } else {
-      // Regular text line
-      inNumberedList = false
-      // Don't add markdown line breaks for regular text - let ReactMarkdown handle it
-      processedLines.push(line)
-    }
-  }
-
-  sanitizedContent = processedLines.join('\n')
-
-  // Fix spacing around numbers with commas (e.g., "95,200and" -> "95,200 and", "is95,200" -> "is 95,200")
-  sanitizedContent = sanitizedContent.replace(/([a-zA-Z])(\d{1,3}(?:,\d{3})*(?:\.\d+)?)/g, '$1 $2')
-  sanitizedContent = sanitizedContent.replace(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?)([a-zA-Z])/g, '$1 $2')
-
-  if (role === 'assistant') {
-    const finalNumberedLines = sanitizedContent.split('\n').filter(line => /^\s*\d+\.\s/.test(line))
-    console.log('[CHAT MESSAGE DEBUG] Final numbered lines count:', finalNumberedLines.length)
-
-    // Check if numbered items are on separate lines
-    const numberedItemsOnSameLine = sanitizedContent.match(/\d+\.\s[^\n]+\s+\d+\.\s/g)
-    if (numberedItemsOnSameLine) {
-      console.warn('[CHAT MESSAGE DEBUG] ⚠️ Found numbered items on same line:', numberedItemsOnSameLine)
     }
 
-    // Show the actual structure around numbered items
-    const numberedItemIndex = sanitizedContent.search(/^\d+\.\s/m)
-    if (numberedItemIndex !== -1) {
-      const contextStart = Math.max(0, numberedItemIndex - 50)
-      const contextEnd = Math.min(sanitizedContent.length, numberedItemIndex + 300)
-      console.log('[CHAT MESSAGE DEBUG] Context around first numbered item:', sanitizedContent.substring(contextStart, contextEnd))
-    }
+    processed = processedLines.join('\n')
 
-    if (finalNumberedLines.length > 0) {
-      console.log('[CHAT MESSAGE DEBUG] Final numbered lines:', finalNumberedLines.slice(0, 4))
-    }
-  }
+    // Fix spacing around numbers with commas (e.g., "95,200and" -> "95,200 and")
+    processed = processed.replace(/([a-zA-Z])(\d{1,3}(?:,\d{3})*(?:\.\d+)?)/g, '$1 $2')
+    processed = processed.replace(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?)([a-zA-Z])/g, '$1 $2')
+
+    return processed
+  }, [content, role])
 
   return (
     <div className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'} group animate-in fade-in slide-in-from-bottom-4 duration-500`}>
@@ -299,7 +227,7 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
               : isDarkMode
                 ? 'bg-transparent text-white'
                 : 'bg-white border border-gray-200 text-gray-900 shadow-lg'
-            } transition-all duration-200`}>
+            } transition-colors duration-200`}>
 
             {/* Markdown Content */}
             <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-gray'} prose-sm max-w-none
