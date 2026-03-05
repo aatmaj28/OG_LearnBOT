@@ -114,11 +114,22 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
   const onFilesChosen: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const files = Array.from(e.target.files || [])
-    const supported = files.filter(f => {
+    const supported: File[] = []
+    const rejected: string[] = []
+    for (const f of files) {
       const name = f.name.toLowerCase()
-      return SUPPORTED_EXTENSIONS.some(ext => name.endsWith(ext))
-    })
-    setSelectedFiles(prev => [...prev, ...supported])
+      if (SUPPORTED_EXTENSIONS.some(ext => name.endsWith(ext))) {
+        supported.push(f)
+      } else {
+        rejected.push(f.name)
+      }
+    }
+    if (rejected.length > 0) {
+      toast.error(`Unsupported file type. Only accepts .pdf, .docx, .doc, .txt`)
+    }
+    if (supported.length > 0) {
+      setSelectedFiles(prev => [...prev, ...supported])
+    }
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
