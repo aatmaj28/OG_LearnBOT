@@ -357,16 +357,26 @@ def verify_otp():
         # Check for pending enrollments
         try:
             from services.db_service import get_pending_enrollments_by_email, add_student_to_class, delete_pending_enrollment
+            print(f"[AUTH] VERIFY-OTP: Checking pending enrollments for email: {email}")
             pending_enrollments = get_pending_enrollments_by_email(email)
+            print(f"[AUTH] VERIFY-OTP: Found {len(pending_enrollments)} pending enrollments: {pending_enrollments}")
             for enrollment in pending_enrollments:
                 try:
-                    add_student_to_class(enrollment['class_id'], new_user['id'])
-                    delete_pending_enrollment(email, enrollment['class_id'])
-                    print(f"[AUTH] Automatically enrolled user in class {enrollment['class_id']} from pending invite")
+                    class_id = str(enrollment['class_id'])
+                    user_id = str(new_user['id'])
+                    print(f"[AUTH] VERIFY-OTP: Adding student {user_id} to class {class_id}")
+                    add_student_to_class(class_id, user_id)
+                    print(f"[AUTH] VERIFY-OTP: Successfully added student to class {class_id}")
+                    delete_pending_enrollment(email, class_id)
+                    print(f"[AUTH] VERIFY-OTP: Deleted pending enrollment for class {class_id}")
                 except Exception as e:
-                    print(f"[AUTH] Failed to auto-enroll user in class {enrollment['class_id']}: {e}")
+                    print(f"[AUTH] VERIFY-OTP: FAILED to auto-enroll in class {enrollment['class_id']}: {e}")
+                    import traceback
+                    traceback.print_exc()
         except Exception as e:
-            print(f"[AUTH] Error processing pending enrollments: {e}")
+            print(f"[AUTH] VERIFY-OTP: ERROR processing pending enrollments: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Create session
         session_id = auth_service.create_session(new_user)
