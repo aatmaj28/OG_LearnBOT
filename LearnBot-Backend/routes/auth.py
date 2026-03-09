@@ -141,6 +141,20 @@ def register():
         
         print(f"[AUTH] REGISTER: User created successfully: {new_user.get('email')}")
         
+        # Check for pending enrollments
+        try:
+            from services.db_service import get_pending_enrollments_by_email, add_student_to_class, delete_pending_enrollment
+            pending_enrollments = get_pending_enrollments_by_email(email)
+            for enrollment in pending_enrollments:
+                try:
+                    add_student_to_class(enrollment['class_id'], new_user['id'])
+                    delete_pending_enrollment(email, enrollment['class_id'])
+                    print(f"[AUTH] Automatically enrolled user in class {enrollment['class_id']} from pending invite")
+                except Exception as e:
+                    print(f"[AUTH] Failed to auto-enroll user in class {enrollment['class_id']}: {e}")
+        except Exception as e:
+            print(f"[AUTH] Error processing pending enrollments: {e}")
+        
         # Create session
         session_id = auth_service.create_session(new_user)
         
@@ -339,6 +353,20 @@ def verify_otp():
         delete_pending_registration(email)
         
         print(f"[AUTH] VERIFY-OTP: User created successfully: {new_user.get('email')}")
+        
+        # Check for pending enrollments
+        try:
+            from services.db_service import get_pending_enrollments_by_email, add_student_to_class, delete_pending_enrollment
+            pending_enrollments = get_pending_enrollments_by_email(email)
+            for enrollment in pending_enrollments:
+                try:
+                    add_student_to_class(enrollment['class_id'], new_user['id'])
+                    delete_pending_enrollment(email, enrollment['class_id'])
+                    print(f"[AUTH] Automatically enrolled user in class {enrollment['class_id']} from pending invite")
+                except Exception as e:
+                    print(f"[AUTH] Failed to auto-enroll user in class {enrollment['class_id']}: {e}")
+        except Exception as e:
+            print(f"[AUTH] Error processing pending enrollments: {e}")
         
         # Create session
         session_id = auth_service.create_session(new_user)

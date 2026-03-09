@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Users, Trash2, UserPlus, AlertTriangle, Upload, FileText, CheckCircle2, XCircle, FolderOpen, ChevronLeft, ChevronRight, X, Calendar, ExternalLink, Download } from "lucide-react"
+import { Plus, Users, Trash2, UserPlus, AlertTriangle, Upload, FileText, CheckCircle2, XCircle, FolderOpen, ChevronLeft, ChevronRight, X, Calendar, ExternalLink, Download, Send, Search } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import type { Class, User } from "@/lib/types"
@@ -36,6 +36,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   const [classes, setClasses] = useState<Class[]>([])
   const [selectedClass, setSelectedClass] = useState<Class | null>(null)
   const [classStudents, setClassStudents] = useState<User[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showAddStudentDialog, setShowAddStudentDialog] = useState(false)
   const [showBulkUploadDialog, setShowBulkUploadDialog] = useState(false)
@@ -192,42 +193,33 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     }
 
     try {
-      const { usersApi, classesApi } = await import("@/lib/flask-api-client")
+      const { classesApi } = await import("@/lib/flask-api-client")
 
-      // Check if student already exists by email
-      let user
-      try {
-        const checkData = await usersApi.getUsers(undefined, undefined, newStudent.email)
-        if (!checkData.user) {
-          toast.error('This user does not exist', {
-            description: 'Please ask the student to register first.'
-          })
-          return
-        }
-        user = checkData.user
-      } catch (error: any) {
-        if (error?.message?.includes('not found') || error?.message?.includes('404')) {
-          toast.error('This user does not exist', {
-            description: 'Please ask the student to register first.'
-          })
-          return
-        }
-        toast.error('Failed to check if student exists', {
-          description: 'Please try again.'
-        })
-        return
-      }
+      // Check if student is already in this class (from loaded students)
+      const isEnrolled = selectedClass.studentIds.some(id => 
+        classStudents.find(s => s.id === id)?.email.toLowerCase() === newStudent.email.toLowerCase()
+      )
+      
+      const isPending = selectedClass.pendingEmails?.some(e => 
+        e.toLowerCase() === newStudent.email.toLowerCase()
+      )
 
-      // Check if student is already in this class
-      if (selectedClass.studentIds.includes(user.id)) {
+      if (isEnrolled) {
         toast.warning('Student already enrolled', {
           description: 'This student is already enrolled in this class.'
         })
         return
       }
+      
+      if (isPending) {
+        toast.warning('Invitation already sent', {
+          description: 'An invitation has already been sent to this email address.'
+        })
+        return
+      }
 
-      // Add the existing student to the class
-      await classesApi.addStudent(selectedClass.id, user.id)
+      // Invite or add the student
+      const response = await classesApi.inviteStudent(selectedClass.id, newStudent.email)
 
       // Reset form and close dialog
       setNewStudent({
@@ -239,6 +231,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       })
       setShowAddStudentDialog(false)
       await loadClasses()
+      
       // Find the updated class from the refreshed classes list
       const facultyId = localStorage.getItem("userId")
       if (facultyId) {
@@ -251,7 +244,15 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       }
 
       // Show success message
-      toast.success('Student added successfully!')
+      if (response.enrolled) {
+        toast.success('Student added successfully!', {
+          description: "Student was found and added to the class."
+        })
+      } else {
+        toast.success('Invitation sent!', {
+          description: `An invitation email was sent to ${newStudent.email} to register.`
+        })
+      }
     } catch (error) {
       console.error("[v0] Failed to add student:", error)
       toast.error('Failed to add student', {
@@ -315,37 +316,31 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         invalidDomain: [...new Set(invalidDomainEmails)]
       }
 
-      const { usersApi, classesApi } = await import("@/lib/flask-api-client")
+      const { classesApi } = await import("@/lib/flask-api-client")
 
       // Process each email
       for (const email of uniqueEmails) {
         try {
-          // Check if user exists
-          let user
-          try {
-            const checkData = await usersApi.getUsers(undefined, undefined, email)
-            if (!checkData.user) {
-              result.notRegistered.push(email)
-              continue
-            }
-            user = checkData.user
-          } catch {
-            result.notRegistered.push(email)
-            continue
-          }
-
           // Check if already enrolled
-          if (selectedClass.studentIds.includes(user.id)) {
+          const isEnrolled = selectedClass.studentIds.some(id => 
+            classStudents.find(s => s.id === id)?.email.toLowerCase() === email
+          )
+          
+          if (isEnrolled) {
             result.alreadyEnrolled.push(email)
             continue
           }
 
-          // Add student to class
-          await classesApi.addStudent(selectedClass.id, user.id)
-          result.success.push(email)
+          // Invite student
+          const response = await classesApi.inviteStudent(selectedClass.id, email)
+          if (response.enrolled) {
+            result.success.push(email)
+          } else {
+            result.notRegistered.push(email)
+          }
         } catch (error) {
           console.error(`Failed to process ${email}:`, error)
-          result.notRegistered.push(email)
+          result.invalidDomain.push(email) // Reusing bucket for general failure
         }
       }
 
@@ -370,8 +365,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         toast.success(`Successfully added ${result.success.length} student(s)`)
       }
       if (result.notRegistered.length > 0) {
-        toast.warning(`${result.notRegistered.length} student(s) not registered`, {
-          description: 'These students need to register first.'
+        toast.success(`Invitation sent to ${result.notRegistered.length} student(s)`, {
+          description: 'These students need to register first. Sent them an invite.'
         })
       }
     } catch (error) {
@@ -738,70 +733,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     }
   }
 
-  const sendReminderEmails = async () => {
-    if (!selectedClass || !bulkUploadResult || bulkUploadResult.notRegistered.length === 0) return
 
-    setIsSendingReminders(true)
-
-    // Show spinner for a short time (1.5 seconds), then hide it while emails continue sending in background
-    setTimeout(() => {
-      setIsSendingReminders(false)
-    }, 1500)
-
-      // Fire off the request in the background (don't wait for it)
-      ; (async () => {
-        try {
-          // Get faculty name
-          const facultyId = localStorage.getItem("userId")
-          let facultyName = ""
-
-          if (facultyId) {
-            const { usersApi } = await import("@/lib/flask-api-client")
-            try {
-              const facultyData = await usersApi.getUsers(undefined, facultyId)
-              facultyName = facultyData.user?.name || ""
-            } catch {
-              // Ignore errors
-            }
-          }
-
-          // Fire and forget - don't await, let it process in background
-          const { classesApi } = await import("@/lib/flask-api-client")
-          classesApi.sendReminder(
-            bulkUploadResult.notRegistered,
-            selectedClass.name,
-            facultyName
-          ).then((data) => {
-            if (data?.results?.success?.length > 0) {
-              toast.success(`Reminder emails sent successfully!`, {
-                description: `Sent to ${data.results.success.length} student(s).`
-              })
-            }
-
-            if (data?.results?.failed?.length > 0) {
-              toast.warning(`Some emails failed to send`, {
-                description: `Failed to send to ${data.results.failed.length} student(s).`
-              })
-            }
-          }).catch((error) => {
-            console.error("[v0] Failed to send reminder emails:", error)
-            toast.error('Failed to send reminder emails', {
-              description: 'An unexpected error occurred. Please try again.'
-            })
-          })
-        } catch (error) {
-          console.error("[v0] Failed to send reminder emails:", error)
-          toast.error('Failed to send reminder emails', {
-            description: 'An unexpected error occurred. Please try again.'
-          })
-        }
-      })()
-
-    // Show immediate feedback that emails are being sent in background
-    toast.info('Sending reminder emails...', {
-      description: `Processing ${bulkUploadResult.notRegistered.length} email(s) in the background. You'll be notified when complete.`
-    })
-  }
 
 
 
@@ -1029,7 +961,17 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                       <CardTitle>Students</CardTitle>
                       <CardDescription>{selectedClass.studentIds.length} students enrolled</CardDescription>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search students..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-8 w-[250px] border-gray-400 dark:border-gray-600 focus-visible:ring-indigo-500"
+                        />
+                      </div>
+                      <div className="flex gap-2">
                       <Dialog open={showAddStudentDialog} onOpenChange={setShowAddStudentDialog}>
                         <DialogTrigger asChild>
                           <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50">
@@ -1210,26 +1152,8 @@ mike.johnson@northeastern.edu`}
                                     </ScrollArea>
                                     <div className="space-y-2">
                                       <p className="text-xs text-muted-foreground">
-                                        These students need to register on LearnBOT first before they can be added to the class.
+                                        These students need to register on LearnBOT. They have been emailed an invitation automatically.
                                       </p>
-                                      <Button
-                                        onClick={sendReminderEmails}
-                                        disabled={isSendingReminders}
-                                        variant="outline"
-                                        size="sm"
-                                        className="w-full"
-                                      >
-                                        {isSendingReminders ? (
-                                          <>
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
-                                            Sending Reminders...
-                                          </>
-                                        ) : (
-                                          <>
-                                            📧 Send Registration Reminder
-                                          </>
-                                        )}
-                                      </Button>
                                     </div>
                                   </div>
                                 )}
@@ -1268,56 +1192,160 @@ mike.johnson@northeastern.edu`}
                           </div>
                         </DialogContent>
                       </Dialog>
+                      </div>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {classStudents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      No students enrolled yet. Add students to get started!
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {classStudents.map((student) => (
-                        <div
-                          key={student.id}
-                          className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
-                        >
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{student.name}</p>
-                            <p className="text-xs text-muted-foreground">{student.email}</p>
-                            {(student.nuid || student.degree || student.major) && (
-                              <div className="flex flex-wrap gap-2 mt-1">
-                                {student.nuid && (
-                                  <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                                    NUID: {student.nuid}
-                                  </span>
-                                )}
-                                {student.degree && (
-                                  <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded">
-                                    {student.degree}
-                                  </span>
-                                )}
-                                {student.major && (
-                                  <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded">
-                                    {student.major}
-                                  </span>
-                                )}
-                              </div>
-                            )}
+                  {(()=>{
+                    const lowerQuery = searchQuery.toLowerCase()
+                    const filteredEnrolled = classStudents.filter(s => 
+                      s.name.toLowerCase().includes(lowerQuery) || 
+                      s.email.toLowerCase().includes(lowerQuery) ||
+                      (s.nuid && s.nuid.toLowerCase().includes(lowerQuery))
+                    )
+                    const filteredPending = (selectedClass.pendingEmails || []).filter(email =>
+                      email.toLowerCase().includes(lowerQuery)
+                    )
+                    
+                    if (classStudents.length === 0 && (!selectedClass.pendingEmails || selectedClass.pendingEmails.length === 0)) {
+                      return (
+                        <p className="text-sm text-muted-foreground text-center py-8">
+                          No students enrolled or invited yet. Add students to get started!
+                        </p>
+                      )
+                    }
+                    
+                    if (filteredEnrolled.length === 0 && filteredPending.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground text-center py-8">
+                          No students match your search query.
+                        </p>
+                      )
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Enrolled Students */}
+                        {filteredEnrolled.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Enrolled Students</h4>
+                            <div className="space-y-2">
+                              {filteredEnrolled.map((student) => (
+                                <div
+                                  key={student.id}
+                                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
+                                >
+                                  <div className="flex-1">
+                                    <p className="font-medium text-sm">{student.name}</p>
+                                    <p className="text-xs text-muted-foreground">{student.email}</p>
+                                    {(student.nuid || student.degree || student.major) && (
+                                      <div className="flex flex-wrap gap-2 mt-1">
+                                        {student.nuid && (
+                                          <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                                            NUID: {student.nuid}
+                                          </span>
+                                        )}
+                                        {student.degree && (
+                                          <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded">
+                                            {student.degree}
+                                          </span>
+                                        )}
+                                        {student.major && (
+                                          <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded">
+                                            {student.major}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveStudentClick(student)}
+                                    className="cursor-pointer hover:bg-destructive/10"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveStudentClick(student)}
-                            className="cursor-pointer hover:bg-destructive/10"
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        )}
+
+                        {/* Pending Students */}
+                        {filteredPending.length > 0 && (
+                          <div className={filteredEnrolled.length > 0 ? "pt-2" : ""}>
+                            <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Pending / Invited</h4>
+                            <div className="space-y-2">
+                              {filteredPending.map((email, index) => (
+                                <div
+                                  key={`pending-${index}`}
+                                  className="flex items-center justify-between p-3 rounded-lg border border-dashed bg-card/50 opacity-80"
+                                >
+                                  <div className="flex-1 flex flex-col items-start gap-1">
+                                    <p className="text-sm font-medium text-foreground">{email}</p>
+                                    <span className="text-[10px] uppercase font-bold bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-400 px-1.5 py-0.5 rounded">
+                                      Registration Pending
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-2 opacity-50 hover:opacity-100 transition-opacity">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      title="Resend Invitation"
+                                      className="h-8 w-8 p-0"
+                                      onClick={async () => {
+                                        try {
+                                          const { classesApi } = await import("@/lib/flask-api-client")
+                                          const res = await classesApi.resendInvite(selectedClass.id, email)
+                                          if (res.success) {
+                                            toast.success('Invitation resent!')
+                                          } else {
+                                            toast.error('Failed to resend invitation')
+                                          }
+                                        } catch (error) {
+                                          console.error(error)
+                                          toast.error('Error resending invitation')
+                                        }
+                                      }}
+                                    >
+                                      <Send className="h-4 w-4 text-blue-500" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      title="Cancel Invitation"
+                                      className="h-8 w-8 p-0 hover:bg-destructive/10"
+                                      onClick={async () => {
+                                        try {
+                                          const { classesApi } = await import("@/lib/flask-api-client")
+                                          await classesApi.cancelInvite(selectedClass.id, email)
+                                          toast.success('Invitation cancelled')
+                                          
+                                          // Update UI immediately
+                                          setSelectedClass(prev => ({
+                                            ...prev!,
+                                            pendingEmails: prev!.pendingEmails?.filter(e => e !== email) || []
+                                          }))
+                                          loadClasses() // Refresh in background
+                                        } catch (error) {
+                                          console.error(error)
+                                          toast.error('Error cancelling invitation')
+                                        }
+                                      }}
+                                    >
+                                      <X className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </CardContent>
               </Card>
             )}

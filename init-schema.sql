@@ -182,6 +182,20 @@ ON pending_registrations(email);
 CREATE INDEX IF NOT EXISTS idx_pending_registrations_expires 
 ON pending_registrations(otp_expires_at);
 
+-- Create pending_class_enrollments table for invite-based flow
+CREATE TABLE IF NOT EXISTS pending_class_enrollments (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) NOT NULL,
+  class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(email, class_id)
+);
+
+-- Create indexes for pending_class_enrollments
+CREATE INDEX IF NOT EXISTS idx_pending_class_enrollments_email 
+ON pending_class_enrollments(email);
+
 -- Password reset tokens (forgot-password flow)
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
   id SERIAL PRIMARY KEY,

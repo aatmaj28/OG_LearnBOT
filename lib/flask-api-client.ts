@@ -247,6 +247,38 @@ export const classesApi = {
     })
   },
 
+  inviteStudent: async (classId: string, email: string) => {
+    return apiRequest<{
+      success: boolean
+      enrolled: boolean
+      message?: string
+      class?: any
+    }>('/api/classes/invite-student', {
+      method: 'POST',
+      body: JSON.stringify({ classId, email }),
+    })
+  },
+
+  cancelInvite: async (classId: string, email: string) => {
+    return apiRequest<{
+      success: boolean
+      message?: string
+    }>('/api/classes/cancel-invite', {
+      method: 'POST',
+      body: JSON.stringify({ classId, email }),
+    })
+  },
+
+  resendInvite: async (classId: string, email: string) => {
+    return apiRequest<{
+      success: boolean
+      message?: string
+    }>('/api/classes/resend-invite', {
+      method: 'POST',
+      body: JSON.stringify({ classId, email }),
+    })
+  },
+
   deleteClass: async (classId: string) => {
     return apiRequest(`/api/classes/delete?classId=${classId}`, {
       method: 'DELETE',

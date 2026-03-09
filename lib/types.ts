@@ -36,6 +36,7 @@ export interface Class {
   description: string
   facultyId: string
   studentIds: string[]
+  pendingEmails?: string[]
   vectorStoreFolder?: string
   syllabusVectorStoreFolder?: string
   createdAt: Date

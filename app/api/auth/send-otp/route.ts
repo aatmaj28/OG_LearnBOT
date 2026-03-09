@@ -40,7 +40,7 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
 ║ If you didn't request this verification, please ignore      ║
 ║ this email.                                                  ║
 ║                                                              ║
-║ © 2024 LearnBOT Portal - Northeastern University            ║
+║ © 2026 LearnBOT Portal - Northeastern University            ║
 ╚══════════════════════════════════════════════════════════════╝
     `)
     console.warn('⚠️  Gmail credentials not configured. Email logged to console only.')
@@ -144,7 +144,7 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
     </div>
     
     <div class="footer">
-      <p>© 2024 LearnBOT Portal - Northeastern University</p>
+      <p>© 2026 LearnBOT Portal - Northeastern University</p>
       <p>This is an automated message, please do not reply to this email.</p>
     </div>
   </div>
@@ -158,7 +158,7 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
       to: email,
       subject: 'LearnBOT Portal - Email Verification',
       html: htmlContent,
-      text: `Welcome to LearnBOT Portal!\n\nHello ${name},\n\nYour verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this verification, please ignore this email.\n\n© 2024 LearnBOT Portal - Northeastern University`
+      text: `Welcome to LearnBOT Portal!\n\nHello ${name},\n\nYour verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this verification, please ignore this email.\n\n© 2026 LearnBOT Portal - Northeastern University`
     })
 
     console.log(`✅ Verification email sent successfully to ${email}`)

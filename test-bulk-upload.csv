@@ -11,3 +11,4 @@ Name,FirstName,LastName,email,NUID,Section,SectionName,Role
 "TestStudent10,  Julia", Julia,TestStudent10,teststudent10.ju@northeastern.edu,009000010S,FINA2201.12345.202610,FINA2201 Test Section,StudentEnrollment
 "TestStudent11,  Kate", Kate,TestStudent11,teststudent11.ka@gmail.com,009000011S,FINA2201.12345.202610,FINA2201 Test Section,StudentEnrollment
 "TestStudent12,  Leo", Leo,TestStudent12,teststudent12.le@bu.edu,009000012S,FINA2201.12345.202610,FINA2201 Test Section,StudentEnrollment
+"Salunke,  Aatmaj", Aatmaj,Salunke,salunke.aa@northeastern.edu,009000013S,FINA2201.12345.202610,FINA2201 Test Section,StudentEnrollment

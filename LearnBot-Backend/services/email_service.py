@@ -46,7 +46,7 @@ def send_verification_email(email: str, otp: str, name: str) -> dict:
 ║ If you didn't request this verification, please ignore      ║
 ║ this email.                                                  ║
 ║                                                              ║
-║ © 2024 LearnBOT Portal - Northeastern University            ║
+║ © 2026 LearnBOT Portal - Northeastern University            ║
 ╚══════════════════════════════════════════════════════════════╝
         """)
         print('⚠️  Gmail credentials not configured. Email logged to console only.')
@@ -94,7 +94,7 @@ def send_verification_email(email: str, otp: str, name: str) -> dict:
       <p style="margin: 0;"><strong>⚠️ Security Note:</strong> If you didn't request this verification, please ignore this email. Never share this code with anyone.</p>
     </div>
     <div class="footer">
-      <p>© 2024 LearnBOT Portal - Northeastern University</p>
+      <p>© 2026 LearnBOT Portal - Northeastern University</p>
       <p>This is an automated message, please do not reply to this email.</p>
     </div>
   </div>
@@ -112,7 +112,7 @@ This code expires in 10 minutes.
 
 If you didn't request this verification, please ignore this email.
 
-© 2024 LearnBOT Portal - Northeastern University
+© 2026 LearnBOT Portal - Northeastern University
         """
         
         part1 = MIMEText(text_content, 'plain')
@@ -132,3 +132,95 @@ If you didn't request this verification, please ignore this email.
     except Exception as e:
         print(f'❌ Failed to send email: {e}')
         raise Exception('Failed to send verification email')
+
+def send_invitation_email(email: str, class_name: str, faculty_name: str, registration_url: str) -> dict:
+    """
+    Sends a styled invitation email to join a class.
+    
+    Returns:
+        dict with 'success' key
+    """
+    gmail_user = Config.GMAIL_USER
+    gmail_app_password = Config.GMAIL_APP_PASSWORD
+    
+    if not gmail_user or not gmail_app_password:
+        print(f"⚠️ Email not configured. Would have sent invite to {email} for {class_name}")
+        return {'success': True}
+    
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f"Action Required: Register for {class_name} on LearnBOT"
+        msg['From'] = f'"LearnBOT Portal" <{gmail_user}>'
+        msg['To'] = email
+        
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }}
+    .container {{ background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 10px; padding: 30px; }}
+    .header {{ text-align: center; margin-bottom: 30px; }}
+    .header h1 {{ color: #2563eb; margin: 0; font-size: 28px; }}
+    .button {{ display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: bold; text-align: center; }}
+    .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; font-size: 12px; color: #666; }}
+    .warning {{ background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 15px; margin-top: 20px; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>LearnBOT Portal</h1>
+      <p style="margin: 0; color: #666; font-size: 14px;">Registration Required</p>
+    </div>
+    <p>Hello,</p>
+    <p><strong>{faculty_name}</strong> has invited you to join the class <strong>{class_name}</strong> at Northeastern University!</p>
+    <p>To access your class materials, please register your account below:</p>
+    <div style="text-align: center;">
+      <a href="{registration_url}" class="button">Register Now</a>
+    </div>
+    <p>Or paste this link into your browser:<br>
+    <a href="{registration_url}" style="word-break: break-all; color: #2563eb;">{registration_url}</a></p>
+    <div class="warning">
+      <p style="margin: 0;"><strong>Important:</strong> Please use your Northeastern University email address (<strong>{email}</strong>) when registering so you are automatically enrolled.</p>
+    </div>
+    <div class="footer">
+      <p>© 2026 LearnBOT Portal - Northeastern University</p>
+      <p>This is an automated message, please do not reply to this email.</p>
+    </div>
+  </div>
+</body>
+</html>
+        """
+        
+        text_content = f"""Welcome to LearnBOT Portal!
+
+Hello,
+
+{faculty_name} has invited you to join the class {class_name} at Northeastern University!
+
+To access your class materials, please register your account below:
+{registration_url}
+
+Important: Please use your Northeastern University email address ({email}) when registering so you are automatically enrolled.
+
+© 2026 LearnBOT Portal - Northeastern University
+        """
+        
+        part1 = MIMEText(text_content, 'plain')
+        part2 = MIMEText(html_content, 'html')
+        
+        msg.attach(part1)
+        msg.attach(part2)
+        
+        # Send email
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(gmail_user, gmail_app_password)
+            server.send_message(msg)
+        
+        print(f'✅ Invitation email sent successfully to {email}')
+        return {'success': True}
+    except Exception as e:
+        print(f'❌ Failed to send invitation email: {e}')
+        raise Exception('Failed to send invitation email')

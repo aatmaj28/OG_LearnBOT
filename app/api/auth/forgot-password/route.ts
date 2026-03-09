@@ -56,7 +56,7 @@ async function sendPasswordResetEmail(email: string, resetLink: string) {
     </p>
     <p class="notice">If you did not request this, you can safely ignore this email.</p>
     <div class="footer">
-      <p>© 2024 LearnBOT Portal - Northeastern University</p>
+      <p>© 2026 LearnBOT Portal - Northeastern University</p>
       <p>This is an automated message, please do not reply.</p>
     </div>
   </div>
@@ -69,7 +69,7 @@ async function sendPasswordResetEmail(email: string, resetLink: string) {
     to: email,
     subject: "LearnBOT Portal - Reset your password",
     html: htmlContent,
-    text: `We received a request to reset your password. Open this link to proceed (expires in ${RESET_EXPIRY_HOURS} hour):\n\n${resetLink}\n\nIf you did not request this, you can safely ignore this email.\n\n© 2024 LearnBOT Portal - Northeastern University`,
+    text: `We received a request to reset your password. Open this link to proceed (expires in ${RESET_EXPIRY_HOURS} hour):\n\n${resetLink}\n\nIf you did not request this, you can safely ignore this email.\n\n© 2026 LearnBOT Portal - Northeastern University`,
   })
   console.log(`✅ Password reset email sent to ${email}`)
   return { success: true }

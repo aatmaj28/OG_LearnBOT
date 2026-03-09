@@ -21,16 +21,13 @@ def should_mask_pii(context: MaskingContext) -> bool:
     Determines if PII masking should be applied based on context
     
     Rules:
-    - PRODUCTION: Faculty see all unmasked data
-    - PRODUCTION: Students see their own data unmasked
-    - DEVELOPMENT: ALL users see masked data
-    - Exception: Users always see their own data unmasked
+    - Faculty always see all unmasked data (any environment)
+    - Users always see their own data unmasked
+    - Students see other users' data masked
     """
-    is_production = context.environment in ('production', 'prod')
-    
-    # PRODUCTION: Only faculty see unmasked data for OTHER users
-    if is_production and context.requesting_user_role == 'faculty':
-        return False  # No masking for faculty in production
+    # Faculty always see unmasked data for other users
+    if context.requesting_user_role == 'faculty':
+        return False  # No masking for faculty
     
     # All other cases: mask PII
     return True

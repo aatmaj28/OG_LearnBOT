@@ -298,6 +298,8 @@ def create_user(user_data: Dict) -> Dict:
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        # Commit any pending transaction before changing autocommit
+        conn.commit()
         conn.autocommit = False
         
         try:
@@ -413,6 +415,8 @@ def create_pending_registration(email: str, password: str, name: str, role: str,
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        # Commit any pending transaction before changing autocommit
+        conn.commit()
         conn.autocommit = False
         
         try:
@@ -474,6 +478,66 @@ def delete_pending_registration(email: str) -> bool:
     finally:
         return_connection(conn)
 
+# ============================================================================
+# PENDING CLASS ENROLLMENTS (Invite-based Flow)
+# ============================================================================
+
+def create_pending_enrollment(email: str, class_id: str, faculty_id: str) -> bool:
+    """Creates a pending class enrollment for an invited student"""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            """INSERT INTO pending_class_enrollments (email, class_id, faculty_id) 
+               VALUES (%s, %s, %s) 
+               ON CONFLICT (email, class_id) DO NOTHING""",
+            (email, class_id, faculty_id)
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f'[DB] Error creating pending enrollment: {e}')
+        raise
+    finally:
+        return_connection(conn)
+
+def get_pending_enrollments_by_email(email: str) -> List[Dict]:
+    """Gets all pending class enrollments for an email"""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute(
+            'SELECT * FROM pending_class_enrollments WHERE email = %s',
+            (email,)
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        return [dict(row) for row in rows]
+    except Exception as e:
+        print(f'[DB] Error getting pending enrollments by email: {e}')
+        raise
+    finally:
+        return_connection(conn)
+
+def delete_pending_enrollment(email: str, class_id: str) -> bool:
+    """Deletes a specific pending class enrollment"""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            'DELETE FROM pending_class_enrollments WHERE email = %s AND class_id = %s',
+            (email, class_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f'[DB] Error deleting pending enrollment: {e}')
+        raise
+    finally:
+        return_connection(conn)
+
 def get_class_by_id(class_id: str) -> Optional[Dict]:
     """Gets class by ID"""
     conn = get_connection()
@@ -483,11 +547,16 @@ def get_class_by_id(class_id: str) -> Optional[Dict]:
         cursor.execute("""
             SELECT c.*, 
                    COALESCE(
-                     ARRAY_AGG(cs.student_id) FILTER (WHERE cs.student_id IS NOT NULL), 
+                     ARRAY_AGG(DISTINCT cs.student_id) FILTER (WHERE cs.student_id IS NOT NULL), 
                      ARRAY[]::INTEGER[]
-                   ) as student_ids
+                   ) as student_ids,
+                   COALESCE(
+                     ARRAY_AGG(DISTINCT pce.email) FILTER (WHERE pce.email IS NOT NULL), 
+                     ARRAY[]::VARCHAR[]
+                   ) as pending_emails
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
+            LEFT JOIN pending_class_enrollments pce ON c.id = pce.class_id
             WHERE c.id = %s
             GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
@@ -508,6 +577,7 @@ def get_class_by_id(class_id: str) -> Optional[Dict]:
             'vectorStoreFolder': row_dict.get('vector_store_folder'),
             'syllabusVectorStoreFolder': row_dict.get('syllabus_vector_store_folder'),
             'studentIds': [str(id) for id in (row_dict.get('student_ids') or [])],
+            'pendingEmails': row_dict.get('pending_emails') or [],
             'createdAt': row_dict.get('created_at')
         }
     except Exception as e:
@@ -525,11 +595,16 @@ def get_classes_by_faculty(faculty_id: str) -> List[Dict]:
         cursor.execute("""
             SELECT c.*, 
                    COALESCE(
-                     ARRAY_AGG(cs.student_id) FILTER (WHERE cs.student_id IS NOT NULL), 
+                     ARRAY_AGG(DISTINCT cs.student_id) FILTER (WHERE cs.student_id IS NOT NULL), 
                      ARRAY[]::INTEGER[]
-                   ) as student_ids
+                   ) as student_ids,
+                   COALESCE(
+                     ARRAY_AGG(DISTINCT pce.email) FILTER (WHERE pce.email IS NOT NULL), 
+                     ARRAY[]::VARCHAR[]
+                   ) as pending_emails
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
+            LEFT JOIN pending_class_enrollments pce ON c.id = pce.class_id
             WHERE c.faculty_id = %s
             GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
@@ -547,6 +622,7 @@ def get_classes_by_faculty(faculty_id: str) -> List[Dict]:
             'vectorStoreFolder': row.get('vector_store_folder'),
             'syllabusVectorStoreFolder': row.get('syllabus_vector_store_folder'),
             'studentIds': [str(id) for id in (row.get('student_ids') or [])],
+            'pendingEmails': row.get('pending_emails') or [],
             'createdAt': row.get('created_at')
         } for row in rows]
     except Exception as e:
@@ -564,11 +640,16 @@ def get_classes_by_student(student_id: str) -> List[Dict]:
         cursor.execute("""
             SELECT c.*, 
                    COALESCE(
-                     ARRAY_AGG(cs.student_id) FILTER (WHERE cs.student_id IS NOT NULL), 
+                     ARRAY_AGG(DISTINCT cs.student_id) FILTER (WHERE cs.student_id IS NOT NULL), 
                      ARRAY[]::INTEGER[]
-                   ) as student_ids
+                   ) as student_ids,
+                   COALESCE(
+                     ARRAY_AGG(DISTINCT pce.email) FILTER (WHERE pce.email IS NOT NULL), 
+                     ARRAY[]::VARCHAR[]
+                   ) as pending_emails
             FROM classes c
             LEFT JOIN class_students cs ON c.id = cs.class_id
+            LEFT JOIN pending_class_enrollments pce ON c.id = pce.class_id
             WHERE cs.student_id = %s
             GROUP BY c.id, c.name, c.description, c.faculty_id, c.vector_store_folder,
                      c.syllabus_vector_store_folder, c.created_at
@@ -586,6 +667,7 @@ def get_classes_by_student(student_id: str) -> List[Dict]:
             'vectorStoreFolder': row.get('vector_store_folder'),
             'syllabusVectorStoreFolder': row.get('syllabus_vector_store_folder'),
             'studentIds': [str(id) for id in (row.get('student_ids') or [])],
+            'pendingEmails': row.get('pending_emails') or [],
             'createdAt': row.get('created_at')
         } for row in rows]
     except Exception as e:
@@ -599,6 +681,8 @@ def create_class(class_data: Dict) -> Dict:
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        # Commit any pending transaction before changing autocommit
+        conn.commit()
         conn.autocommit = False
         
         try:
