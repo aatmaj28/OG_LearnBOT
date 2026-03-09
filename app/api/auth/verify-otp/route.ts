@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/db"
 import { createUser } from "@/lib/db-service"
 import { createSession } from "@/lib/auth"
+import { getMaskedId } from "@/lib/masked-id-utils"
 
 export async function POST(request: NextRequest) {
   try {
@@ -67,6 +68,36 @@ export async function POST(request: NextRequest) {
       )
 
       console.log("[VERIFY-OTP] User created successfully:", newUser.email)
+
+      // Auto-enroll in any classes the student was invited to
+      try {
+        const pendingEnrollments = await client.query(
+          'SELECT * FROM pending_class_enrollments WHERE email = $1',
+          [email]
+        )
+        
+        for (const enrollment of pendingEnrollments.rows) {
+          try {
+            // Add student to class_students
+            await client.query(
+              `INSERT INTO class_students (class_id, student_id, student_masked_id) 
+               VALUES ($1, $2, $3) 
+               ON CONFLICT (class_id, student_id) DO NOTHING`,
+              [enrollment.class_id, newUser.id, getMaskedId(newUser.id)]
+            )
+            // Remove pending enrollment
+            await client.query(
+              'DELETE FROM pending_class_enrollments WHERE email = $1 AND class_id = $2',
+              [email, enrollment.class_id]
+            )
+            console.log(`[VERIFY-OTP] Auto-enrolled user in class ${enrollment.class_id}`)
+          } catch (enrollErr) {
+            console.error(`[VERIFY-OTP] Failed to auto-enroll in class ${enrollment.class_id}:`, enrollErr)
+          }
+        }
+      } catch (pendingErr) {
+        console.error("[VERIFY-OTP] Error checking pending enrollments:", pendingErr)
+      }
 
       // Create session
       const sessionId = createSession(newUser)
