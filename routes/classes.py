@@ -142,6 +142,69 @@ def remove_student():
         print(f"[CLASSES] REMOVE STUDENT ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
 
+@bp.route("/invite-student", methods=["POST"])
+def invite_student():
+    """Invite student endpoint"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        class_id = data.get("classId")
+        email = data.get("email")
+        
+        if not class_id or not email:
+            return jsonify({"error": "Class ID and email are required"}), 400
+            
+        faculty_id = request.headers.get("X-User-Id") or data.get("facultyId")
+        if not faculty_id:
+            cls = db_service.get_class_by_id(class_id)
+            if cls: faculty_id = cls.get('facultyId', None)
+
+        from services.db_service import get_user_by_email_internal
+        user = get_user_by_email_internal(email)
+        
+        if user:
+            # Student exists, enroll them automatically
+            updated_class = db_service.add_student_to_class(class_id, user['id'])
+            return jsonify({
+                "success": True, 
+                "enrolled": True,
+                "class": updated_class
+            })
+            
+        # Student does not exist, create pending enrollment and send email
+        if not faculty_id:
+            return jsonify({"error": "Faculty context is required to invite"}), 400
+            
+        db_service.create_pending_enrollment(email, class_id, faculty_id)
+        
+        # Send Email
+        from services.db_service import get_class_by_id, get_user_by_id_internal
+        cls = get_class_by_id(class_id)
+        faculty = get_user_by_id_internal(faculty_id)
+        
+        class_name = cls.get('name', 'your class') if cls else 'your class'
+        faculty_name = faculty.get('name', 'Your faculty') if faculty else 'Your faculty'
+        
+        from config import Config
+        from services.email_service import send_invitation_email
+        registration_url = "https://learnbot.dashlab.studio/register?role=student"
+        
+        try:
+            send_invitation_email(email, class_name, faculty_name, registration_url)
+        except Exception as e:
+            print(f"[CLASSES] ERROR SENDING INVITE EMAIL: {e}")
+        
+        return jsonify({
+            "success": True,
+            "enrolled": False,
+            "message": "Invite sent"
+        })
+    except Exception as error:
+        print(f"[CLASSES] INVITE STUDENT ERROR: {error}")
+        return jsonify({"error": "Internal server error"}), 500
+
 @bp.route("/delete", methods=["DELETE"])
 def delete_class():
     """Delete class endpoint - migrated from app/api/classes/delete/route.ts"""
@@ -528,6 +591,69 @@ def download_resource():
         print(f"[CLASSES] DOWNLOAD RESOURCE ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
 
+@bp.route("/resend-invite", methods=["POST"])
+def resend_invite():
+    """Resend an invitation email to a pending student"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        email = data.get("email")
+        class_id = data.get("classId")
+        
+        if not email or not class_id:
+            return jsonify({"error": "Email and classId are required"}), 400
+        
+        # Verify the pending enrollment exists
+        pending_enrollments = db_service.get_pending_enrollments_by_email(email)
+        if not pending_enrollments or not any(str(p.get("class_id")) == str(class_id) for p in pending_enrollments):
+             return jsonify({"error": "No pending invitation found for this class"}), 404
+             
+        # Fetch class and faculty details to generate the email
+        cls = db_service.get_class_by_id(class_id)
+        if not cls:
+            return jsonify({"error": "Class not found"}), 404
+            
+        faculty = db_service.get_user_by_id_internal(cls['facultyId'])
+        faculty_name = faculty['name'] if faculty else "A professor"
+            
+        from config import Config
+        from services.email_service import send_invitation_email
+        registration_url = "https://learnbot.dashlab.studio/register?role=student"
+        
+        try:
+            send_invitation_email(email, cls['name'], faculty_name, registration_url)
+            return jsonify({"success": True})
+        except Exception as e:
+            print(f"[CLASSES] Failed to send reminder email: {e}")
+            return jsonify({"error": "Failed to send email"}), 500
+            
+    except Exception as error:
+        print(f"[CLASSES] RESEND INVITE ERROR: {error}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@bp.route("/cancel-invite", methods=["POST"])
+def cancel_invite():
+    """Cancel a pending student invitation"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        email = data.get("email")
+        class_id = data.get("classId")
+        
+        if not email or not class_id:
+            return jsonify({"error": "Email and classId are required"}), 400
+            
+        db_service.delete_pending_enrollment(email, class_id)
+        return jsonify({"success": True})
+        
+    except Exception as error:
+        print(f"[CLASSES] CANCEL INVITE ERROR: {error}")
+        return jsonify({"error": "Internal server error"}), 500
+
 @bp.route("/send-reminder", methods=["POST"])
 def send_reminder():
     """Send reminder endpoint - migrated from app/api/classes/send-reminder/route.ts"""
@@ -545,101 +671,19 @@ def send_reminder():
         
         if not class_name:
             return jsonify({"error": "Class name is required"}), 400
-        
-        from services.email_service import send_verification_email
+        from services.email_service import send_invitation_email
         from config import Config
         
-        if not Config.GMAIL_USER or not Config.GMAIL_APP_PASSWORD:
-            return jsonify({"error": "Email service not configured"}), 500
-        
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        base_url = os.getenv("NEXT_PUBLIC_BASE_URL", request.headers.get("Origin", "http://localhost:3000"))
-        registration_url = f"{base_url}/register"
+        registration_url = "https://learnbot.dashlab.studio/register?role=student"
         
         results = {"success": [], "failed": []}
         
         for email in emails:
             try:
-                msg = MIMEMultipart('alternative')
-                msg['Subject'] = f'Action Required: Register for {class_name} on LearnBOT'
-                msg['From'] = f'"LearnBOT" <{Config.GMAIL_USER}>'
-                msg['To'] = email
-                
-                html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }}
-    .header {{ background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
-    .content {{ background-color: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; }}
-    .button {{ display: inline-block; background-color: #4F46E5; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: bold; }}
-    .footer {{ background-color: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px; }}
-    .class-name {{ color: #4F46E5; font-weight: bold; }}
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>LearnBOT Registration Required</h1>
-  </div>
-  <div class="content">
-    <p>Hello,</p>
-    <p>{faculty_name if faculty_name else 'Your faculty'} attempted to add you to the class <span class="class-name">{class_name}</span> on LearnBOT, but your account was not found in our system.</p>
-    <p><strong>To gain access to the class, you need to register on LearnBOT first.</strong></p>
-    <p>Click the button below to register:</p>
-    <div style="text-align: center;">
-      <a href="{registration_url}" class="button">Register Now</a>
-    </div>
-    <p>Or copy and paste this link into your browser:</p>
-    <p style="background-color: white; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; word-break: break-all;">
-      {registration_url}
-    </p>
-    <p><strong>Important:</strong> Please use your Northeastern University email address ({email}) when registering.</p>
-    <p>Once you complete your registration, your faculty will be able to add you to the class.</p>
-    <p>Best regards,<br>The LearnBOT Team</p>
-  </div>
-  <div class="footer">
-    <p>This is an automated message from LearnBOT. Please do not reply to this email.</p>
-  </div>
-</body>
-</html>
-                """
-                
-                text_content = f"""
-Hello,
-
-{faculty_name if faculty_name else 'Your faculty'} attempted to add you to the class "{class_name}" on LearnBOT, but your account was not found in our system.
-
-To gain access to the class, you need to register on LearnBOT first.
-
-Please visit the following link to register:
-{registration_url}
-
-Important: Please use your Northeastern University email address ({email}) when registering.
-
-Once you complete your registration, your faculty will be able to add you to the class.
-
-Best regards,
-The LearnBOT Team
-                """
-                
-                part1 = MIMEText(text_content, 'plain')
-                part2 = MIMEText(html_content, 'html')
-                msg.attach(part1)
-                msg.attach(part2)
-                
-                with smtplib.SMTP('smtp.gmail.com', 587) as server:
-                    server.starttls()
-                    server.login(Config.GMAIL_USER, Config.GMAIL_APP_PASSWORD)
-                    server.send_message(msg)
-                
+                send_invitation_email(email, class_name, faculty_name if faculty_name else 'Your faculty', registration_url)
                 results["success"].append(email)
-                print(f"[Send Reminder] Email sent successfully to {email}")
             except Exception as e:
-                print(f"[Send Reminder] Failed to send email to {email}: {e}")
+                print(f"[CLASSES] ERROR SENDING REMINDER TO {email}: {e}")
                 results["failed"].append(email)
         
         return jsonify({
