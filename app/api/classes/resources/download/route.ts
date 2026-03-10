@@ -1,80 +1,46 @@
 import { type NextRequest, NextResponse } from "next/server"
-import path from "path"
-import fs from "fs"
-import { promisify } from "util"
-import { getClassById, getUserById, getResourceByFileName } from "@/lib/db-service"
 
-const resourcesDir = path.join(process.cwd(), "resources")
+const FLASK_API_URL = (process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5000').replace(/\/$/, '')
 
-// GET - Download a resource file (with access control)
+/**
+ * Proxy resource downloads through Flask backend.
+ * Files are stored on the Flask server filesystem, so we proxy the request
+ * rather than reading from the local filesystem (which may be a different directory).
+ */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const classId = searchParams.get("classId")
   const fileName = searchParams.get("fileName")
-  const userId = request.headers.get("x-user-id") || searchParams.get("userId")
 
   if (!classId || !fileName) {
     return NextResponse.json({ error: "Class ID and file name are required" }, { status: 400 })
   }
 
-  if (!userId) {
-    return NextResponse.json({ error: "User ID is required" }, { status: 401 })
-  }
-
   try {
-    const user = await getUserById(userId, userId, null) // Pass userId as requesting user for role check
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
-    }
-
-    const cls = await getClassById(classId)
-    if (!cls) {
-      return NextResponse.json({ error: "Class not found" }, { status: 404 })
-    }
-
-    // Security: prevent path traversal
-    const safeFileName = path.basename(fileName)
-
-    // Get resource from database
-    const resource = await getResourceByFileName(classId, safeFileName)
-    if (!resource) {
-      return NextResponse.json({ error: "Resource not found" }, { status: 404 })
-    }
-
-    // Access control: Faculty who own the class or students enrolled in the class
-    if (user.role === "faculty") {
-      if (cls.facultyId !== userId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
-      }
-    } else if (user.role === "student") {
-      if (!cls.studentIds.includes(userId)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
-      }
-    } else {
-      return NextResponse.json({ error: "Invalid user role" }, { status: 403 })
-    }
-
-    const filePath = path.join(resourcesDir, classId, safeFileName)
+    // Proxy to Flask backend
+    const flaskUrl = `${FLASK_API_URL}/api/classes/resources/download?classId=${classId}&fileName=${encodeURIComponent(fileName)}`
     
-    if (!fs.existsSync(filePath)) {
-      return NextResponse.json({ error: "File not found" }, { status: 404 })
+    const response = await fetch(flaskUrl)
+    
+    if (!response.ok) {
+      // Forward Flask error response
+      const contentType = response.headers.get('content-type')
+      if (contentType?.includes('application/json')) {
+        const errorData = await response.json()
+        return NextResponse.json(errorData, { status: response.status })
+      }
+      return NextResponse.json({ error: "File not found" }, { status: response.status })
     }
 
-    const fileBuffer = await promisify(fs.readFile)(filePath)
-    const fileExtension = path.extname(safeFileName).toLowerCase()
-    
-    // Determine content type
-    let contentType = "application/octet-stream"
-    if (fileExtension === ".pdf") contentType = "application/pdf"
-    else if (fileExtension === ".doc" || fileExtension === ".docx") contentType = "application/msword"
-    else if (fileExtension === ".txt") contentType = "text/plain"
-    else if (fileExtension === ".jpg" || fileExtension === ".jpeg") contentType = "image/jpeg"
-    else if (fileExtension === ".png") contentType = "image/png"
+    // Forward the file response
+    const fileBuffer = await response.arrayBuffer()
+    const contentType = response.headers.get('content-type') || 'application/octet-stream'
+    const contentDisposition = response.headers.get('content-disposition') || `attachment; filename="${fileName}"`
 
     return new NextResponse(fileBuffer, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${safeFileName}"`,
+        "Content-Disposition": contentDisposition,
       },
     })
   } catch (error) {
