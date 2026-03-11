@@ -313,13 +313,13 @@ jobs:
 
           # Flush old PM2 logs
           echo "🧹 Flushing PM2 logs..."
-          sudo -u deploy pm2 flush || true
+          sudo -u deploy bash -lc "pm2 flush" || true
 
           # Zero downtime reload if exists, otherwise start
           echo "🔄 Managing UI service..."
-          if sudo -u deploy pm2 describe "$APP_NAME" --namespace "$PM2_NAMESPACE" >/dev/null 2>&1; then
+          if sudo -u deploy bash -lc "pm2 describe '$APP_NAME'" >/dev/null 2>&1; then
             echo "  🗑️ Deleting existing $APP_NAME process for clean restart..."
-            sudo -u deploy pm2 delete "$APP_NAME" --namespace "$PM2_NAMESPACE" || true
+            sudo -u deploy bash -lc "pm2 delete '$APP_NAME'" || true
             sleep 2
           fi
 
@@ -333,14 +333,14 @@ jobs:
           fi
 
           echo "  ▶️ Starting $APP_NAME..."
-          sudo -u deploy NAMESPACE="$PM2_NAMESPACE" pm2 start ecosystem.config.js $PM2_ENV_FLAG --namespace "$PM2_NAMESPACE"
+          sudo -u deploy bash -lc "cd '$REPO_DIR' && NAMESPACE='$PM2_NAMESPACE' pm2 start ecosystem.config.js $PM2_ENV_FLAG --namespace '$PM2_NAMESPACE'"
 
           # Save PM2 state
-          sudo -u deploy pm2 save || true
+          sudo -u deploy bash -lc "pm2 save" || true
 
           # Show PM2 status
           echo "📋 PM2 Status:"
-          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE" || true
+          sudo -u deploy bash -lc "pm2 status" || true
 
       # ======= HEALTH CHECK =======
       - name: Health check
@@ -362,13 +362,13 @@ jobs:
 
           if ! curl -f http://localhost:${PORT} > /dev/null 2>&1; then
             echo "⚠️ Health check failed, checking PM2 logs..."
-            sudo -u deploy pm2 logs --lines 20 --nostream --namespace "$PM2_NAMESPACE" || true
+            sudo -u deploy bash -lc "pm2 logs --lines 20 --nostream" || true
             echo "⚠️ Continuing despite health check failure..."
           else
             echo "✅ UI is running on port $PORT"
           fi
 
-          APP_STATUS=$(sudo -u deploy pm2 jlist | jq -r ".[] | select(.namespace == \"$PM2_NAMESPACE\" and .name == \"$APP_NAME\") | .pm2_env.status" | head -1)
+          APP_STATUS=$(sudo -u deploy bash -lc "pm2 jlist" | jq -r ".[] | select(.namespace == \"$PM2_NAMESPACE\" and .name == \"$APP_NAME\") | .pm2_env.status" | head -1)
           echo "📊 Service Status: $APP_NAME: $APP_STATUS"
 
       # ======= CLEANUP =======
