@@ -24,7 +24,7 @@ jobs:
   deploy:
     runs-on: self-hosted
     concurrency:
-      group: deploy-learnbot-ui-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'PROD' || 'UAT') }}
+      group: deploy-learnbot-ui
       cancel-in-progress: false
 
     steps:
@@ -336,11 +336,11 @@ jobs:
           sudo -u deploy NAMESPACE="$PM2_NAMESPACE" pm2 start ecosystem.config.js $PM2_ENV_FLAG --namespace "$PM2_NAMESPACE"
 
           # Save PM2 state
-          sudo -u deploy pm2 save
+          sudo -u deploy pm2 save || true
 
           # Show PM2 status
           echo "📋 PM2 Status:"
-          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE"
+          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE" || true
 
       # ======= HEALTH CHECK =======
       - name: Health check
