@@ -106,26 +106,33 @@ jobs:
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "git@github.com:"
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
           submodules: false
 
       # ======= NODE.JS SETUP =======
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: "18"
 
       # ======= BACKUP =======
       - name: Backup current deployment
+        continue-on-error: true
         run: |
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
           BACKUP_DIR="$REPO_DIR/backups"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
-          sudo -u deploy mkdir -p "$BACKUP_DIR"
-          if [ -d "$REPO_DIR" ] && [ "$(ls -A $REPO_DIR 2>/dev/null)" ]; then
+          # Skip backup if repo directory doesn't exist yet (first deployment)
+          if [ ! -d "$REPO_DIR" ]; then
+            echo "⏭️ Repo directory $REPO_DIR does not exist yet - skipping backup"
+            exit 0
+          fi
+
+          sudo -u deploy mkdir -p "$BACKUP_DIR" || { echo "⚠️ Could not create backup dir - skipping"; exit 0; }
+          if [ "$(ls -A $REPO_DIR 2>/dev/null)" ]; then
             echo "📦 Creating backup..."
             sudo -u deploy tar -czf "$BACKUP_DIR/backup-$TIMESTAMP.tar.gz" \
               -C "$REPO_DIR" \
