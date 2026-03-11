@@ -14,7 +14,7 @@ from llama_index.core import VectorStoreIndex, StorageContext, Document, Setting
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from llama_index.readers.file import PDFReader
+from llama_index.readers.file import PDFReader, DocxReader
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -357,11 +357,12 @@ def index_pdfs(
                         file=sys.stderr,
                     )
        
-        # Load and process PDFs
+        # Load and process documents (PDF, Word, TXT)
         all_documents = []
         new_chunks_count = 0
         chunks_per_file = {}  # Track exact chunk counts per file
         pdf_reader = PDFReader()
+        docx_reader = DocxReader()
        
         for pdf_path in pdf_paths:
             try:
@@ -381,10 +382,38 @@ def index_pdfs(
                     chunks_per_file[pdf_filename] = 0
                     continue
 
-                # Load PDF using LlamaIndex reader
-                documents = pdf_reader.load_data(file=Path(pdf_path_abs))
+                # Load document using appropriate reader based on file extension
+                file_ext = Path(pdf_path_abs).suffix.lower()
+                documents = []
+                
+                if file_ext == '.pdf':
+                    documents = pdf_reader.load_data(file=Path(pdf_path_abs))
+                elif file_ext in ('.docx', '.doc'):
+                    try:
+                        documents = docx_reader.load_data(file=Path(pdf_path_abs))
+                    except Exception as docx_err:
+                        print(f"[LlamaIndex] WARNING: DocxReader failed for {pdf_filename}: {docx_err}", file=sys.stderr)
+                        chunks_per_file[pdf_filename] = 0
+                        continue
+                elif file_ext == '.txt':
+                    try:
+                        with open(pdf_path_abs, 'r', encoding='utf-8', errors='replace') as txt_file:
+                            text_content = txt_file.read().strip()
+                        if text_content:
+                            documents = [Document(text=text_content)]
+                        else:
+                            print(f"[LlamaIndex] WARNING: Empty text file: {pdf_filename}", file=sys.stderr)
+                    except Exception as txt_err:
+                        print(f"[LlamaIndex] WARNING: Failed to read text file {pdf_filename}: {txt_err}", file=sys.stderr)
+                        chunks_per_file[pdf_filename] = 0
+                        continue
+                else:
+                    print(f"[LlamaIndex] WARNING: Unsupported file type '{file_ext}' for {pdf_filename}, skipping", file=sys.stderr)
+                    chunks_per_file[pdf_filename] = 0
+                    continue
+
                 if not documents:
-                    print(f"[LlamaIndex] WARNING: No text extracted from {pdf_filename} (empty or image-only PDF?)", file=sys.stderr)
+                    print(f"[LlamaIndex] WARNING: No text extracted from {pdf_filename} (empty or unsupported format?)", file=sys.stderr)
                     chunks_per_file[pdf_filename] = 0
                     continue
                 
@@ -417,7 +446,7 @@ def index_pdfs(
                 print(f"[LlamaIndex] ERROR: No text extracted from PDF(s). chunks_per_file={chunks_per_file}", file=sys.stderr)
                 return {
                     "success": False,
-                    "error": "No text could be extracted from the PDF(s). Check that files exist at the expected path and contain extractable text (not image-only).",
+                    "error": "No text could be extracted from the file(s). Check that files exist at the expected path and contain extractable text.",
                     "chunks_per_file": chunks_per_file
                 }
             # All files were already indexed - get exact counts from Qdrant

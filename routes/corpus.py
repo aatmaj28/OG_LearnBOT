@@ -11,6 +11,9 @@ import threading
 
 bp = Blueprint("corpus", __name__)
 
+# Supported file extensions for corpus indexing
+SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt'}
+
 # Limit concurrent indexing to 3 to keep at least 2 Gunicorn workers free for chat
 _indexing_semaphore = threading.Semaphore(3)
 
@@ -52,10 +55,12 @@ def upload():
         files = request.files.getlist('files')
         
         for file in files:
-            if file.filename and file.filename.lower().endswith('.pdf'):
-                safe_name = file.filename.replace('/', '_').replace('\\', '_')
-                dest = pdf_dir / safe_name
-                file.save(str(dest))
+            if file.filename:
+                ext = os.path.splitext(file.filename.lower())[1]
+                if ext in SUPPORTED_EXTENSIONS:
+                    safe_name = file.filename.replace('/', '_').replace('\\', '_')
+                    dest = pdf_dir / safe_name
+                    file.save(str(dest))
                 
                 # Store metadata in database
                 db_service.create_corpus_file(
@@ -98,8 +103,9 @@ def index():
         
         class_id = data.get("classId")
         material_type = data.get("materialType", "class_material")
+        force_reindex = data.get("forceReindex", False)
         is_syllabus = material_type == "syllabus"
-        print(f"[CORPUS] INDEX params: classId={class_id} materialType={material_type} is_syllabus={is_syllabus}", flush=True)
+        print(f"[CORPUS] INDEX params: classId={class_id} materialType={material_type} is_syllabus={is_syllabus} forceReindex={force_reindex}", flush=True)
         
         if not class_id:
             return jsonify({"error": "Class ID is required"}), 400
@@ -123,13 +129,55 @@ def index():
         print(f"[CORPUS] INDEX backend_root={backend_root} store_path={store_path} pdf_dir={pdf_dir} output_path_abs={output_path_abs}", flush=True)
         
         if not pdf_dir.exists():
-            return jsonify({"error": "No PDFs directory found. Upload PDFs first."}), 400
+            return jsonify({"error": "No documents directory found. Upload files first."}), 400
         
-        pdf_files = [str(f) for f in pdf_dir.glob("*.pdf")]
-        print(f"[CORPUS] INDEX pdf_dir.exists=True pdf_files ({len(pdf_files)}): {pdf_files}", flush=True)
+        # Collect all supported file types (PDF, Word, TXT)
+        doc_files = []
+        for ext in SUPPORTED_EXTENSIONS:
+            doc_files.extend([str(f) for f in pdf_dir.glob(f'*{ext}')])
+        # Also check uppercase extensions
+        for ext in SUPPORTED_EXTENSIONS:
+            doc_files.extend([str(f) for f in pdf_dir.glob(f'*{ext.upper()}')])
+        # Deduplicate (in case of case-insensitive filesystem)
+        doc_files = list(dict.fromkeys(doc_files))
+        print(f"[CORPUS] INDEX pdf_dir.exists=True doc_files ({len(doc_files)}): {doc_files}", flush=True)
         
-        if not pdf_files:
-            return jsonify({"error": "No PDF files found to index"}), 400
+        if not doc_files:
+            return jsonify({"error": "No supported files found to index (PDF, Word, TXT)"}), 400
+        
+        # Force reindex: delete existing Qdrant collection and metadata so indexing starts fresh
+        if force_reindex:
+            print(f"[CORPUS] INDEX forceReindex=True — deleting existing collection and metadata...", flush=True)
+            try:
+                from lib import indexing_service as _idx_svc
+                collection_name = _idx_svc.get_collection_name(str(output_path_abs))
+                qdrant_client = _idx_svc.get_or_init_qdrant_client()
+                try:
+                    qdrant_client.delete_collection(collection_name)
+                    print(f"[CORPUS] INDEX forceReindex: deleted Qdrant collection '{collection_name}'", flush=True)
+                except Exception as del_err:
+                    print(f"[CORPUS] INDEX forceReindex: could not delete collection '{collection_name}': {del_err}", flush=True)
+                # Also clear metadata.json so files aren't skipped
+                metadata_json = output_path_abs / "metadata.json"
+                if metadata_json.exists():
+                    metadata_json.unlink()
+                    print(f"[CORPUS] INDEX forceReindex: deleted metadata.json", flush=True)
+                # Clear cached vector store in RAG service so it reloads from Qdrant
+                try:
+                    import sys as _sys
+                    for mod_name, mod in list(_sys.modules.items()):
+                        if hasattr(mod, 'vector_stores') and hasattr(mod, 'normalize_vector_store_path'):
+                            norm_path = mod.normalize_vector_store_path(str(output_path_abs))
+                            if norm_path in mod.vector_stores:
+                                del mod.vector_stores[norm_path]
+                                print(f"[CORPUS] INDEX forceReindex: cleared cached vector store '{norm_path}' from {mod_name}", flush=True)
+                            break
+                except Exception as cache_err:
+                    print(f"[CORPUS] INDEX forceReindex: could not clear cache: {cache_err}", flush=True)
+            except Exception as force_err:
+                print(f"[CORPUS] INDEX forceReindex: cleanup error (continuing anyway): {force_err}", flush=True)
+                import traceback
+                traceback.print_exc()
         
         # Call indexing service directly (in-process, no subprocess)
         # The embedding model is either already loaded by the RAG service or will be
@@ -141,7 +189,7 @@ def index():
         try:
             from lib import indexing_service
             index_result = indexing_service.index_pdfs(
-                pdf_paths=pdf_files,
+                pdf_paths=doc_files,
                 output_path=str(output_path_abs),
                 is_syllabus=is_syllabus,
                 class_id=class_id,
@@ -169,13 +217,13 @@ def index():
         chunks_per_file = index_result.get('chunks_per_file') or {}
         print(f"[CORPUS] INDEX success: chunks={index_result.get('chunks')} pdfs={index_result.get('pdfs')} newChunks={index_result.get('new_chunks')} chunks_per_file={chunks_per_file}", flush=True)
         
-        # Mark every attempted PDF as indexed in the database
+        # Mark every attempted file as indexed in the database
         print("[CORPUS] INDEX marking corpus files as indexed in DB...", flush=True)
-        for pdf_path in pdf_files:
-            safe_name = pathlib.Path(pdf_path).name
+        for doc_path in doc_files:
+            safe_name = pathlib.Path(doc_path).name
             chunk_count = chunks_per_file.get(safe_name)
             if chunk_count is None:
-                chunk_count = chunks_per_file.get(pdf_path, 0)
+                chunk_count = chunks_per_file.get(doc_path, 0)
             if not isinstance(chunk_count, int):
                 chunk_count = int(chunk_count) if chunk_count is not None else 0
             db_service.mark_corpus_file_as_indexed(class_id, safe_name, material_type, chunk_count)
@@ -185,7 +233,7 @@ def index():
         return jsonify({
             "success": True,
             "chunks": index_result.get('chunks', 0),
-            "pdfs": index_result.get('pdfs', len(pdf_files)),
+            "pdfs": index_result.get('pdfs', len(doc_files)),
             "newChunks": index_result.get('new_chunks', 0)
         })
     except Exception as error:

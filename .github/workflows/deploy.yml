@@ -24,7 +24,7 @@ jobs:
   deploy:
     runs-on: self-hosted
     concurrency:
-      group: deploy-learnbot-server-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'PROD' || 'UAT') }}
+      group: deploy-learnbot-server
       cancel-in-progress: false
 
     steps:
@@ -106,7 +106,7 @@ jobs:
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "git@github.com:"
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
           submodules: false
@@ -348,11 +348,14 @@ jobs:
       # ======= RESTART PM2 SERVICES =======
       - name: Restart PM2 service (zero downtime)
         run: |
+          set +e  # Don't exit on errors - we check pm2 start explicitly
+
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
           ENV_FILE="${{ steps.setup.outputs.env_file }}"
           PM2_NAMESPACE="${{ steps.setup.outputs.pm2_namespace }}"
           APP_FLASK="${{ steps.setup.outputs.app_flask }}"
           PM2_ENV_FLAG="${{ steps.setup.outputs.pm2_env_flag }}"
+          FLASK_PORT="${{ steps.setup.outputs.flask_port }}"
 
           cd "$REPO_DIR"
 
@@ -360,106 +363,64 @@ jobs:
           echo "📋 Copying environment file..."
           sudo -u deploy cp "$ENV_FILE" .env
           sudo -u deploy chmod 644 .env
-
-          # Ensure QDRANT_URL is set (fallback when secret QDRANT_URL_PROD/UAT is missing or empty)
-          if ! sudo -u deploy grep -q '^QDRANT_URL=http' .env; then
-            sudo -u deploy sed -i 's|^QDRANT_URL=.*|QDRANT_URL=http://localhost:6337|' .env 2>/dev/null || true
-            sudo -u deploy grep -q '^QDRANT_URL=' .env || sudo -u deploy bash -c 'echo "QDRANT_URL=http://localhost:6337" >> .env'
-            echo "✅ Set QDRANT_URL=http://localhost:6337 in .env (secret was missing or empty)"
-          fi
-
-          # Ensure REMOTE_BLACKWELL_URL is set (fallback when secret REMOTE_BLACKWELL_URL_PROD/UAT is missing or empty)
-          if ! sudo -u deploy grep -q '^REMOTE_BLACKWELL_URL=http' .env; then
-            sudo -u deploy sed -i 's|^REMOTE_BLACKWELL_URL=.*|REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions|' .env 2>/dev/null || true
-            sudo -u deploy grep -q '^REMOTE_BLACKWELL_URL=' .env || sudo -u deploy bash -c 'echo "REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions" >> .env'
-            echo "✅ Set REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions in .env (secret was missing or empty)"
-          fi
-
-          # Ensure REMOTE_BLACKWELL_MODEL is set (fallback when secret REMOTE_BLACKWELL_MODEL_PROD/UAT is missing or empty)
-          if ! sudo -u deploy grep -q '^REMOTE_BLACKWELL_MODEL=' .env; then
-            sudo -u deploy sed -i 's|^REMOTE_BLACKWELL_MODEL=.*|REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it|' .env 2>/dev/null || true
-            sudo -u deploy grep -q '^REMOTE_BLACKWELL_MODEL=' .env || sudo -u deploy bash -c 'echo "REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it" >> .env'
-            echo "✅ Set REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it in .env (secret was missing or empty)"
-          fi
-
-          # Ensure GMAIL_APP_PASSWORD is set to a known default if missing/empty
-          # (Gmail UI shows spaces, but app password is actually 16 chars with no spaces)
-          if ! sudo -u deploy grep -q '^GMAIL_APP_PASSWORD=' .env; then
-            sudo -u deploy bash -c 'echo "GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs" >> .env'
-            echo "✅ Added default GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs to .env (no secret set)"
-          else
-            # If present but only first token or clearly wrong length, overwrite with default
-            CURRENT_GMAIL_PASS=$(sudo -u deploy grep '^GMAIL_APP_PASSWORD=' .env | sed "s/^GMAIL_APP_PASSWORD=//")
-            if [ "${#CURRENT_GMAIL_PASS}" -lt 16 ]; then
-              sudo -u deploy sed -i 's|^GMAIL_APP_PASSWORD=.*|GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs|' .env 2>/dev/null || true
-              echo "✅ Normalized GMAIL_APP_PASSWORD to default eeywqkflxdvsjmhs in .env (was short/likely truncated)"
-            fi
-          fi
-
-          # Verify .env file is readable
-          if [ ! -f .env ]; then
-            echo "❌ ERROR: .env file not found at $(pwd)/.env"
-            exit 1
-          fi
-          if [ ! -r .env ]; then
-            echo "❌ ERROR: .env file is not readable at $(pwd)/.env"
-            exit 1
-          fi
           echo "✅ .env file is ready at: $(pwd)/.env"
 
           # Flush old PM2 logs before restart
           echo "🧹 Flushing PM2 logs..."
-          sudo -u deploy pm2 flush
+          sudo -u deploy bash -lc "pm2 flush"
 
-          # Flask - delete and start fresh to ensure env vars are reloaded from .env file
+          # Clear Python cache to ensure fresh bytecode
+          echo "🧹 Clearing Python cache..."
+          sudo -u deploy find . -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null
+          sudo -u deploy find . -name "*.pyc" -delete 2>/dev/null
+          sudo -u deploy find . -name "*.pyo" -delete 2>/dev/null
+
+          # Flask - delete and start fresh to ensure env vars are reloaded
           echo "🔄 Managing Flask service..."
 
-          # Clear Python cache to ensure fresh bytecode is generated
-          echo "  🧹 Clearing Python cache to ensure fresh bytecode..."
-          sudo -u deploy find . -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null || true
-          sudo -u deploy find . -name "*.pyc" -delete 2>/dev/null || true
-          sudo -u deploy find . -name "*.pyo" -delete 2>/dev/null || true
-          echo "    ✅ Python cache cleared"
-
-          # Completely delete the process to ensure fresh start with new env vars
-          if sudo -u deploy pm2 describe "$APP_FLASK" >/dev/null 2>&1; then
+          # Delete existing process if present
+          if sudo -u deploy bash -lc "pm2 describe '$APP_FLASK'" >/dev/null 2>&1; then
             echo "  🗑️  Force deleting $APP_FLASK to ensure fresh start..."
-            sudo -u deploy pm2 delete "$APP_FLASK" --namespace "$PM2_NAMESPACE" --force || true
+            sudo -u deploy bash -lc "pm2 delete '$APP_FLASK'"
             sleep 2
           fi
 
           # Check and kill any processes still holding the Flask port
-          FLASK_PORT="${{ steps.setup.outputs.flask_port }}"
           PORT_IN_USE=$(sudo -u deploy lsof -ti:$FLASK_PORT 2>/dev/null || echo "")
           if [ -n "$PORT_IN_USE" ]; then
             echo "  ⚠️  Flask port $FLASK_PORT is still in use, killing process..."
-            sudo kill -9 $PORT_IN_USE 2>/dev/null || true
+            sudo kill -9 $PORT_IN_USE 2>/dev/null
             sleep 1
           fi
 
+          # START THE APP - this is the critical command
           echo "  ▶️ Starting $APP_FLASK with fresh environment from .env file..."
-          sudo -u deploy NAMESPACE="$PM2_NAMESPACE" pm2 start ecosystem.config.js $PM2_ENV_FLAG --only "$APP_FLASK" --namespace "$PM2_NAMESPACE"
+          sudo -u deploy bash -lc "cd '$REPO_DIR' && NAMESPACE='$PM2_NAMESPACE' pm2 start ecosystem.config.js $PM2_ENV_FLAG --only '$APP_FLASK' --namespace '$PM2_NAMESPACE'"
+          START_EXIT=$?
 
-          # Wait for Flask to start, then check environment
-          sleep 3
-          echo "  🔍 Checking Flask environment (from PM2)..."
-          PM2_ENV_OUTPUT=$(sudo -u deploy pm2 env "$APP_FLASK" --namespace "$PM2_NAMESPACE" 2>/dev/null || echo "")
-          if echo "$PM2_ENV_OUTPUT" | grep -q "PORT"; then
-            echo "    ✅ PORT is in PM2 environment"
-          else
-            echo "    ⚠️  PORT NOT found in PM2 environment!"
+          if [ $START_EXIT -ne 0 ]; then
+            echo "❌ pm2 start FAILED with exit code $START_EXIT"
+            echo "--- PM2 logs for debugging ---"
+            sudo -u deploy bash -lc "pm2 logs --lines 30 --nostream" 2>&1 || true
+            echo "--- PM2 list ---"
+            sudo -u deploy bash -lc "pm2 list" 2>&1 || true
+            echo "--- Port $FLASK_PORT check ---"
+            sudo lsof -i:$FLASK_PORT 2>&1 || true
+            exit 1
           fi
 
           # Save PM2 state
-          sudo -u deploy pm2 save
+          sudo -u deploy bash -lc "pm2 save"
 
           # Show PM2 status for debugging
           echo "📋 PM2 Status:"
-          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE"
+          sudo -u deploy bash -lc "pm2 status"
 
           # Verify log files are being created
           echo "📝 Log files:"
-          ls -la "${{ steps.setup.outputs.log_dir }}/" 2>/dev/null | head -10 || echo "Log directory not yet created"
+          ls -la "${{ steps.setup.outputs.log_dir }}/" 2>/dev/null || echo "Log directory not yet created"
+
+          echo "✅ PM2 restart complete"
 
       # ======= HEALTH CHECK =======
       - name: Health check
@@ -479,14 +440,14 @@ jobs:
           # Check Flask API (do not source .env - values may contain chars that run as commands)
           if ! curl -f http://localhost:${PORT}/health 2>/dev/null; then
             echo "⚠️ Flask health check failed, checking PM2 logs..."
-            sudo -u deploy pm2 logs --lines 20 --nostream --namespace "$PM2_NAMESPACE" || true
+            sudo -u deploy bash -lc "pm2 logs --lines 20 --nostream" || true
             echo "⚠️ Continuing despite health check failure..."
           else
             echo "✅ Flask API is running on port $PORT"
           fi
 
           # Verify PM2 service is running
-          FLASK_STATUS=$(sudo -u deploy pm2 jlist | jq -r ".[] | select(.namespace == \"$PM2_NAMESPACE\" and (.name | contains(\"flask\"))) | .pm2_env.status" | head -1)
+          FLASK_STATUS=$(sudo -u deploy bash -lc "pm2 jlist" | jq -r ".[] | select(.namespace == \"$PM2_NAMESPACE\" and (.name | contains(\"flask\"))) | .pm2_env.status" | head -1)
 
           echo "📊 Service Status:"
           echo "  Flask: $FLASK_STATUS"
