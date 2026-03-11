@@ -368,7 +368,7 @@ jobs:
 
           # Flush old PM2 logs before restart
           echo "🧹 Flushing PM2 logs..."
-          sudo -u deploy pm2 flush
+          sudo -u deploy bash -lc "pm2 flush"
 
           # Clear Python cache to ensure fresh bytecode
           echo "🧹 Clearing Python cache..."
@@ -380,9 +380,9 @@ jobs:
           echo "🔄 Managing Flask service..."
 
           # Delete existing process if present
-          if sudo -u deploy pm2 describe "$APP_FLASK" >/dev/null 2>&1; then
+          if sudo -u deploy bash -lc "pm2 describe '$APP_FLASK'" >/dev/null 2>&1; then
             echo "  🗑️  Force deleting $APP_FLASK to ensure fresh start..."
-            sudo -u deploy pm2 delete "$APP_FLASK"
+            sudo -u deploy bash -lc "pm2 delete '$APP_FLASK'"
             sleep 2
           fi
 
@@ -396,26 +396,26 @@ jobs:
 
           # START THE APP - this is the critical command
           echo "  ▶️ Starting $APP_FLASK with fresh environment from .env file..."
-          sudo -u deploy NAMESPACE="$PM2_NAMESPACE" pm2 start ecosystem.config.js $PM2_ENV_FLAG --only "$APP_FLASK" --namespace "$PM2_NAMESPACE"
+          sudo -u deploy bash -lc "cd '$REPO_DIR' && NAMESPACE='$PM2_NAMESPACE' pm2 start ecosystem.config.js $PM2_ENV_FLAG --only '$APP_FLASK' --namespace '$PM2_NAMESPACE'"
           START_EXIT=$?
 
           if [ $START_EXIT -ne 0 ]; then
             echo "❌ pm2 start FAILED with exit code $START_EXIT"
             echo "--- PM2 logs for debugging ---"
-            sudo -u deploy pm2 logs --lines 30 --nostream 2>&1 || true
+            sudo -u deploy bash -lc "pm2 logs --lines 30 --nostream" 2>&1 || true
             echo "--- PM2 list ---"
-            sudo -u deploy pm2 list 2>&1 || true
+            sudo -u deploy bash -lc "pm2 list" 2>&1 || true
             echo "--- Port $FLASK_PORT check ---"
             sudo lsof -i:$FLASK_PORT 2>&1 || true
             exit 1
           fi
 
           # Save PM2 state
-          sudo -u deploy pm2 save
+          sudo -u deploy bash -lc "pm2 save"
 
           # Show PM2 status for debugging
           echo "📋 PM2 Status:"
-          sudo -u deploy pm2 status
+          sudo -u deploy bash -lc "pm2 status"
 
           # Verify log files are being created
           echo "📝 Log files:"
@@ -441,14 +441,14 @@ jobs:
           # Check Flask API (do not source .env - values may contain chars that run as commands)
           if ! curl -f http://localhost:${PORT}/health 2>/dev/null; then
             echo "⚠️ Flask health check failed, checking PM2 logs..."
-            sudo -u deploy pm2 logs --lines 20 --nostream --namespace "$PM2_NAMESPACE" || true
+            sudo -u deploy bash -lc "pm2 logs --lines 20 --nostream" || true
             echo "⚠️ Continuing despite health check failure..."
           else
             echo "✅ Flask API is running on port $PORT"
           fi
 
           # Verify PM2 service is running
-          FLASK_STATUS=$(sudo -u deploy pm2 jlist | jq -r ".[] | select(.namespace == \"$PM2_NAMESPACE\" and (.name | contains(\"flask\"))) | .pm2_env.status" | head -1)
+          FLASK_STATUS=$(sudo -u deploy bash -lc "pm2 jlist" | jq -r ".[] | select(.namespace == \"$PM2_NAMESPACE\" and (.name | contains(\"flask\"))) | .pm2_env.status" | head -1)
 
           echo "📊 Service Status:"
           echo "  Flask: $FLASK_STATUS"
