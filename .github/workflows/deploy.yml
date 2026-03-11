@@ -409,7 +409,7 @@ jobs:
 
           # Flush old PM2 logs before restart
           echo "🧹 Flushing PM2 logs..."
-          sudo -u deploy pm2 flush
+          sudo -u deploy pm2 flush || true
 
           # Flask - delete and start fresh to ensure env vars are reloaded from .env file
           echo "🔄 Managing Flask service..."
@@ -422,7 +422,7 @@ jobs:
           echo "    ✅ Python cache cleared"
 
           # Completely delete the process to ensure fresh start with new env vars
-          if sudo -u deploy pm2 describe "$APP_FLASK" >/dev/null 2>&1; then
+          if sudo -u deploy pm2 describe "$APP_FLASK" --namespace "$PM2_NAMESPACE" >/dev/null 2>&1; then
             echo "  🗑️  Force deleting $APP_FLASK to ensure fresh start..."
             sudo -u deploy pm2 delete "$APP_FLASK" --namespace "$PM2_NAMESPACE" --force || true
             sleep 2
@@ -430,7 +430,7 @@ jobs:
 
           # Check and kill any processes still holding the Flask port
           FLASK_PORT="${{ steps.setup.outputs.flask_port }}"
-          PORT_IN_USE=$(sudo -u deploy lsof -ti:$FLASK_PORT 2>/dev/null || echo "")
+          PORT_IN_USE=$(sudo lsof -ti:$FLASK_PORT 2>/dev/null || echo "")
           if [ -n "$PORT_IN_USE" ]; then
             echo "  ⚠️  Flask port $FLASK_PORT is still in use, killing process..."
             sudo kill -9 $PORT_IN_USE 2>/dev/null || true
