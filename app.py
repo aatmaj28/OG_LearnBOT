@@ -115,6 +115,12 @@ def run_migrations():
 
 if __name__ == "__main__":
     run_migrations()
+    # Log the persistent file storage path so operators can verify it
+    from routes.classes import FILE_STORAGE_PATH
+    print(f"📂 FILE_STORAGE_PATH = {FILE_STORAGE_PATH}")
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_ENV") == "development"
     app.run(host="0.0.0.0", port=port, debug=debug)
+
+# Test change for CI/CD troubleshooting - 2026-03-11
+# No functional impact
