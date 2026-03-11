@@ -84,7 +84,43 @@ except ImportError:
 def index():
     return {"status": "ok", "message": "LearnBot Flask API"}
 
+def run_migrations():
+    """Run database migrations on startup - creates tables if they don't exist"""
+    try:
+        from services.db_service import get_connection, return_connection
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pending_class_enrollments (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+                    faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(email, class_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_pending_class_enrollments_email 
+                ON pending_class_enrollments(email);
+            """)
+            conn.commit()
+            print("✅ Database migrations completed successfully")
+        except Exception as e:
+            conn.rollback()
+            print(f"⚠️ Database migration warning: {e}")
+        finally:
+            return_connection(conn)
+    except Exception as e:
+        print(f"⚠️ Could not run migrations: {e}")
+
 if __name__ == "__main__":
+    run_migrations()
+    # Log the persistent file storage path so operators can verify it
+    from routes.classes import FILE_STORAGE_PATH
+    print(f"📂 FILE_STORAGE_PATH = {FILE_STORAGE_PATH}")
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_ENV") == "development"
     app.run(host="0.0.0.0", port=port, debug=debug)
+
+# Test change for CI/CD troubleshooting - 2026-03-11
+# No functional impact
