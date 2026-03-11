@@ -328,7 +328,6 @@ def assignments():
                 return jsonify({"error": "Unauthorized"}), 403
             
             # Save file
-            import pathlib
             import uuid
             assignments_dir = FILE_STORAGE_PATH / 'assignments' / class_id
             assignments_dir.mkdir(parents=True, exist_ok=True)
@@ -391,7 +390,6 @@ def assignments():
                 return jsonify({"error": "Unauthorized"}), 403
             
             # Delete file
-            import pathlib
             file_path = FILE_STORAGE_PATH / 'assignments' / class_id / assignment['pdfFileName']
             if file_path.exists():
                 file_path.unlink()
@@ -419,7 +417,6 @@ def download_assignment():
         if not assignment or assignment['classId'] != class_id:
             return jsonify({"error": "Assignment not found"}), 404
         
-        import pathlib
         file_path = FILE_STORAGE_PATH / 'assignments' / class_id / assignment['pdfFileName']
         
         if not file_path.exists():
@@ -514,7 +511,6 @@ def resources():
             files = request.files.getlist('files')
             uploaded_files = []
             
-            import pathlib
             resources_dir = FILE_STORAGE_PATH / 'resources' / class_id
             resources_dir.mkdir(parents=True, exist_ok=True)
             
@@ -574,7 +570,6 @@ def resources():
                 return jsonify({"error": "Class not found"}), 404
             
             # Get resource
-            import pathlib
             safe_file_name = pathlib.Path(file_name).name  # Prevent path traversal
             resource = db_service.get_resource_by_file_name(class_id, safe_file_name)
             if not resource:
@@ -607,7 +602,6 @@ def download_resource():
         if not class_id or not file_name:
             return jsonify({"error": "Class ID and file name are required"}), 400
         
-        import pathlib
         safe_file_name = pathlib.Path(file_name).name  # Prevent path traversal
         file_path = FILE_STORAGE_PATH / 'resources' / class_id / safe_file_name
         
