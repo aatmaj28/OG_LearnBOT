@@ -360,69 +360,24 @@ jobs:
           echo "📋 Copying environment file..."
           sudo -u deploy cp "$ENV_FILE" .env
           sudo -u deploy chmod 644 .env
-
-          # Ensure QDRANT_URL is set (fallback when secret QDRANT_URL_PROD/UAT is missing or empty)
-          if ! sudo -u deploy grep -q '^QDRANT_URL=http' .env; then
-            sudo -u deploy sed -i 's|^QDRANT_URL=.*|QDRANT_URL=http://localhost:6337|' .env 2>/dev/null || true
-            sudo -u deploy grep -q '^QDRANT_URL=' .env || sudo -u deploy bash -c 'echo "QDRANT_URL=http://localhost:6337" >> .env'
-            echo "✅ Set QDRANT_URL=http://localhost:6337 in .env (secret was missing or empty)"
-          fi
-
-          # Ensure REMOTE_BLACKWELL_URL is set (fallback when secret REMOTE_BLACKWELL_URL_PROD/UAT is missing or empty)
-          if ! sudo -u deploy grep -q '^REMOTE_BLACKWELL_URL=http' .env; then
-            sudo -u deploy sed -i 's|^REMOTE_BLACKWELL_URL=.*|REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions|' .env 2>/dev/null || true
-            sudo -u deploy grep -q '^REMOTE_BLACKWELL_URL=' .env || sudo -u deploy bash -c 'echo "REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions" >> .env'
-            echo "✅ Set REMOTE_BLACKWELL_URL=http://129.10.224.226:8000/v1/chat/completions in .env (secret was missing or empty)"
-          fi
-
-          # Ensure REMOTE_BLACKWELL_MODEL is set (fallback when secret REMOTE_BLACKWELL_MODEL_PROD/UAT is missing or empty)
-          if ! sudo -u deploy grep -q '^REMOTE_BLACKWELL_MODEL=' .env; then
-            sudo -u deploy sed -i 's|^REMOTE_BLACKWELL_MODEL=.*|REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it|' .env 2>/dev/null || true
-            sudo -u deploy grep -q '^REMOTE_BLACKWELL_MODEL=' .env || sudo -u deploy bash -c 'echo "REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it" >> .env'
-            echo "✅ Set REMOTE_BLACKWELL_MODEL=google/gemma-3-12b-it in .env (secret was missing or empty)"
-          fi
-
-          # Ensure GMAIL_APP_PASSWORD is set to a known default if missing/empty
-          # (Gmail UI shows spaces, but app password is actually 16 chars with no spaces)
-          if ! sudo -u deploy grep -q '^GMAIL_APP_PASSWORD=' .env; then
-            sudo -u deploy bash -c 'echo "GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs" >> .env'
-            echo "✅ Added default GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs to .env (no secret set)"
-          else
-            # If present but only first token or clearly wrong length, overwrite with default
-            CURRENT_GMAIL_PASS=$(sudo -u deploy grep '^GMAIL_APP_PASSWORD=' .env | sed "s/^GMAIL_APP_PASSWORD=//")
-            if [ "${#CURRENT_GMAIL_PASS}" -lt 16 ]; then
-              sudo -u deploy sed -i 's|^GMAIL_APP_PASSWORD=.*|GMAIL_APP_PASSWORD=eeywqkflxdvsjmhs|' .env 2>/dev/null || true
-              echo "✅ Normalized GMAIL_APP_PASSWORD to default eeywqkflxdvsjmhs in .env (was short/likely truncated)"
-            fi
-          fi
-
-          # Verify .env file is readable
-          if [ ! -f .env ]; then
-            echo "❌ ERROR: .env file not found at $(pwd)/.env"
-            exit 1
-          fi
-          if [ ! -r .env ]; then
-            echo "❌ ERROR: .env file is not readable at $(pwd)/.env"
-            exit 1
-          fi
           echo "✅ .env file is ready at: $(pwd)/.env"
 
           # Flush old PM2 logs before restart
           echo "🧹 Flushing PM2 logs..."
-          sudo -u deploy pm2 flush || true
+          sudo -u deploy pm2 flush
 
-          # Flask - delete and start fresh to ensure env vars are reloaded from .env file
-          echo "🔄 Managing Flask service..."
-
-          # Clear Python cache to ensure fresh bytecode is generated
-          echo "  🧹 Clearing Python cache to ensure fresh bytecode..."
+          # Clear Python cache to ensure fresh bytecode
+          echo "🧹 Clearing Python cache..."
+          cd "$REPO_DIR"
           sudo -u deploy find . -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null || true
           sudo -u deploy find . -name "*.pyc" -delete 2>/dev/null || true
           sudo -u deploy find . -name "*.pyo" -delete 2>/dev/null || true
-          echo "    ✅ Python cache cleared"
 
-          # Completely delete the process to ensure fresh start with new env vars
-          if sudo -u deploy pm2 describe "$APP_FLASK" --namespace "$PM2_NAMESPACE" >/dev/null 2>&1; then
+          # Flask - delete and start fresh to ensure env vars are reloaded
+          echo "🔄 Managing Flask service..."
+
+          # Delete existing process (matching EssayBot pattern - no --namespace on describe)
+          if sudo -u deploy pm2 describe "$APP_FLASK" >/dev/null 2>&1; then
             echo "  🗑️  Force deleting $APP_FLASK to ensure fresh start..."
             sudo -u deploy pm2 delete "$APP_FLASK" --namespace "$PM2_NAMESPACE" --force || true
             sleep 2
@@ -430,7 +385,7 @@ jobs:
 
           # Check and kill any processes still holding the Flask port
           FLASK_PORT="${{ steps.setup.outputs.flask_port }}"
-          PORT_IN_USE=$(sudo lsof -ti:$FLASK_PORT 2>/dev/null || echo "")
+          PORT_IN_USE=$(sudo -u deploy lsof -ti:$FLASK_PORT 2>/dev/null || echo "")
           if [ -n "$PORT_IN_USE" ]; then
             echo "  ⚠️  Flask port $FLASK_PORT is still in use, killing process..."
             sudo kill -9 $PORT_IN_USE 2>/dev/null || true
@@ -440,22 +395,12 @@ jobs:
           echo "  ▶️ Starting $APP_FLASK with fresh environment from .env file..."
           sudo -u deploy NAMESPACE="$PM2_NAMESPACE" pm2 start ecosystem.config.js $PM2_ENV_FLAG --only "$APP_FLASK" --namespace "$PM2_NAMESPACE"
 
-          # Wait for Flask to start, then check environment
-          sleep 3
-          echo "  🔍 Checking Flask environment (from PM2)..."
-          PM2_ENV_OUTPUT=$(sudo -u deploy pm2 env "$APP_FLASK" --namespace "$PM2_NAMESPACE" 2>/dev/null || echo "")
-          if echo "$PM2_ENV_OUTPUT" | grep -q "PORT"; then
-            echo "    ✅ PORT is in PM2 environment"
-          else
-            echo "    ⚠️  PORT NOT found in PM2 environment!"
-          fi
-
           # Save PM2 state
-          sudo -u deploy pm2 save || true
+          sudo -u deploy pm2 save
 
           # Show PM2 status for debugging
           echo "📋 PM2 Status:"
-          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE" || true
+          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE"
 
           # Verify log files are being created
           echo "📝 Log files:"
