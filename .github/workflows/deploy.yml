@@ -24,7 +24,7 @@ jobs:
   deploy:
     runs-on: self-hosted
     concurrency:
-      group: deploy-learnbot-server-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'PROD' || 'UAT') }}
+      group: deploy-learnbot-server
       cancel-in-progress: false
 
     steps:
@@ -106,7 +106,7 @@ jobs:
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "git@github.com:"
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
           submodules: false
@@ -451,11 +451,11 @@ jobs:
           fi
 
           # Save PM2 state
-          sudo -u deploy pm2 save
+          sudo -u deploy pm2 save || true
 
           # Show PM2 status for debugging
           echo "📋 PM2 Status:"
-          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE"
+          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE" || true
 
           # Verify log files are being created
           echo "📝 Log files:"
