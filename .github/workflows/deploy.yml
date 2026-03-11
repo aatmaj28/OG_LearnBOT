@@ -150,11 +150,22 @@ jobs:
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
           DEFAULT_BRANCH="${{ steps.setup.outputs.default_branch }}"
           if [ ! -d "$REPO_DIR/.git" ]; then
-            echo "📂 Repo not found at $REPO_DIR - cloning..."
-            sudo mkdir -p "$(dirname "$REPO_DIR")"
-            sudo chown deploy:deploy "$(dirname "$REPO_DIR")"
-            sudo -u deploy git clone --branch "$DEFAULT_BRANCH" https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} "$REPO_DIR"
-            echo "✅ Cloned repo to $REPO_DIR"
+            if [ -d "$REPO_DIR" ]; then
+              echo "📂 Directory exists at $REPO_DIR but is not a git repo - initializing..."
+              sudo chown -R deploy:deploy "$REPO_DIR"
+              sudo -u deploy git -C "$REPO_DIR" init
+              sudo -u deploy git -C "$REPO_DIR" remote add origin https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} 2>/dev/null || \
+                sudo -u deploy git -C "$REPO_DIR" remote set-url origin https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }}
+              sudo -u deploy git -C "$REPO_DIR" fetch origin
+              sudo -u deploy git -C "$REPO_DIR" reset --hard "origin/$DEFAULT_BRANCH"
+              echo "✅ Initialized existing directory as git repo at $REPO_DIR"
+            else
+              echo "📂 Repo not found at $REPO_DIR - cloning..."
+              sudo mkdir -p "$(dirname "$REPO_DIR")"
+              sudo chown deploy:deploy "$(dirname "$REPO_DIR")"
+              sudo -u deploy git clone --branch "$DEFAULT_BRANCH" https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} "$REPO_DIR"
+              echo "✅ Cloned repo to $REPO_DIR"
+            fi
           else
             echo "✅ Repo already exists at $REPO_DIR"
           fi
