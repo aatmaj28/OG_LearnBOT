@@ -348,7 +348,6 @@ jobs:
       # ======= RESTART PM2 SERVICES =======
       - name: Restart PM2 service (zero downtime)
         run: |
-          set -x  # DEBUG: print every command before execution
           set +e  # Don't exit on errors - we check pm2 start explicitly
 
           REPO_DIR="${{ steps.setup.outputs.repo_dir }}"
