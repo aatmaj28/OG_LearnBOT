@@ -364,7 +364,7 @@ jobs:
 
           # Flush old PM2 logs before restart
           echo "🧹 Flushing PM2 logs..."
-          sudo -u deploy pm2 flush
+          sudo -u deploy pm2 flush || true
 
           # Clear Python cache to ensure fresh bytecode
           echo "🧹 Clearing Python cache..."
@@ -396,11 +396,11 @@ jobs:
           sudo -u deploy NAMESPACE="$PM2_NAMESPACE" pm2 start ecosystem.config.js $PM2_ENV_FLAG --only "$APP_FLASK" --namespace "$PM2_NAMESPACE"
 
           # Save PM2 state
-          sudo -u deploy pm2 save
+          sudo -u deploy pm2 save || true
 
           # Show PM2 status for debugging
           echo "📋 PM2 Status:"
-          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE"
+          sudo -u deploy pm2 status --namespace "$PM2_NAMESPACE" || true
 
           # Verify log files are being created
           echo "📝 Log files:"
