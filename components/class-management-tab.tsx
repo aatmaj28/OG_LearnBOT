@@ -50,7 +50,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   const [isProcessingBulk, setIsProcessingBulk] = useState(false)
   const [isSendingReminders, setIsSendingReminders] = useState(false)
   const [activeView, setActiveView] = useState<"students" | "assignments" | "resources">("students")
-  const [resources, setResources] = useState<Array<{ name: string; size: number; uploadedAt: Date | string }>>([])
+  const [resources, setResources] = useState<Array<{ name: string; size: number; uploadedAt: Date | string; fileExists?: boolean }>>([])
   const [isUploadingResources, setIsUploadingResources] = useState(false)
   const resourcesFileInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
@@ -62,7 +62,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   const [isDownloadingResource, setIsDownloadingResource] = useState(false)
   const [previewResourceBlobUrl, setPreviewResourceBlobUrl] = useState<string | null>(null)
   const [previewResourceError, setPreviewResourceError] = useState<string | null>(null)
-  const [assignments, setAssignments] = useState<Array<{ id: string; name: string; pdfUrl: string; dueDate: string; canvasLink: string; createdAt: Date | string }>>([])
+  const [assignments, setAssignments] = useState<Array<{ id: string; name: string; pdfUrl: string; dueDate: string; canvasLink: string; createdAt: Date | string; fileExists?: boolean }>>([])
   const [showAddAssignmentDialog, setShowAddAssignmentDialog] = useState(false)
   const [newAssignment, setNewAssignment] = useState({ name: "", dueDate: "", canvasLink: "" })
   const [assignmentPdfFile, setAssignmentPdfFile] = useState<File | null>(null)
@@ -593,6 +593,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
   const openResourcePreview = async (index: number) => {
     if (!selectedClass || !resources[index]) return
+    if (resources[index].fileExists === false) {
+      toast.error("This file is missing from the server. Please re-upload it.")
+      return
+    }
 
     const userId = localStorage.getItem("userId")
     if (!userId) return
@@ -1525,9 +1529,16 @@ mike.johnson@northeastern.edu`}
                               </div>
                             </div>
                             <div className="flex flex-col gap-2">
+                              {assignment.fileExists === false && (
+                                <div className="flex items-center gap-2 mb-2 p-2 rounded bg-amber-500/10 border border-amber-500/30">
+                                  <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                                  <span className="text-xs text-amber-500">File missing from server — please re-upload</span>
+                                </div>
+                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
+                                disabled={assignment.fileExists === false}
                                 onClick={async () => {
                                   if (!selectedClass) return
                                   try {
@@ -1625,16 +1636,24 @@ mike.johnson@northeastern.edu`}
                             }`}
                         >
                           <div
-                            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                            className={`flex items-center gap-3 flex-1 min-w-0 ${resource.fileExists === false ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                             onClick={() => openResourcePreview(index)}
                           >
-                            <FileText className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                            {resource.fileExists === false ? (
+                              <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-500" />
+                            ) : (
+                              <FileText className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                            )}
                             <div className="flex-1 min-w-0">
-                              <p className={`font-medium text-sm truncate ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                              <p className={`font-medium text-sm truncate ${resource.fileExists === false ? 'text-amber-500' : isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
                                 {resource.name}
                               </p>
                               <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                {formatFileSize(resource.size)} • {new Date(resource.uploadedAt).toLocaleDateString()}
+                                {resource.fileExists === false ? (
+                                  <span className="text-amber-500">File missing from server — please re-upload</span>
+                                ) : (
+                                  <>{formatFileSize(resource.size)} • {new Date(resource.uploadedAt).toLocaleDateString()}</>
+                                )}
                               </p>
                             </div>
                           </div>

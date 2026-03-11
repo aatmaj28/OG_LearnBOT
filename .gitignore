@@ -48,6 +48,10 @@ coverage/
 # Cloned LearnBot-Server (separate repo; do not commit into UI)
 LearnBot-Server/
 
+# User-uploaded files (persist on server, never track in git)
+resources/
+assignments/
+
 # Temporary folders
 tmp/
 temp/

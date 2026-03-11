@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { FileText, FolderOpen, Users, Calendar, Download, ExternalLink } from "lucide-react"
+import { FileText, FolderOpen, Users, Calendar, Download, ExternalLink, AlertTriangle } from "lucide-react"
 import type { Class } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -18,8 +18,8 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
   const [classes, setClasses] = useState<Class[]>([])
   const [selectedClass, setSelectedClass] = useState<Class | null>(null)
   const [activeView, setActiveView] = useState<"assignments" | "resources">("assignments")
-  const [assignments, setAssignments] = useState<Array<{ id: string; name: string; pdfUrl?: string; dueDate: string; canvasLink: string; createdAt: Date | string }>>([])
-  const [resources, setResources] = useState<Array<{ name: string; size: number; uploadedAt: Date | string }>>([])
+  const [assignments, setAssignments] = useState<Array<{ id: string; name: string; pdfUrl?: string; dueDate: string; canvasLink: string; createdAt: Date | string; fileExists?: boolean }>>([])
+  const [resources, setResources] = useState<Array<{ name: string; size: number; uploadedAt: Date | string; fileExists?: boolean }>>([])
   const [showResourcePreviewDialog, setShowResourcePreviewDialog] = useState(false)
   const [previewResourceIndex, setPreviewResourceIndex] = useState<number | null>(null)
   const [previewResourceBlobUrl, setPreviewResourceBlobUrl] = useState<string | null>(null)
@@ -118,6 +118,10 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
 
   const openResourcePreview = async (index: number) => {
     if (!selectedClass || !resources[index]) return
+    if (resources[index].fileExists === false) {
+      toast.error("This file is missing from the server. Please contact your instructor.")
+      return
+    }
     setPreviewResourceIndex(index)
     setShowResourcePreviewDialog(true)
     setPreviewResourceBlobUrl(null)
@@ -288,9 +292,16 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                               </p>
                             </div>
                             <div className="flex flex-col gap-2">
+                              {assignment.fileExists === false && (
+                                <div className="flex items-center gap-2 mb-1 p-2 rounded bg-amber-500/10 border border-amber-500/30">
+                                  <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                                  <span className="text-xs text-amber-500">File unavailable — contact instructor</span>
+                                </div>
+                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
+                                disabled={assignment.fileExists === false}
                                 onClick={() => downloadAssignment(assignment.id, assignment.name)}
                                 className={isDarkMode ? "bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600" : ""}
                               >
@@ -346,16 +357,24 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                           }`}
                         >
                           <div
-                            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                            className={`flex items-center gap-3 flex-1 min-w-0 ${resource.fileExists === false ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                             onClick={() => openResourcePreview(index)}
                           >
-                            <FileText className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? "text-gray-400" : "text-gray-600"}`} />
+                            {resource.fileExists === false ? (
+                              <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-500" />
+                            ) : (
+                              <FileText className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? "text-gray-400" : "text-gray-600"}`} />
+                            )}
                             <div className="flex-1 min-w-0">
-                              <p className={`font-medium text-sm truncate ${isDarkMode ? "text-gray-200" : "text-gray-900"}`}>
+                              <p className={`font-medium text-sm truncate ${resource.fileExists === false ? 'text-amber-500' : isDarkMode ? "text-gray-200" : "text-gray-900"}`}>
                                 {resource.name}
                               </p>
                               <p className={`text-xs ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}>
-                                {formatFileSize(resource.size)} • {new Date(resource.uploadedAt).toLocaleDateString()}
+                                {resource.fileExists === false ? (
+                                  <span className="text-amber-500">File unavailable — contact instructor</span>
+                                ) : (
+                                  <>{formatFileSize(resource.size)} • {new Date(resource.uploadedAt).toLocaleDateString()}</>
+                                )}
                               </p>
                             </div>
                           </div>
@@ -366,7 +385,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                               e.stopPropagation()
                               downloadResource(resource.name)
                             }}
-                            disabled={isDownloadingResource}
+                            disabled={isDownloadingResource || resource.fileExists === false}
                             className={isDarkMode ? "bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600" : ""}
                           >
                             <Download className="h-4 w-4 mr-2" />

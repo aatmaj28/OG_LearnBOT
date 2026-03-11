@@ -10,10 +10,16 @@ import pathlib
 # Absolute path to the backend root (parent of routes/)
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# File storage path - configurable via env var for production
-# On production, files may be stored in a different directory (e.g., Next.js app directory)
-# Set FILE_STORAGE_PATH=/var/www/Learnbot-UI on the server if files are stored there
-FILE_STORAGE_PATH = pathlib.Path(os.getenv('FILE_STORAGE_PATH', str(BACKEND_ROOT)))
+# Persistent file storage path — MUST live OUTSIDE any git-managed directory
+# so that deployments / git-clean / server reboots never delete user uploads.
+#   Production default: /data/learnbot  (a dedicated, deploy-safe folder)
+#   Local dev fallback:  <backend-root>  (same as before)
+_default_storage = '/data/learnbot' if os.path.exists('/data') else str(BACKEND_ROOT)
+FILE_STORAGE_PATH = pathlib.Path(os.getenv('FILE_STORAGE_PATH', _default_storage))
+
+# Ensure storage directories exist on import
+for _subdir in ('resources', 'assignments'):
+    (FILE_STORAGE_PATH / _subdir).mkdir(parents=True, exist_ok=True)
 
 bp = Blueprint("classes", __name__)
 
@@ -264,16 +270,24 @@ def assignments():
             
             assignments = db_service.get_assignments_by_class(class_id)
             
-            return jsonify({
-                "assignments": [{
+            # Verify each assignment file exists on disk
+            verified_assignments = []
+            for a in assignments:
+                file_path = FILE_STORAGE_PATH / 'assignments' / class_id / a['pdfFileName']
+                file_exists = file_path.exists()
+                if not file_exists:
+                    print(f"[CLASSES] WARNING: Assignment file missing from disk: {file_path}")
+                verified_assignments.append({
                     "id": a['id'],
                     "name": a['name'],
                     "pdfUrl": f"/api/classes/assignments/download?classId={class_id}&assignmentId={a['id']}",
                     "dueDate": a['dueDate'].isoformat() if hasattr(a['dueDate'], 'isoformat') else str(a['dueDate']),
                     "canvasLink": a.get('canvasLink', ''),
-                    "createdAt": a['createdAt'].isoformat() if hasattr(a['createdAt'], 'isoformat') else str(a['createdAt'])
-                } for a in assignments]
-            })
+                    "createdAt": a['createdAt'].isoformat() if hasattr(a['createdAt'], 'isoformat') else str(a['createdAt']),
+                    "fileExists": file_exists
+                })
+            
+            return jsonify({"assignments": verified_assignments})
         
         elif request.method == "POST":
             # Handle file upload
@@ -451,13 +465,22 @@ def resources():
             
             resources_list = db_service.get_resources_by_class(class_id)
             
-            return jsonify({
-                "resources": [{
+            # Verify each resource file exists on disk
+            verified_resources = []
+            for r in resources_list:
+                safe_name = pathlib.Path(r['fileName']).name
+                file_path = FILE_STORAGE_PATH / 'resources' / class_id / safe_name
+                file_exists = file_path.exists()
+                if not file_exists:
+                    print(f"[CLASSES] WARNING: Resource file missing from disk: {file_path}")
+                verified_resources.append({
                     "name": r['fileName'],
                     "size": r['fileSize'],
-                    "uploadedAt": r['uploadedAt'].isoformat() if hasattr(r['uploadedAt'], 'isoformat') else str(r['uploadedAt'])
-                } for r in resources_list]
-            })
+                    "uploadedAt": r['uploadedAt'].isoformat() if hasattr(r['uploadedAt'], 'isoformat') else str(r['uploadedAt']),
+                    "fileExists": file_exists
+                })
+            
+            return jsonify({"resources": verified_resources})
         
         elif request.method == "POST":
             class_id = request.form.get("classId")
