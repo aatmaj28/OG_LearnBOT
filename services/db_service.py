@@ -385,9 +385,13 @@ def get_user_ta_mode(user_id: str) -> Optional[str]:
 # ============================================================================
 
 def generate_vector_store_folder_name(class_name: str) -> str:
-    """Generates vector store folder name from class name (safe for paths and Qdrant)."""
+    """Generates vector store folder name from class name (safe for paths and Qdrant).
+    Normalizes so that 'FINA2201', 'FINA 2201', 'fina2201' all produce 'fina_2201'.
+    """
     import re
     cleaned = re.sub(r'[^a-z0-9\s]', '', class_name.lower())
+    # Insert underscore between letters and digits (e.g., fina2201 -> fina_2201)
+    cleaned = re.sub(r'([a-z])(\d)', r'\1_\2', cleaned)
     return re.sub(r'\s+', '_', cleaned).strip() or 'default'
 
 
@@ -690,16 +694,15 @@ def create_class(class_data: Dict) -> Dict:
         conn.autocommit = False
         
         try:
-            # Check if class with same name exists
-            cursor.execute(
-                'SELECT id FROM classes WHERE name = %s AND faculty_id = %s',
-                (class_data['name'], class_data['facultyId'])
-            )
-            if cursor.fetchone():
-                raise Exception(f'A class with the name "{class_data["name"]}" already exists. Please use a different name.')
-            
-            # Generate vector store folder name
+            # Check if class with same name exists (normalized comparison)
             vector_store_folder = generate_vector_store_folder_name(class_data['name'])
+            cursor.execute(
+                'SELECT id, name FROM classes WHERE faculty_id = %s',
+                (class_data['facultyId'],)
+            )
+            for row in cursor.fetchall():
+                if generate_vector_store_folder_name(row[1]) == vector_store_folder:
+                    raise Exception(f'A class matching "{class_data["name"]}" already exists (as "{row[1]}"). Please use a different name.')
             
             # Insert class
             cursor.execute(

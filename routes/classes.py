@@ -223,15 +223,59 @@ def delete_class():
         class_id = request.args.get("classId")
         if not class_id:
             return jsonify({"error": "Class ID is required"}), 400
-        
+
+        # Get class info before deleting (need vector_store_folder for cleanup)
+        cls = db_service.get_class_by_id(class_id)
+        if not cls:
+            return jsonify({"error": "Class not found"}), 404
+
+        # Clean up Qdrant collections and vector store files
+        folder = cls.get('vectorStoreFolder')
+        if folder:
+            _cleanup_vector_store(folder)
+            # Also clean up syllabus collection if it exists
+            syllabus_folder = cls.get('syllabusVectorStoreFolder')
+            if syllabus_folder:
+                _cleanup_vector_store(syllabus_folder)
+            else:
+                _cleanup_vector_store(folder + '_syllabus')
+
         success = db_service.delete_class(class_id)
         if not success:
-            return jsonify({"error": "Class not found"}), 404
-        
+            return jsonify({"error": "Failed to delete class"}), 500
+
         return jsonify({"success": True})
     except Exception as error:
         print(f"[CLASSES] DELETE ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
+
+
+def _cleanup_vector_store(folder_name: str):
+    """Deletes Qdrant collection and vector store files for a given folder."""
+    import shutil
+    # Delete Qdrant collection
+    try:
+        from lib import indexing_service
+        qdrant_client = indexing_service.get_or_init_qdrant_client()
+        collection_name = folder_name  # folder name IS the collection name
+        qdrant_client.delete_collection(collection_name)
+        print(f"[CLASSES] Deleted Qdrant collection: {collection_name}")
+    except Exception as e:
+        print(f"[CLASSES] Warning: Could not delete Qdrant collection '{folder_name}': {e}")
+
+    # Delete vector store folder from disk
+    try:
+        store_path = FILE_STORAGE_PATH / 'vector_stores' / folder_name
+        if store_path.exists():
+            shutil.rmtree(store_path)
+            print(f"[CLASSES] Deleted vector store folder: {store_path}")
+        # Also check backend root (legacy path)
+        legacy_path = BACKEND_ROOT / 'vector_stores' / folder_name
+        if legacy_path.exists():
+            shutil.rmtree(legacy_path)
+            print(f"[CLASSES] Deleted legacy vector store folder: {legacy_path}")
+    except Exception as e:
+        print(f"[CLASSES] Warning: Could not delete vector store folder '{folder_name}': {e}")
 
 @bp.route("/assignments", methods=["GET", "POST", "DELETE"])
 def assignments():
