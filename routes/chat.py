@@ -268,9 +268,11 @@ def ai_response():
         except Exception as e:
             print(f"[CHAT] Failed to resolve TA mode (defaulting to normal): {e}", flush=True)
         is_syllabus = (chat_type or conversation.get("chatType") or "class_material") == "syllabus"
-        folder = cls.get("syllabusVectorStoreFolder" if is_syllabus else "vectorStoreFolder")
-        if not folder:
-            folder = db_service.generate_vector_store_folder_name(cls["name"]) + ("_syllabus" if is_syllabus else "")
+        base_folder = cls.get("vectorStoreFolder") or db_service.generate_vector_store_folder_name(cls["name"])
+        if is_syllabus:
+            folder = cls.get("syllabusVectorStoreFolder") or (base_folder + "_syllabus")
+        else:
+            folder = base_folder
         vector_store_path = str(pathlib.Path("vector_stores") / folder)
         
         # Prepare request for RAG service

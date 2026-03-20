@@ -704,25 +704,34 @@ def create_class(class_data: Dict) -> Dict:
                 if generate_vector_store_folder_name(row[1]) == vector_store_folder:
                     raise Exception(f'A class matching "{class_data["name"]}" already exists (as "{row[1]}"). Please use a different name.')
             
-            # Insert class
+            # Insert class (folder name updated after we get the ID)
             cursor.execute(
-                """INSERT INTO classes (name, description, faculty_id, vector_store_folder) 
-                   VALUES (%s, %s, %s, %s) 
+                """INSERT INTO classes (name, description, faculty_id, vector_store_folder)
+                   VALUES (%s, %s, %s, %s)
                    RETURNING id, created_at""",
                 [
                     class_data['name'],
                     class_data.get('description', ''),
                     class_data['facultyId'],
-                    vector_store_folder
+                    vector_store_folder  # temporary, updated below
                 ]
             )
-            
+
             row = cursor.fetchone()
+            class_id = row[0]
+
+            # Append class ID to make folder name collision-free across professors
+            vector_store_folder = f"{vector_store_folder}_c{class_id}"
+            cursor.execute(
+                'UPDATE classes SET vector_store_folder = %s WHERE id = %s',
+                (vector_store_folder, class_id)
+            )
+
             conn.commit()
-            
+
             return {
                 **class_data,
-                'id': str(row[0]),
+                'id': str(class_id),
                 'vectorStoreFolder': vector_store_folder,
                 'createdAt': row[1]
             }

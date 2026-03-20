@@ -41,7 +41,8 @@ def upload():
         folder_suffix = "_syllabus" if is_syllabus else ""
         
         if not current_folder:
-            current_folder = db_service.generate_vector_store_folder_name(cls['name']) + folder_suffix
+            base = cls.get('vectorStoreFolder') or db_service.generate_vector_store_folder_name(cls['name'])
+            current_folder = (base + folder_suffix) if is_syllabus else base
             db_service.update_class_vector_store_folder(class_id, current_folder, is_syllabus=is_syllabus)
         
         store_path = get_vector_store_path_by_folder(current_folder)
@@ -116,7 +117,8 @@ def index():
         
         vector_store_folder = cls.get('syllabusVectorStoreFolder' if is_syllabus else 'vectorStoreFolder')
         if not vector_store_folder:
-            vector_store_folder = db_service.generate_vector_store_folder_name(cls.get('name', 'class')) + ('_syllabus' if is_syllabus else '')
+            base = cls.get('vectorStoreFolder') or db_service.generate_vector_store_folder_name(cls.get('name', 'class'))
+            vector_store_folder = (base + '_syllabus') if is_syllabus else base
             db_service.update_class_vector_store_folder(class_id, vector_store_folder, is_syllabus=is_syllabus)
             print(f"[CORPUS] INDEX assigned vector_store_folder={vector_store_folder} for class id={class_id}", flush=True)
         print(f"[CORPUS] INDEX class name={cls.get('name')} vector_store_folder={vector_store_folder}", flush=True)
@@ -283,7 +285,8 @@ def files():
             
             vector_store_folder = cls.get('syllabusVectorStoreFolder' if is_syllabus else 'vectorStoreFolder')
             if not vector_store_folder:
-                vector_store_folder = db_service.generate_vector_store_folder_name(cls.get('name', 'class')) + ('_syllabus' if is_syllabus else '')
+                base = cls.get('vectorStoreFolder') or db_service.generate_vector_store_folder_name(cls.get('name', 'class'))
+                vector_store_folder = (base + '_syllabus') if is_syllabus else base
                 db_service.update_class_vector_store_folder(class_id, vector_store_folder, is_syllabus=is_syllabus)
             
             backend_root = pathlib.Path(__file__).resolve().parent.parent
