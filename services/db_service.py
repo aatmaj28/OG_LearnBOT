@@ -310,10 +310,14 @@ def create_user(user_data: Dict) -> Dict:
             # Generate masked_id
             masked_id = get_masked_id(next_id)
             
-            # Insert user
+            # Insert user (coerce empty strings to NULL for nullable unique fields)
+            nuid = user_data.get('nuid') or None
+            degree = user_data.get('degree') or None
+            major = user_data.get('major') or None
+
             cursor.execute(
-                """INSERT INTO users (id, email, password, name, role, nuid, degree, major, masked_id) 
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) 
+                """INSERT INTO users (id, email, password, name, role, nuid, degree, major, masked_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id, created_at""",
                 [
                     next_id,
@@ -321,9 +325,9 @@ def create_user(user_data: Dict) -> Dict:
                     user_data['password'],
                     user_data['name'],
                     user_data['role'],
-                    user_data.get('nuid'),
-                    user_data.get('degree'),
-                    user_data.get('major'),
+                    nuid,
+                    degree,
+                    major,
                     masked_id
                 ]
             )
