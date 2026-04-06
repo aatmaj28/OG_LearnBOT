@@ -46,6 +46,12 @@ REMOTE_OLLAMA_URL = os.getenv('REMOTE_OLLAMA_URL', 'http://localhost:5001/api/ge
 REMOTE_OLLAMA_MODEL = os.getenv('REMOTE_OLLAMA_MODEL', 'gemma3:27b')
 REMOTE_BLACKWELL_URL = os.getenv('REMOTE_BLACKWELL_URL', 'http://129.10.224.226:8000/v1/chat/completions')
 REMOTE_BLACKWELL_MODEL = os.getenv('REMOTE_BLACKWELL_MODEL', 'google/gemma-3-12b-it')
+REMOTE_BLACKWELL2_URL = os.getenv('REMOTE_BLACKWELL2_URL', 'http://129.10.224.226:8001/v1/chat/completions')
+REMOTE_BLACKWELL2_MODEL = os.getenv('REMOTE_BLACKWELL2_MODEL', 'google/gemma-4-31B-it')
+# OpenRouter configuration (OpenAI-compatible API via openrouter.ai)
+OPENROUTER_URL = os.getenv('OPENROUTER_URL', 'https://openrouter.ai/api/v1/chat/completions')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'anthropic/claude-sonnet-4.6')
 # Short system prompt for Blackwell (Gemma) fallback when prompt was built for Claude (long)
 # IMPORTANT: Keep this brief (Blackwell/vLLM is sensitive to long prompts in our deployment).
 BLACKWELL_SHORT_SYSTEM = (
@@ -78,7 +84,15 @@ LENIENT BEHAVIOR:
 - ANSWER VERIFICATION (CRITICAL): When the student shows their complete work and provides a final numerical answer, verify their METHOD and APPROACH — did they use the correct formula? Did they set it up correctly? Did they apply the right mathematical operations (like logarithms)? If the approach and formula setup are correct, confirm: "Great work! Your approach is correct and your answer looks right!" Do NOT try to recompute the arithmetic yourself. Do NOT re-ask them to show work they already showed. Do NOT ignore their answer.
 - If the student asks for the answer directly WITHOUT doing the work, gently redirect: "I'm here to guide you through the checkpoints so you truly understand the material. Let's keep working through it together!"
 
-FORMATTING: Use **bold** for key terms. Numbered lists with blank lines between items. Keep responses focused and not too long.""",
+MATH & FORMULA FORMATTING (CRITICAL):
+- Write ALL formulas using plain-text Unicode notation that renders correctly in Markdown.
+- Use: × (multiply), ÷ (divide), ² ³ (superscripts), √ (square root), Σ (summation), π, ≈, ≠, ≤, ≥, → for arrows.
+- For fractions: numerator / denominator, or use parentheses: (FV) / (1 + r)ⁿ
+- For subscripts: r₁, r₂, σ₁₂, x̄ (x-bar). NEVER output raw LaTeX like \\frac{}{}, $...$ — these do NOT render.
+- Example GOOD: PV = FV / (1 + r)ⁿ
+- For complex multi-step formulas, use a code block with clear variable labels.
+
+FORMATTING: Use proper Markdown. **Bold** key terms. Use `##` for section headers. Use `1.` for numbered lists, `-` for bullet lists. For tabular data, use Markdown pipe tables (| col1 | col2 |). Keep responses focused and not too long.""",
 
     "normal": """You are LearnBOT, an AI teaching assistant. Guide students through problems using a 3-checkpoint approach. Do NOT volunteer or compute the final answer yourself — but you CAN and SHOULD confirm whether a student's own calculated answer is correct or incorrect.
 
@@ -90,18 +104,30 @@ CHECKPOINT FLOW: Present ONLY ONE checkpoint at a time. Wait for the student's r
 - Checkpoint 2: Conceptual Understanding — Why does this concept work? What's the underlying principle?
 - Checkpoint 3: Formula & Setup — What formula applies? How do we set it up with the given values?
 
-ANSWER THE STUDENT'S QUESTION: If the student asks a direct question or raises a doubt (e.g. "What are the known variables?", "Which formula do we use?", "I don't understand X"), do NOT ignore them by repeating the checkpoint prompt. In NORMAL mode: you may answer their question (e.g. explain variables, formula, or concept) in a balanced way. After addressing their doubt, confirm: "Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions so we can clear it." Then continue naturally.
+CRITICAL — DO NOT ANSWER YOUR OWN QUESTIONS: After presenting a checkpoint question, you MUST STOP and WAIT for the student to respond. NEVER answer the checkpoint question yourself. NEVER say things like "The known variables are X, Y, Z" or "The formula we use is..." immediately after asking. Your role is to ASK, then WAIT. Only after the student attempts an answer should you respond — either confirming, correcting with a guiding question, or asking them to think deeper.
+
+WHEN THE STUDENT ASKS A QUESTION OR RAISES A DOUBT: If the student asks a direct question (e.g. "Which formula do we use?", "I don't understand X"), do NOT ignore them by repeating the checkpoint prompt. Instead, guide them with a leading question or narrowing prompt (e.g. "What relationship are we looking for between these variables?", "Think about what changes over time here..."). If the student is genuinely stuck after 2+ attempts, you may provide a partial answer or a strong hint to unblock them — but always frame it as building on what they've said. After addressing their doubt, ask: "Does that clear things up? If yes, let's move to the next step; if not, keep asking!"
 
 After all 3 checkpoints are completed, acknowledge the student's work: "You've successfully worked through all 3 checkpoints." Then verify their answer if they provide one, and ask if they'd like to explore further or try another problem.
 
 NORMAL BEHAVIOR:
 - Be friendly but balanced. Use 1–2 emojis sparingly.
-- Do NOT give hints proactively. However, if the student explicitly asks for a hint (e.g., "can you give me a hint?"), provide a helpful hint for the current checkpoint only.
+- Do NOT give hints proactively. If the student asks for a hint, provide a GUIDING QUESTION rather than the answer (e.g. "What happens to the present value as the interest rate increases?" not "The formula is PV = FV/(1+r)^n").
 - Require solid understanding before moving to the next checkpoint — partial or vague answers should be followed up with clarifying questions.
 - ANSWER VERIFICATION (CRITICAL): When the student shows their complete work and provides a final numerical answer, verify their METHOD and APPROACH — did they use the correct formula? Did they set it up correctly? Did they apply the right mathematical operations (like logarithms)? If the approach and formula setup are correct, confirm: "Your approach is correct and your answer looks right." Do NOT try to recompute the arithmetic yourself. Do NOT re-ask them to show work they already showed. Do NOT ignore their answer.
 - If the student asks for the answer directly WITHOUT doing the work, redirect firmly: "I'm here to guide you through the checkpoints so you can work through this yourself. Let's continue where we left off."
 
-FORMATTING: Use **bold** for key terms. Numbered lists with blank lines between items. Keep responses focused and concise.""",
+MATH & FORMULA FORMATTING (CRITICAL):
+- Write ALL formulas using plain-text Unicode notation that renders correctly in Markdown.
+- Use: × (multiply), ÷ (divide), ² ³ (superscripts), √ (square root), Σ (summation), π, ≈, ≠, ≤, ≥, → for arrows.
+- For fractions, write them as: numerator / denominator, or use parentheses: (FV) / (1 + r)ⁿ
+- For subscripts, use underscores in code blocks or just write inline: r₁, r₂, σ₁₂, x̄ (x-bar).
+- NEVER output raw LaTeX like \\frac{}{}, \\sqrt{}, \\sum, $...$ — these do NOT render in our chat interface.
+- Example GOOD: Cov(r₁, r₂) = Σ [(r₁ᵢ - r̄₁) × (r₂ᵢ - r̄₂)] / (n - 1)
+- Example BAD: $\\text{Cov}(r_1, r_2) = \\frac{1}{n-1}\\sum(r_{1i} - \\bar{r_1})(r_{2i} - \\bar{r_2})$
+- For complex multi-step formulas, use a code block with clear variable labels.
+
+FORMATTING: Use proper Markdown. **Bold** key terms. Use `##` for section headers. Use `1.` for numbered lists, `-` for bullet lists. For tabular data, use Markdown pipe tables (| col1 | col2 |). Keep responses focused and concise.""",
 
     "strict": """You are LearnBOT, an AI teaching assistant. Guide students through problems using a 3-checkpoint approach. NEVER give the final numerical answer directly — your role is to teach and guide, not to solve.
 
@@ -124,7 +150,15 @@ STRICT BEHAVIOR:
 - After Checkpoint 3, do NOT verify or confirm the student's final answer. Simply encourage them to check their work and refer to their course materials.
 - If the student asks for the answer directly or tries to skip checkpoints, respond firmly: "I'm here to help you develop your understanding. Working through each checkpoint will help you arrive at the answer on your own."
 
-FORMATTING: Use **bold** for key terms. Numbered lists with blank lines between items. Keep responses professional and concise."""
+MATH & FORMULA FORMATTING (CRITICAL):
+- Write ALL formulas using plain-text Unicode notation that renders correctly in Markdown.
+- Use: × (multiply), ÷ (divide), ² ³ (superscripts), √ (square root), Σ (summation), π, ≈, ≠, ≤, ≥, → for arrows.
+- For fractions: numerator / denominator, or use parentheses: (FV) / (1 + r)ⁿ
+- For subscripts: r₁, r₂, σ₁₂, x̄ (x-bar). NEVER output raw LaTeX like \\frac{}{}, $...$ — these do NOT render.
+- Example GOOD: PV = FV / (1 + r)ⁿ
+- For complex multi-step formulas, use a code block with clear variable labels.
+
+FORMATTING: Use proper Markdown. **Bold** key terms. Use `##` for section headers. Use `1.` for numbered lists, `-` for bullet lists. For tabular data, use Markdown pipe tables (| col1 | col2 |). Keep responses professional and concise."""
 }
 # Short Deep Thinking add-on for Blackwell (Gemma) — reason step-by-step, in-depth but concise; keep vLLM-friendly.
 BLACKWELL_DEEP_THINKING_SUFFIX = (
@@ -132,28 +166,114 @@ BLACKWELL_DEEP_THINKING_SUFFIX = (
     "Do NOT give a short answer. Break down every concept thoroughly, explain the 'why' and 'how' in extreme depth, "
     "use real-world analogies, and connect concepts to the broader context. Your priority is depth, exhaustive reasoning, and a high word count."
 )
+# Single system prompt for Syllabus/Schedule chat. No TA mode, no checkpoints — only this prompt guides responses.
+BLACKWELL_SYLLABUS_SYSTEM = """You are LearnBOT, an AI assistant helping students with course syllabus and schedule information.
 
-# Syllabus/Schedule chat prompt — simple Q&A RAG, no checkpoint pedagogical approach
-SYLLABUS_SYSTEM_PROMPT = """You are LearnBOT, a helpful AI assistant for answering questions about the course syllabus, schedule, and logistics.
+Your role: Answer questions using ONLY the provided syllabus/schedule context. Do not use general knowledge; stick to what is in the sources.
 
-Your role is to answer student questions directly and accurately based on the syllabus/schedule content provided in the context below. This is NOT a teaching/tutoring session — just answer the question.
+Rules:
+- Provide clear, concise answers. If the syllabus states a percentage, date, or policy, state it directly.
+- When you find information in the context, say it confidently (e.g. "The syllabus states...", "According to the schedule...").
+- If the information is not in the provided context, say so and suggest the student check their syllabus or ask the instructor.
+- Be helpful and direct. No teaching checkpoints or step-by-step pedagogy — this is Q&A about the syllabus/schedule only.
 
-IMPORTANT: The context below contains real text extracted from the course syllabus PDF. Read it carefully and thoroughly — the answer to the student's question is very likely in the context. Look for relevant details even if they appear in different formatting (tables, lists, headers, etc.).
+FORMATTING: Use proper Markdown for readability. **Bold** important terms (deadlines, percentages). Use `##` for section headers. Use `-` for bullet lists and `1.` for numbered lists. When presenting tabular data (grading breakdowns, schedules, lists with multiple columns), ALWAYS use Markdown pipe tables:
 
-Guidelines:
-- FIRST, carefully read ALL of the context provided. The answer is usually there.
-- Answer questions directly and concisely. Extract the specific information requested.
-- If you find the answer in the context, provide it clearly and confidently.
-- Only say you cannot find information if you have thoroughly searched all the provided context and the information is genuinely not there.
-- Be friendly and helpful. Use a conversational tone.
-- Do NOT use the 3-checkpoint teaching approach. Do NOT ask the student to work through problems.
-- Do NOT make up information that is not in the syllabus/schedule.
-- You can answer questions about: instructor info, office hours, grading policies, assignment due dates, exam schedules, course policies, required textbooks, class schedule, topics covered each week, attendance policies, late submission policies, etc.
+| Column 1 | Column 2 |
+|-----------|----------|
+| data      | data     |
 
-FORMATTING:
-- Use **bold** for key terms, dates, and important details.
-- Use bullet points or numbered lists when listing multiple items.
-- Keep responses clear and well-organized."""
+NEVER use space-aligned columns or plain-text tables — always use pipe `|` table syntax."""
+
+# Category-specific system prompts for non-assignment chat types (simple RAG, no checkpoints)
+CATEGORY_SYSTEM_PROMPTS = {
+    "syllabus": BLACKWELL_SYLLABUS_SYSTEM,
+
+    "announcements": """You are LearnBOT, an AI assistant helping students with course announcements and updates.
+
+Your role: Answer questions using ONLY the provided announcements context. Do not use general knowledge; stick to what is in the sources.
+
+Rules:
+- Provide clear, concise answers about announcements, deadlines, schedule changes, and instructor updates.
+- When you find information in the context, say it confidently (e.g. "According to the announcement from [date]...", "The instructor posted...").
+- If the information is not in the provided context, say so and suggest the student check Canvas announcements or ask the instructor.
+- Be helpful and direct. No teaching checkpoints or step-by-step pedagogy — this is Q&A about course announcements only.
+- Use **bold** for important terms (e.g. deadlines, changes). Keep formatting clean.""",
+
+    "modules": """You are LearnBOT, an AI assistant helping students navigate course modules and learning content.
+
+Your role: Answer questions using ONLY the provided modules context. Do not use general knowledge; stick to what is in the sources.
+
+Rules:
+- Help students understand module structure, learning objectives, required readings, and content organization.
+- When you find information in the context, say it confidently (e.g. "Module 3 covers...", "The learning objective states...").
+- If the information is not in the provided context, say so and suggest the student check Canvas modules or ask the instructor.
+- Be helpful and direct. No teaching checkpoints or step-by-step pedagogy — this is Q&A about course modules and content structure only.
+- Use **bold** for important terms (e.g. module names, topics). Keep formatting clean.
+
+CRITICAL — Reading References & Links:
+- When the context contains reading lists, coursepack entries, article references, or resource links, you MUST include them ALL in full detail.
+- For each reading, include: the full title, author(s), source (e.g. HBR, HBSP), page count, and any URLs or links provided.
+- NEVER summarize, abbreviate, or omit items from a reading list. If the context lists 3 readings, your response must list all 3.
+- If the context includes YouTube links, PDF links, or Canvas file links, include them as clickable Markdown links.
+- Present reading lists in a clear numbered or bulleted format so students can easily follow them.""",
+
+    "discussions": """You are LearnBOT, an AI assistant helping students with course discussion topics and participation.
+
+Your role: Answer questions using ONLY the provided discussions context. Do not use general knowledge; stick to what is in the sources.
+
+Rules:
+- Help students understand discussion topics, participation requirements, posting guidelines, and peer interaction expectations.
+- When you find information in the context, say it confidently (e.g. "The discussion prompt asks...", "Participation guidelines state...").
+- If the information is not in the provided context, say so and suggest the student check Canvas discussions or ask the instructor.
+- Be helpful and direct. No teaching checkpoints or step-by-step pedagogy — this is Q&A about course discussions only.
+- Use **bold** for important terms (e.g. due dates, requirements). Keep formatting clean.""",
+
+    "grades": """You are LearnBOT, an AI assistant helping students understand grading policies and assessment criteria.
+
+Your role: Answer questions using ONLY the provided grading context. Do not use general knowledge; stick to what is in the sources.
+
+Rules:
+- Help students understand grading policies, rubrics, grade weights, assessment criteria, and score breakdowns.
+- When you find information in the context, say it confidently (e.g. "The grading policy states...", "Exams are worth...").
+- If the information is not in the provided context, say so and suggest the student check the syllabus grading section or ask the instructor.
+- Be helpful and direct. No teaching checkpoints or step-by-step pedagogy — this is Q&A about grading and assessments only.
+- Use **bold** for important terms (e.g. percentages, grade components). Keep formatting clean.""",
+
+    "assignments": """You are LearnBOT, an AI assistant helping students with course assignments and homework.
+
+Your role: Answer questions using ONLY the provided assignments context. Do not use general knowledge; stick to what is in the sources.
+
+Rules:
+- Provide clear, detailed answers about assignment requirements, rubrics, due dates, submission types, and expectations.
+- When you find information in the context, say it confidently (e.g. "Assignment 3 requires...", "The rubric states...", "This is due on...").
+- If the information is not in the provided context, say so and suggest the student check Canvas or ask the instructor.
+- Be helpful and direct. Include all relevant details from the assignment description and rubric.
+- Use **bold** for important terms (e.g. due dates, point values, requirements). Keep formatting clean.""",
+
+    "all": """You are LearnBOT, an AI assistant helping students with all aspects of their course — assignments, syllabus, announcements, modules, discussions, and grading.
+
+Your role: Answer questions using ONLY the provided course material context. Do not use general knowledge; stick to what is in the sources.
+
+Rules:
+- Provide clear, detailed, and informative answers drawing from any relevant course material category.
+- When the student asks for a LIST of items (e.g. "show me all discussions", "list all assignments"), include EVERY matching item from the context — do not truncate or summarize.
+- When you find information, cite the source type (e.g. "According to the syllabus...", "The announcement states...", "The discussion prompt asks...").
+- If the information is not in the provided context, say so and suggest the student check Canvas or ask the instructor.
+- Be helpful and direct. NEVER mention checkpoints, guided discovery, teaching approach, or ask "does that solve your doubt". This is direct Q&A only.
+- Use **bold** for important terms (e.g. deadlines, percentages, requirements). Keep formatting clean.""",
+}
+
+# Context label used in the prompt for each category
+CATEGORY_CONTEXT_LABELS = {
+    "syllabus": "syllabus/schedule",
+    "announcements": "course announcements",
+    "modules": "course modules",
+    "discussions": "course discussions",
+    "grades": "grading policies and rubrics",
+    "assignments": "course assignments",  # Used for informative flow and fallback
+    "all": "course materials (all categories)",
+}
 
 GUARD_MODEL = "llama3.1:8b"
 ENABLE_LLM_GUARDS = os.getenv('ENABLE_LLM_GUARDS', 'true').lower() == 'true'
@@ -169,8 +289,9 @@ CLAUDE_MODEL_ID = os.getenv('CLAUDE_MODEL_ID', 'claude-haiku-4-5-20251001')
 EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 ENABLE_RERANKING = os.getenv('ENABLE_RERANKING', 'false').lower() == 'true'
-TOP_K_INITIAL = 10
-TOP_K_FINAL = 3
+TOP_K_INITIAL = 15
+TOP_K_FINAL = 10
+SIMILARITY_THRESHOLD = float(os.getenv('SIMILARITY_THRESHOLD', '0.5'))
 STREAM_CHUNK_DELAY = float(os.getenv('STREAM_CHUNK_DELAY', '0.05'))
 
 # Global models - loaded ONCE at startup
@@ -208,8 +329,10 @@ class SentenceTransformerEmbedding(BaseEmbedding):
     
     def __init__(self, model_name: str = EMBEDDING_MODEL, **kwargs):
         super().__init__(**kwargs)
-        # nomic models require trust_remote_code=True
-        object.__setattr__(self, '_model', SentenceTransformer(model_name, trust_remote_code=True))
+        # nomic models require trust_remote_code=True; use GPU if available
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        object.__setattr__(self, '_model', SentenceTransformer(model_name, trust_remote_code=True, device=device))
     
     def _sanitize_for_embedding(self, text: str) -> str:
         """Sanitize text before embedding to ensure it's a valid string that the tokenizer can handle"""
@@ -924,6 +1047,289 @@ def initialize_models():
         sys.exit(1)
 
 
+HYBRID_DENSE_WEIGHT = float(os.getenv('HYBRID_DENSE_WEIGHT', '0.7'))
+HYBRID_KEYWORD_WEIGHT = float(os.getenv('HYBRID_KEYWORD_WEIGHT', '0.3'))
+RRF_K = 60  # Reciprocal Rank Fusion constant (standard default)
+
+
+def _extract_keywords(query: str) -> list:
+    """Extract meaningful keywords from query for BM25-style text search.
+    Includes both original and stemmed forms since Qdrant word tokenizer does exact matching."""
+    import re as _re
+    stop_words = {
+        'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+        'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+        'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+        'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
+        'before', 'after', 'above', 'below', 'between', 'and', 'but', 'or',
+        'not', 'no', 'so', 'if', 'then', 'than', 'that', 'this', 'these',
+        'those', 'it', 'its', 'what', 'which', 'who', 'whom', 'how', 'when',
+        'where', 'why', 'all', 'each', 'every', 'both', 'few', 'more', 'most',
+        'other', 'some', 'such', 'only', 'same', 'just', 'about', 'also',
+        'very', 'often', 'me', 'my', 'i', 'you', 'your', 'we', 'our', 'they',
+        'them', 'their', 'he', 'she', 'him', 'her', 'tell', 'show', 'give',
+        'please', 'help', 'know', 'want', 'need', 'like', 'get', 'make',
+        'search_query',
+    }
+    words = _re.findall(r'[a-zA-Z0-9]+', query.lower())
+    keywords = [w for w in words if w not in stop_words and len(w) >= 2]
+    # Add stemmed variants (Qdrant word tokenizer uses exact match, no stemming)
+    expanded = set(keywords)
+    for kw in keywords:
+        # Simple suffix stripping for common English plurals/verb forms
+        if kw.endswith('ies') and len(kw) > 4:
+            expanded.add(kw[:-3] + 'y')  # discussions -> discussion fails, but policies -> policy works
+        if kw.endswith('es') and len(kw) > 3:
+            expanded.add(kw[:-2])  # classes -> class
+        if kw.endswith('s') and not kw.endswith('ss') and len(kw) > 3:
+            expanded.add(kw[:-1])  # discussions -> discussion, assignments -> assignment
+        if kw.endswith('ing') and len(kw) > 5:
+            expanded.add(kw[:-3])  # modeling -> model
+            expanded.add(kw[:-3] + 'e')  # making -> make
+    return list(expanded)
+
+
+def hybrid_search_single_collection(
+    qdrant_client, collection_name: str, query_vector: list,
+    query_text: str, class_id: str = None, top_k: int = 15,
+) -> list:
+    """
+    Hybrid search: dense vector search + keyword text search, fused with RRF.
+    Returns list of dicts with metadata, score, original_similarity.
+    """
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchText
+
+    # Build class_id filter if provided
+    qdrant_filter = None
+    if class_id:
+        qdrant_filter = Filter(must=[FieldCondition(key="class_id", match=MatchValue(value=str(class_id)))])
+
+    # 1. Dense vector search
+    dense_results = []
+    try:
+        response = qdrant_client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            query_filter=qdrant_filter,
+            limit=top_k,
+            with_payload=True,
+        )
+        for hit in response.points:
+            dense_results.append({"id": hit.id, "score": float(hit.score), "payload": hit.payload or {}})
+    except Exception as e:
+        print(f"[Hybrid] Dense search failed for {collection_name}: {e}", file=sys.stderr)
+
+    # 2. Keyword text search (BM25-style via Qdrant full-text index)
+    # Use OR logic: match ANY keyword (not all) — this catches "show me all discussions"
+    # matching any chunk containing "discussions" even if it doesn't contain "show" or "list"
+    keyword_results = []
+    keywords = _extract_keywords(query_text)
+    if keywords:
+        try:
+            # Build OR filter: match chunks containing ANY of the keywords
+            keyword_conditions = [
+                FieldCondition(key="chunk_text", match=MatchText(text=kw))
+                for kw in keywords
+            ]
+            # Class ID filter is mandatory (must), keyword matches are optional (should = OR)
+            must_conditions = []
+            if class_id:
+                must_conditions.append(FieldCondition(key="class_id", match=MatchValue(value=str(class_id))))
+
+            scroll_result = qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=must_conditions if must_conditions else None,
+                    should=keyword_conditions,
+                ),
+                limit=top_k,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for pt in scroll_result[0]:
+                keyword_results.append({"id": pt.id, "payload": pt.payload or {}})
+        except Exception as e:
+            # Text index might not exist yet for older collections — fall back to dense only
+            print(f"[Hybrid] Keyword search failed for {collection_name} (text index may not exist): {e}", file=sys.stderr)
+
+    # 3. Reciprocal Rank Fusion (RRF) to merge results
+    rrf_scores = {}  # id → fused score
+    payloads = {}    # id → payload
+
+    for rank, item in enumerate(dense_results):
+        pid = item["id"]
+        rrf_scores[pid] = rrf_scores.get(pid, 0) + HYBRID_DENSE_WEIGHT * (1.0 / (RRF_K + rank + 1))
+        payloads[pid] = item["payload"]
+
+    for rank, item in enumerate(keyword_results):
+        pid = item["id"]
+        rrf_scores[pid] = rrf_scores.get(pid, 0) + HYBRID_KEYWORD_WEIGHT * (1.0 / (RRF_K + rank + 1))
+        if pid not in payloads:
+            payloads[pid] = item["payload"]
+
+    # Build result list sorted by fused score
+    fused = []
+    # Also keep original dense scores for similarity threshold later
+    dense_score_map = {item["id"]: item["score"] for item in dense_results}
+
+    for pid, fused_score in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True):
+        payload = payloads[pid]
+        # Extract text
+        chunk_text = payload.get("chunk_text", "")
+        if not chunk_text:
+            node_content_str = payload.get("_node_content", "")
+            if node_content_str:
+                try:
+                    nc = json.loads(node_content_str)
+                    chunk_text = nc.get("text", "")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if not chunk_text:
+                chunk_text = payload.get("text", "")
+
+        original_sim = dense_score_map.get(pid, 0.0)
+        fused.append({
+            "metadata": {
+                "source_file": payload.get("source_file", ""),
+                "chunk_index": payload.get("chunk_index", 0),
+                "chunk_text": chunk_text,
+                "section_title": payload.get("section_title", ""),
+            },
+            "score": original_sim,  # Keep original dense score for threshold filtering
+            "rrf_score": fused_score,
+            "original_similarity": original_sim,
+            "keyword_boosted": pid not in dense_score_map or pid in {item["id"] for item in keyword_results},
+        })
+
+    print(f"[Hybrid] {collection_name}: dense={len(dense_results)}, keyword={len(keyword_results)}, fused={len(fused)} (weights: dense={HYBRID_DENSE_WEIGHT}, kw={HYBRID_KEYWORD_WEIGHT})", file=sys.stderr)
+    return fused[:top_k]
+
+
+def query_multiple_collections(vector_store_paths: dict, query_for_embedding: str, class_id: str = None, top_k_per: int = 5, top_k_final: int = 8):
+    """
+    Query multiple Qdrant collections in parallel for "All" chat mode.
+    Embeds query ONCE in the main thread, then searches Qdrant directly in parallel
+    (the embedding model is not thread-safe — concurrent retriever.retrieve() crashes).
+    Returns merged results sorted by cosine score, tagged with material_type.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from qdrant_client.models import models as qdrant_models
+
+    # Step 1: Embed query once in the main thread (thread-safe)
+    global embedder
+    try:
+        query_vector = embedder.get_query_embedding(query_for_embedding)
+    except Exception as e:
+        print(f"[RAG] ALL mode: embedding failed: {e}", file=sys.stderr)
+        return []
+
+    # Step 2: Load all collections sequentially (uses cache, fast after first load)
+    collection_data = {}
+    for category, path in vector_store_paths.items():
+        try:
+            store_data = load_vector_store_index(path)
+            if store_data and "qdrant_client" in store_data and "collection_name" in store_data:
+                collection_data[category] = store_data
+        except Exception as e:
+            print(f"[RAG] ALL mode: skipping {category} ({path}): {e}", file=sys.stderr)
+
+    # Step 3: Hybrid search each collection in parallel with pre-computed vector
+    # Extract original query text from embedding prefix for keyword search
+    query_text = query_for_embedding
+    for prefix in ["search_query: ", "syllabus/schedule question: ", "course announcements question: ",
+                    "course modules question: ", "course discussions question: ",
+                    "grading policies and rubrics question: ", "course materials (all categories) question: "]:
+        if query_text.startswith(prefix):
+            query_text = query_text[len(prefix):]
+            break
+
+    def _search_one(category: str, store_data: dict):
+        """Hybrid search a single Qdrant collection."""
+        try:
+            client = store_data["qdrant_client"]
+            col_name = store_data["collection_name"]
+            results = hybrid_search_single_collection(
+                client, col_name, query_vector,
+                query_text=query_text, class_id=class_id, top_k=top_k_per,
+            )
+            # Tag with material_type
+            for r in results:
+                r["material_type"] = category
+            return results
+        except Exception as e:
+            print(f"[RAG] ALL mode: hybrid search failed for {category}: {e}", file=sys.stderr)
+            return []
+
+    all_results = []
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_search_one, category, store_data): category
+            for category, store_data in collection_data.items()
+        }
+        for future in as_completed(futures):
+            category = futures[future]
+            try:
+                results = future.result()
+                if results:
+                    all_results.extend(results)
+                    print(f"[RAG] ALL mode: {category} returned {len(results)} chunks", file=sys.stderr)
+            except Exception as e:
+                print(f"[RAG] ALL mode: {category} query failed: {e}", file=sys.stderr)
+
+    # Apply similarity threshold (lower for "all" mode; keep keyword-boosted results)
+    all_mode_threshold = max(SIMILARITY_THRESHOLD - 0.2, 0.3)
+    pre_threshold = len(all_results)
+    all_results = [r for r in all_results if r["score"] >= all_mode_threshold or r.get("keyword_boosted")]
+    if pre_threshold != len(all_results):
+        print(f"[RAG] ALL mode: similarity threshold ({all_mode_threshold}): {pre_threshold} → {len(all_results)} chunks", file=sys.stderr)
+
+    # Fair-share merge: guarantee minimum representation from each collection,
+    # then fill remaining slots with top-scoring results across all collections.
+    # This prevents high-volume collections (modules: 72 chunks) from drowning out
+    # smaller ones (discussions: 9, announcements: 1).
+    MIN_PER_CATEGORY = 3
+    results_by_cat = {}
+    for r in all_results:
+        cat = r.get("material_type", "unknown")
+        results_by_cat.setdefault(cat, []).append(r)
+
+    # Sort each category's results by RRF score
+    for cat in results_by_cat:
+        results_by_cat[cat].sort(key=lambda x: x.get("rrf_score", x["score"]), reverse=True)
+
+    # Phase 1: take top MIN_PER_CATEGORY from each category
+    final = []
+    used_ids = set()
+    for cat, cat_results in results_by_cat.items():
+        for r in cat_results[:MIN_PER_CATEGORY]:
+            rid = id(r)
+            if rid not in used_ids:
+                final.append(r)
+                used_ids.add(rid)
+
+    # Phase 2: fill remaining slots from all results sorted by RRF score
+    remaining_budget = top_k_final - len(final)
+    if remaining_budget > 0:
+        all_results.sort(key=lambda x: x.get("rrf_score", x["score"]), reverse=True)
+        for r in all_results:
+            if remaining_budget <= 0:
+                break
+            rid = id(r)
+            if rid not in used_ids:
+                final.append(r)
+                used_ids.add(rid)
+                remaining_budget -= 1
+
+    # Sort final results by RRF score for consistent context ordering
+    final.sort(key=lambda x: x.get("rrf_score", x["score"]), reverse=True)
+    categories_found = {}
+    for r in final:
+        cat = r.get("material_type", "?")
+        categories_found[cat] = categories_found.get(cat, 0) + 1
+    print(f"[RAG] ALL mode: merged {len(all_results)} total → {len(final)} final (per-category: {categories_found})", file=sys.stderr)
+    return final
+
+
 def load_vector_store_index(vector_store_path: str):
     """
     Load Qdrant collection and create LlamaIndex VectorStoreIndex
@@ -1465,6 +1871,49 @@ Rules:
     return guard_result, guard_time
 
 
+QUERY_EXPANSION_WORD_THRESHOLD = 15  # Only expand queries shorter than this
+
+
+def expand_vague_query(query: str, chat_type: str = "assignments", timeout: int = 8) -> list:
+    """
+    For short/vague queries, use LLM to generate 2-3 specific search queries.
+    Returns list of expanded queries (original always included). Falls back to [query] on failure.
+    """
+    word_count = len(query.split())
+    if word_count > QUERY_EXPANSION_WORD_THRESHOLD:
+        return [query]  # Specific enough, no expansion needed
+
+    category_hint = {
+        "assignments": "course assignments and homework",
+        "syllabus": "course syllabus and policies",
+        "announcements": "course announcements",
+        "modules": "course module content and lecture material",
+        "discussions": "course discussion topics",
+        "grades": "grading policies",
+        "all": "all course materials",
+    }.get(chat_type, "course materials")
+
+    prompt = f"""Given a student's question about {category_hint}, generate 2-3 specific search queries that would help find relevant information. The queries should capture different angles of what the student might be looking for.
+
+Student question: "{query}"
+
+Return ONLY the queries, one per line, no numbering, no explanation."""
+
+    sys_prompt = "You are a search query expansion assistant. Output only the expanded queries, one per line."
+    try:
+        response = call_guard_llm(prompt, sys_prompt, timeout=timeout)
+        if response and response.strip():
+            expanded = [q.strip() for q in response.strip().split('\n') if q.strip() and len(q.strip()) > 5]
+            if expanded:
+                # Always include original query first
+                result = [query] + [q for q in expanded if q.lower() != query.lower()][:3]
+                print(f"[QueryExpansion] '{query}' → {result}", file=sys.stderr)
+                return result
+    except Exception as e:
+        print(f"⚠️ Query expansion failed: {e}", file=sys.stderr)
+    return [query]
+
+
 def rephrase_bypass_query_with_gemma(original_query: str, timeout: int = 8) -> Optional[str]:
     """Rephrase a bypass/direct-answer query into a teaching-style question that stays on topic (Gemma/vLLM)."""
     if not original_query or not original_query.strip():
@@ -1654,15 +2103,15 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
                 user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
             except:
                 user_content_clean = str(user_content)
-            # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
-            if user_content_clean.strip().startswith("You are LearnBOT"):
-                # Gemma 3 12B has 128K token context — 32K chars (~8K tokens) is safe
-                combined_user_content = user_content_clean[:32000] if len(user_content_clean) > 32000 else user_content_clean
-            else:
-                user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
-                combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
-            messages = [{"role": "user", "content": combined_user_content}]
-            
+            # Use proper multi-message format: system prompt as system role, content as user role.
+            # Gemma 3 12B supports 128K context — allow generous limits to preserve RAG chunk context.
+            user_content_clean = user_content_clean[:64000] if len(user_content_clean) > 64000 else user_content_clean
+            sys_prompt = system_prompt if system_prompt else BLACKWELL_SHORT_SYSTEM
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content_clean}
+            ]
+
             print(f"[RAG] 🚀 Calling Blackwell vLLM: url={REMOTE_BLACKWELL_URL}, model={REMOTE_BLACKWELL_MODEL}", file=sys.stderr)
             
             response = blackwell_session.post(
@@ -1671,7 +2120,7 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
                     "model": REMOTE_BLACKWELL_MODEL,
                     "messages": messages,
                     "temperature": 0.2,
-                    "max_tokens": 1000,
+                    "max_tokens": 2500,
                     "stream": stream
                 },
                 timeout=120,
@@ -1695,21 +2144,147 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
         except Exception as e:
             print(f"❌ Blackwell vLLM exception: {str(e)}", file=sys.stderr)
             return None, None
-    
+
+    def try_blackwell_2(stream=False):
+        """Gemma 4 31B on port 8001."""
+        try:
+            if not prompt or not isinstance(prompt, str):
+                return None, None
+            user_content = prompt.strip()
+            if not user_content:
+                return None, None
+            try:
+                user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
+            except:
+                user_content_clean = str(user_content)
+            user_content_clean = user_content_clean[:64000] if len(user_content_clean) > 64000 else user_content_clean
+            sys_prompt = system_prompt if system_prompt else BLACKWELL_SHORT_SYSTEM
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content_clean}
+            ]
+            print(f"[RAG] 🚀 Calling Blackwell2 vLLM: url={REMOTE_BLACKWELL2_URL}, model={REMOTE_BLACKWELL2_MODEL}", file=sys.stderr)
+            response = blackwell_session.post(
+                REMOTE_BLACKWELL2_URL,
+                json={
+                    "model": REMOTE_BLACKWELL2_MODEL,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 2500,
+                    "stream": stream
+                },
+                timeout=120,
+                stream=stream
+            )
+            if response.status_code == 200:
+                if stream:
+                    print(f"[RAG] ✅ Blackwell2 vLLM streaming started (model={REMOTE_BLACKWELL2_MODEL})", file=sys.stderr)
+                    return response, 'remote-blackwell-2'
+                else:
+                    result = response.json()
+                    response_text = result['choices'][0]['message']['content']
+                    print(f"[RAG] ✅ Blackwell2 vLLM response received (model={REMOTE_BLACKWELL2_MODEL}, length={len(response_text)} chars)", file=sys.stderr)
+                    return response_text, 'remote-blackwell-2'
+            else:
+                print(f"❌ Blackwell2 vLLM error {response.status_code}: {response.text}", file=sys.stderr)
+            return None, None
+        except Exception as e:
+            print(f"❌ Blackwell2 vLLM exception: {str(e)}", file=sys.stderr)
+            return None, None
+
+    def try_openrouter(stream=False):
+        try:
+            if not OPENROUTER_API_KEY:
+                print(f"[RAG] OpenRouter skipped — no API key configured", file=sys.stderr)
+                return None, None
+            if not prompt or not isinstance(prompt, str):
+                return None, None
+
+            user_content = prompt.strip()
+            if not user_content:
+                return None, None
+
+            try:
+                user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
+            except:
+                user_content_clean = str(user_content)
+
+            # Claude Sonnet via OpenRouter supports long prompts — no need for compressed prompts
+            sys_prompt = system_prompt if system_prompt else ""
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content_clean}
+            ]
+
+            print(f"[RAG] 🚀 Calling OpenRouter: model={OPENROUTER_MODEL}", file=sys.stderr)
+
+            response = requests.post(
+                OPENROUTER_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "HTTP-Referer": "https://learnbot.dashlab.studio",
+                    "X-Title": "LearnBOT",
+                },
+                json={
+                    "model": OPENROUTER_MODEL,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 4096,
+                    "stream": stream,
+                },
+                timeout=120,
+                stream=stream,
+            )
+            if response.status_code == 200:
+                if stream:
+                    print(f"[RAG] ✅ OpenRouter streaming response started (model={OPENROUTER_MODEL})", file=sys.stderr)
+                    return response, 'openrouter'
+                else:
+                    result = response.json()
+                    response_text = result['choices'][0]['message']['content']
+                    print(f"[RAG] ✅ OpenRouter response received (model={OPENROUTER_MODEL}, length={len(response_text)} chars)", file=sys.stderr)
+                    return response_text, 'openrouter'
+            else:
+                error_text = response.text if hasattr(response, 'text') else 'No error text'
+                print(f"❌ OpenRouter error {response.status_code}: {error_text[:500]}", file=sys.stderr)
+            return None, None
+        except Exception as e:
+            print(f"❌ OpenRouter exception: {str(e)}", file=sys.stderr)
+            return None, None
+
     # Note: Image fallback is already handled in TypeScript, but we respect preferred_model here
     # If images are present and model doesn't support them, TypeScript will have already changed preferred_model to 'claude'
     if preferred_model == 'claude':
         response_text, model_used = try_claude()
         if not response_text:
+            response_text, model_used = try_openrouter()
+        if not response_text:
             response_text, model_used = try_blackwell()
+    elif preferred_model == 'openrouter':
+        response_text, model_used = try_openrouter()
+        if not response_text:
+            response_text, model_used = try_blackwell()
+        if not response_text:
+            response_text, model_used = try_claude()
     elif preferred_model == 'remote-blackwell':
         response_text, model_used = try_blackwell()
+        if not response_text:
+            response_text, model_used = try_openrouter()
+        if not response_text:
+            response_text, model_used = try_claude()
+    elif preferred_model == 'remote-blackwell-2':
+        response_text, model_used = try_blackwell_2()
+        if not response_text:
+            response_text, model_used = try_openrouter()
         if not response_text:
             response_text, model_used = try_claude()
     else:  # remote-a6000 or default
         response_text, model_used = try_remote_ollama()
         if not response_text:
             response_text, model_used = try_blackwell()
+        if not response_text:
+            response_text, model_used = try_openrouter()
         if not response_text:
             response_text, model_used = try_claude()
     
@@ -1721,7 +2296,7 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
         return None, None, time_taken
 
 
-def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, checkpoint_state=None, chat_type='class_material', attachments=None, stream_callback=None):
+def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, checkpoint_state=None, chat_type='assignments', attachments=None, stream_callback=None):
     """Call LLM with streaming support"""
     import time
     import json
@@ -1967,15 +2542,15 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                 user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
             except:
                 user_content_clean = str(user_content)
-            # If prompt is already the compressed Blackwell prompt (user chose Gemma), use as-is; else prepend short system and truncate
-            if user_content_clean.strip().startswith("You are LearnBOT"):
-                # Gemma 3 12B has 128K token context — 32K chars (~8K tokens) is safe
-                combined_user_content = user_content_clean[:32000] if len(user_content_clean) > 32000 else user_content_clean
-            else:
-                user_content_clean = user_content_clean[:6000] if len(user_content_clean) > 6000 else user_content_clean
-                combined_user_content = f"{BLACKWELL_SHORT_SYSTEM}\n\n{user_content_clean}"
-            messages = [{"role": "user", "content": combined_user_content}]
-            
+            # Use proper multi-message format: system prompt as system role, content as user role.
+            # Gemma 3 12B supports 128K context — allow generous limits to preserve RAG chunk context.
+            user_content_clean = user_content_clean[:64000] if len(user_content_clean) > 64000 else user_content_clean
+            sys_prompt = system_prompt if system_prompt else BLACKWELL_SHORT_SYSTEM
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content_clean}
+            ]
+
             prompt_time = time.time() - prompt_start
             print(f"   ⏱️ LLM Stage 1 (Prompt construction): {prompt_time:.3f}s", file=sys.stderr)
             
@@ -1988,7 +2563,7 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
                     "model": REMOTE_BLACKWELL_MODEL,
                     "messages": messages,
                     "temperature": 0.2,
-                    "max_tokens": 1000,
+                    "max_tokens": 2500,
                     "stream": True
                 },
                 timeout=120,
@@ -2062,23 +2637,218 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
             print(f"❌ Blackwell vLLM streaming error: {str(e)}", file=sys.stderr)
             print(traceback.format_exc(), file=sys.stderr)
             return None, None
-    
-    # Log which branch we take so we can verify remote-blackwell tries Blackwell first
-    branch = 'claude' if preferred_model == 'claude' else 'blackwell' if preferred_model == 'remote-blackwell' else 'else'
-    print(f"[RAG] 🔀 LLM branch: preferred_model={preferred_model!r} -> trying {branch} first", file=sys.stderr)
+
+    def try_blackwell_2_stream():
+        """Gemma 4 31B streaming on port 8001."""
+        try:
+            if not prompt or not isinstance(prompt, str):
+                return None, None
+            user_content = prompt.strip()
+            if not user_content:
+                return None, None
+            try:
+                user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
+            except:
+                user_content_clean = str(user_content)
+            user_content_clean = user_content_clean[:64000] if len(user_content_clean) > 64000 else user_content_clean
+            sys_prompt = system_prompt if system_prompt else BLACKWELL_SHORT_SYSTEM
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content_clean}
+            ]
+            print(f"[RAG] 🚀 Calling Blackwell2 vLLM (stream): url={REMOTE_BLACKWELL2_URL}, model={REMOTE_BLACKWELL2_MODEL}", file=sys.stderr)
+            response = blackwell_session.post(
+                REMOTE_BLACKWELL2_URL,
+                json={
+                    "model": REMOTE_BLACKWELL2_MODEL,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 2500,
+                    "stream": True
+                },
+                timeout=120,
+                stream=True,
+                headers={"Content-Type": "application/json"}
+            )
+            if response.status_code == 200:
+                print(f"[RAG] ✅ Blackwell2 vLLM streaming started (model={REMOTE_BLACKWELL2_MODEL})", file=sys.stderr)
+                full_text = ""
+                first_chunk_received = False
+                first_chunk_time = None
+                chunk_count = 0
+                ttfb_start = time.time()
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8')
+                        if line_str.startswith('data: '):
+                            data_str = line_str[6:]
+                            if data_str.strip() == '[DONE]':
+                                break
+                            try:
+                                chunk_data = json.loads(data_str)
+                                if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                    delta = chunk_data['choices'][0].get('delta', {})
+                                    if 'content' in delta:
+                                        chunk = delta['content']
+                                        if isinstance(chunk, str):
+                                            try:
+                                                chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                            except:
+                                                pass
+                                        chunk_count += 1
+                                        if not first_chunk_received:
+                                            first_chunk_time = time.time() - ttfb_start
+                                            print(f"   ⏱️ Blackwell2 TTFT: {first_chunk_time:.3f}s", file=sys.stderr)
+                                            first_chunk_received = True
+                                        full_text += chunk
+                                        chunk_message = {"type": "chunk", "request_id": request_id, "chunk": chunk}
+                                        if stream_callback:
+                                            stream_callback(chunk_message)
+                            except json.JSONDecodeError:
+                                continue
+                return full_text, 'remote-blackwell-2'
+            print(f"❌ Blackwell2 vLLM returned {response.status_code}: {(response.text[:500] if getattr(response, 'text', None) else '')}", file=sys.stderr)
+            return None, None
+        except Exception as e:
+            print(f"❌ Blackwell2 vLLM streaming error: {str(e)}", file=sys.stderr)
+            return None, None
+
+    def try_openrouter_stream():
+        try:
+            if not OPENROUTER_API_KEY:
+                print(f"[RAG] OpenRouter skipped — no API key configured", file=sys.stderr)
+                return None, None
+            if not prompt or not isinstance(prompt, str):
+                return None, None
+
+            user_content = prompt.strip()
+            if not user_content:
+                return None, None
+
+            try:
+                user_content_clean = str(user_content).encode('utf-8', errors='ignore').decode('utf-8')
+            except:
+                user_content_clean = str(user_content)
+
+            sys_prompt = system_prompt if system_prompt else ""
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content_clean}
+            ]
+
+            prompt_time_start = time.time()
+            prompt_time = time.time() - prompt_time_start
+            print(f"   ⏱️ LLM Stage 1 (Prompt construction): {prompt_time:.3f}s", file=sys.stderr)
+
+            connection_start = time.time()
+            print(f"[RAG] 🚀 Calling OpenRouter (streaming): model={OPENROUTER_MODEL}", file=sys.stderr)
+            sys.stderr.flush()
+            response = requests.post(
+                OPENROUTER_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "HTTP-Referer": "https://learnbot.dashlab.studio",
+                    "X-Title": "LearnBOT",
+                },
+                json={
+                    "model": OPENROUTER_MODEL,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 4096,
+                    "stream": True,
+                },
+                timeout=120,
+                stream=True,
+            )
+            connection_time = time.time() - connection_start
+            print(f"   ⏱️ LLM Stage 2 (API connection): {connection_time:.3f}s", file=sys.stderr)
+
+            if response.status_code == 200:
+                print(f"[RAG] ✅ OpenRouter streaming response started (model={OPENROUTER_MODEL})", file=sys.stderr)
+                full_text = ""
+                first_chunk_received = False
+                first_chunk_time = None
+                chunk_count = 0
+                ttfb_start = time.time()
+
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8')
+                        if line_str.startswith('data: '):
+                            data_str = line_str[6:]
+                            if data_str.strip() == '[DONE]':
+                                break
+                            try:
+                                chunk_data = json.loads(data_str)
+                                if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                    delta = chunk_data['choices'][0].get('delta', {})
+                                    if 'content' in delta:
+                                        chunk = delta['content']
+                                        if isinstance(chunk, str):
+                                            try:
+                                                chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                            except:
+                                                pass
+                                        chunk_count += 1
+                                        if not first_chunk_received:
+                                            first_chunk_time = time.time() - ttfb_start
+                                            print(f"   ⏱️ LLM Stage 3 (Time to first token): {first_chunk_time:.3f}s", file=sys.stderr)
+                                            first_chunk_received = True
+                                        full_text += chunk
+                                        if stream_callback:
+                                            stream_callback({"type": "chunk", "request_id": request_id, "chunk": chunk})
+                            except json.JSONDecodeError:
+                                continue
+
+                if first_chunk_received:
+                    streaming_time = (time.time() - ttfb_start) - first_chunk_time
+                    print(f"   ⏱️ LLM Stage 4 (Token generation): {streaming_time:.3f}s ({chunk_count} chunks)", file=sys.stderr)
+                return full_text, 'openrouter'
+
+            err_body = (response.text[:500] if getattr(response, 'text', None) else '') or ''
+            print(f"❌ OpenRouter returned {response.status_code}: {err_body}", file=sys.stderr)
+            return None, None
+        except Exception as e:
+            import traceback
+            print(f"❌ OpenRouter streaming error: {str(e)}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            return None, None
+
+    # Log which branch we take
+    print(f"[RAG] 🔀 LLM branch: preferred_model={preferred_model!r}", file=sys.stderr)
     if preferred_model == 'claude':
         response_text, model_used = try_claude_stream()
         if not response_text:
+            response_text, model_used = try_openrouter_stream()
+        if not response_text:
             response_text, model_used = try_blackwell_stream()
+    elif preferred_model == 'openrouter':
+        response_text, model_used = try_openrouter_stream()
+        if not response_text:
+            response_text, model_used = try_blackwell_stream()
+        if not response_text:
+            response_text, model_used = try_claude_stream()
     elif preferred_model == 'remote-blackwell':
         response_text, model_used = try_blackwell_stream()
         if not response_text:
-            print(f"[RAG] ⚠️ Blackwell returned no response, trying Claude fallback (so user still gets a reply)", file=sys.stderr)
+            print(f"[RAG] ⚠️ Blackwell returned no response, trying OpenRouter fallback", file=sys.stderr)
+            response_text, model_used = try_openrouter_stream()
+        if not response_text:
+            response_text, model_used = try_claude_stream()
+    elif preferred_model == 'remote-blackwell-2':
+        response_text, model_used = try_blackwell_2_stream()
+        if not response_text:
+            print(f"[RAG] ⚠️ Blackwell2 returned no response, trying OpenRouter fallback", file=sys.stderr)
+            response_text, model_used = try_openrouter_stream()
+        if not response_text:
             response_text, model_used = try_claude_stream()
     else:  # remote-a6000 or default
         response_text, model_used = try_remote_ollama_stream()
         if not response_text:
             response_text, model_used = try_blackwell_stream()
+        if not response_text:
+            response_text, model_used = try_openrouter_stream()
         if not response_text:
             response_text, model_used = try_claude_stream()
     
@@ -2094,307 +2864,27 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
 
 def enforce_response_formatting(text: str) -> str:
     """
-    FRESH IMPLEMENTATION - Simple and clean formatting
-    
-    Rules:
-    1. Replace CP1/CP2/CP3 with Checkpoint 1/2/3
-    2. Remove markdown (**, *, __, _)
-    3. Format numbered lists: split items on same line, add blank lines between
-    4. Add 1-2 emojis at end of sentences (if not already present)
+    Lightweight post-processing. Preserves all markdown (headers, bullets, tables,
+    bold, etc.) so the frontend ReactMarkdown + remark-gfm can render them.
+    Only normalizes checkpoint abbreviations, list numbering style, and whitespace.
     """
     if not text:
         return text
     
     import re
-    import unicodedata
     
-    print(f"[FORMATTING] Starting fresh formatting - length: {len(text)} chars", file=sys.stderr)
-    
-    # Step 1: Remove markdown (but preserve ALL bold formatting that LLM added)
-    # The LLM now decides what to bold based on context, so we preserve all **text** formatting
-    # Only remove other markdown like headers, list markers, etc.
-    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # Remove headers
-    text = re.sub(r'^[\s]*[-*+]\s+', '', text, flags=re.MULTILINE)  # Remove list markers
-    # Keep **bold** and *italic* formatting - don't remove it (LLM decides what to bold)
-    
-    # Step 2: Replace checkpoint abbreviations (but don't add bold - LLM will do it)
-    # Just convert abbreviations to full form, LLM will bold them if needed
+    # Replace checkpoint abbreviations
     text = re.sub(r'\bCP\s*1\b', 'Checkpoint 1', text, flags=re.IGNORECASE)
     text = re.sub(r'\bCP\s*2\b', 'Checkpoint 2', text, flags=re.IGNORECASE)
     text = re.sub(r'\bCP\s*3\b', 'Checkpoint 3', text, flags=re.IGNORECASE)
     
-    # Step 2.5: Fix nested numbering inside numbered list items
-    # Convert numbered lists (1., 2., 3.) that appear inside numbered list items to plain text
-    # This prevents ReactMarkdown from creating nested lists
-    lines = text.split('\n')
-    fixed_lines = []
-    in_numbered_list = False
+    # Normalize "1) " → "1. " for consistent markdown ordered-list rendering
+    text = re.sub(r'^(\s*)(\d+)\)\s+', r'\1\2. ', text, flags=re.MULTILINE)
     
-    for i, line in enumerate(lines):
-        # Check if this line starts a numbered list item
-        if re.match(r'^\s*\d+\.\s', line):
-            in_numbered_list = True
-            # Check if this line contains nested numbering (e.g., "1. something (e.g., 1. example)")
-            # Replace nested "1. " with "- " or just remove the number
-            line = re.sub(r'\(e\.g\.\s*,?\s*(\d+)\.\s+', r'(e.g., ', line)
-            line = re.sub(r',\s*(\d+)\.\s+', r', ', line)
-            # If there's still nested numbering in the middle of the line, convert it
-            # Match patterns like "1. text (e.g., 1. example)" but not at the start of line
-            line = re.sub(r'(?<!^)\s+(\d+)\.\s+', r' - ', line)
-        elif line.strip() == '':
-            # Blank line might end the numbered list
-            if in_numbered_list and i + 1 < len(lines) and not re.match(r'^\s*\d+\.\s', lines[i + 1]):
-                in_numbered_list = False
-        else:
-            # Non-numbered line - check if we're still in a numbered list context
-            if in_numbered_list:
-                # If this line doesn't continue the list, we're out of it
-                if not line.strip().startswith(('(', 'e.g.', 'for example', 'such as')):
-                    in_numbered_list = False
-        
-        fixed_lines.append(line)
-    
-    text = '\n'.join(fixed_lines)
-    
-    # Step 3: Detect and number questions that don't have numbers
-    # Look for sequences of questions (ending with "?") without numbers
-    lines = text.split('\n')
-    new_lines = []
-    i = 0
-    
-    while i < len(lines):
-        line = lines[i]
-        
-        # Check if this line looks like it starts a question sequence
-        # Look for intro phrases like "could you tell me:", "can you tell me:", etc.
-        intro_patterns = [
-            r'could you tell me[:\s]*$',
-            r'can you tell me[:\s]*$',
-            r'tell me[:\s]*$',
-            r'please tell me[:\s]*$',
-            r'let me know[:\s]*$',
-        ]
-        
-        is_intro = any(re.search(pattern, line, re.IGNORECASE) for pattern in intro_patterns)
-        
-        if is_intro:
-            # FIRST: Check if the following lines are already numbered
-            # If they are, skip this entire step - don't add numbers to already-numbered items
-            j = i + 1
-            # Skip blank lines after intro
-            while j < len(lines) and lines[j].strip() == '':
-                j += 1
-            
-            # Check the first non-blank line after intro - if it's already numbered, skip Step 3 entirely
-            if j < len(lines):
-                first_line_after_intro = lines[j].strip()
-                numbered_pattern = r'^\d+[\)\.]\s+'
-                is_numbered = bool(re.match(numbered_pattern, first_line_after_intro))
-                print(f"[FORMATTING DEBUG] First line after intro: '{first_line_after_intro[:60]}'", file=sys.stderr)
-                print(f"[FORMATTING DEBUG] Regex match result: {is_numbered}", file=sys.stderr)
-                if is_numbered:
-                    # Items are already numbered, skip Step 3 entirely
-                    print(f"[FORMATTING] ✓ Items after intro are already numbered, skipping Step 3 entirely", file=sys.stderr)
-                    # Just add all lines as-is without processing - they'll be handled in next iterations
-                    new_lines.append(line)
-                    i += 1
-                    continue
-                else:
-                    print(f"[FORMATTING] Items after intro are NOT numbered, proceeding with Step 3", file=sys.stderr)
-            
-            # Only proceed if items are NOT already numbered
-            # Collect following lines that are questions without numbers
-            questions = []
-            j = i + 1
-            intro_line = line
-            
-            # Skip blank lines after intro
-            while j < len(lines) and lines[j].strip() == '':
-                j += 1
-            
-            # Collect consecutive questions
-            while j < len(lines):
-                next_line = lines[j].strip()
-                
-                # Stop if we hit a non-question line (not blank, not a question)
-                if next_line == '':
-                    j += 1
-                    continue
-                
-                # Check if it's already numbered (either "1) " or "1. " format) - MUST check BEFORE processing
-                # This check must be very strict to avoid double numbering
-                # Check for patterns like "1. ", "1) ", "3. ", etc. at the start of the line
-                # Since next_line is already stripped, we check for number at the start
-                if re.match(r'^\d+[\)\.]\s+', next_line):
-                    # This line already has a number, skip the entire question detection
-                    print(f"[FORMATTING] Skipping already-numbered line: {next_line[:50]}", file=sys.stderr)
-                    break  # Already numbered, stop here - this prevents processing numbered items
-                
-                # Check if it's a question (ends with "?" and looks like a question)
-                if next_line.endswith('?') and len(next_line) > 5:
-                    # Check if it starts with a question word or capital letter
-                    question_words = ['what', 'which', 'how', 'why', 'when', 'where', 'who', 
-                                    'can', 'could', 'would', 'should', 'are', 'is', 'do', 'does', 
-                                    'does', 'will', 'did', 'have', 'has', 'had']
-                    first_word = next_line.split()[0].lower().rstrip('?:.,!')
-                    
-                    if first_word in question_words or next_line[0].isupper():
-                        questions.append(next_line)
-                        j += 1
-                        # Skip blank lines between questions
-                        while j < len(lines) and lines[j].strip() == '':
-                            j += 1
-                    else:
-                        break
-                else:
-                    break
-            
-            # If we found unnumbered questions, add numbers
-            if len(questions) > 0:
-                print(f"[FORMATTING] Found {len(questions)} unnumbered questions after intro, adding numbers", file=sys.stderr)
-                new_lines.append(intro_line)
-                new_lines.append('')  # blank line
-                
-                for idx, q in enumerate(questions, 1):
-                    # Check if question already has a number at the start and remove it
-                    # This is a safety check - we should have filtered these out earlier
-                    q_clean = re.sub(r'^\d+[\)\.]\s+', '', q).strip()
-                    # Double-check: if after cleaning, the question is empty or still starts with a number, skip it
-                    if not q_clean or re.match(r'^\d+[\)\.]\s', q_clean):
-                        print(f"[FORMATTING] Skipping question that already has number: {q}", file=sys.stderr)
-                        continue
-                    new_lines.append(f"{idx}. {q_clean}")  # Use "1. " format (ReactMarkdown compatible)
-                    new_lines.append('')  # blank line after each
-                
-                i = j  # Skip the lines we processed
-            else:
-                # No unnumbered questions found - either items are already numbered or no questions
-                # Add the intro line and continue (numbered items will be added in next iteration)
-                new_lines.append(line)
-                i += 1
-        else:
-            new_lines.append(line)
-            i += 1
-    
-    text = '\n'.join(new_lines)
-    
-    # Step 4: Format numbered lists - split cluttered numbered items
-    # Handle both "1) " and "1. " formats
-    # IMPORTANT: Only match numbered items at the START of a line (after optional whitespace)
-    # Do NOT match numbers in the middle of text (like "Chapter 3" or "(e.g., 1. example)")
-    lines = text.split('\n')
-    formatted_lines = []
-    
-    for line in lines:
-        # Find all "number) " or "number. " patterns at the START of the line only
-        # Pattern: start of line, optional whitespace, number, ) or ., then space
-        # We're iterating line by line, so we check from the start of each line
-        # Only match if it's at the beginning (after optional whitespace)
-        line_stripped = line.lstrip()
-        leading_whitespace = len(line) - len(line_stripped)
-        
-        # Find numbered items that start at the beginning of the line (after whitespace)
-        # Look for patterns like "1. ", "1) ", "2. ", etc. at the start
-        matches = []
-        pos = leading_whitespace
-        while pos < len(line):
-            # Try to match a numbered item starting at this position
-            match = re.match(r'(\d+)[\)\.]\s+', line[pos:])
-            if match:
-                # Found a numbered item at the start - record it
-                matches.append((pos, match))
-                # Move past this item to find the next one
-                pos += match.end()
-                # Skip any whitespace
-                while pos < len(line) and line[pos] in ' \t':
-                    pos += 1
-            else:
-                # No match at this position, stop looking
-                break
-        
-        if len(matches) > 1:
-            # Multiple numbered items on same line - split them
-            print(f"[FORMATTING] Splitting {len(matches)} numbered items on one line: {line[:80]}", file=sys.stderr)
-            
-            # Extract intro text (before first number)
-            first_match_pos, first_match = matches[0]
-            intro = line[:first_match_pos].strip()
-            
-            # Extract each numbered item
-            items = []
-            for i, (match_pos, match) in enumerate(matches):
-                start = match_pos
-                if i + 1 < len(matches):
-                    next_match_pos, _ = matches[i + 1]
-                    end = next_match_pos
-                else:
-                    end = len(line)
-                item = line[start:end].strip()
-                if item:
-                    items.append(item)
-            
-            # Rebuild with proper spacing
-            if intro:
-                formatted_lines.append(intro)
-                formatted_lines.append('')  # blank line
-            
-            for item in items:
-                formatted_lines.append(item)
-                formatted_lines.append('')  # blank line after each
-            
-            # Handle text after last item
-            last_match_pos, last_match = matches[-1]
-            last_end = last_match_pos + last_match.end()
-            if last_end < len(line):
-                after = line[last_end:].strip()
-                if after:
-                    formatted_lines.pop()  # remove last blank
-                    formatted_lines.append(after)
-            else:
-                formatted_lines.pop()  # remove trailing blank
-        else:
-            formatted_lines.append(line)
-    
-    text = '\n'.join(formatted_lines)
-    
-    # Step 5: Ensure numbered items have blank lines between them (handle both formats)
-    # For "1) " format
-    text = re.sub(r'(\d+\)[^\n]+)\n(\d+\))', r'\1\n\n\2', text)
-    # For "1. " format
-    text = re.sub(r'(\d+\.\s[^\n]+)\n(\d+\.\s)', r'\1\n\n\2', text)
-    
-    # Step 6: Add blank line before numbered list if missing (handle both formats)
-    text = re.sub(r'([^\n])\n(\d+\))', r'\1\n\n\2', text)
-    text = re.sub(r'([^\n])\n(\d+\.\s)', r'\1\n\n\2', text)
-    
-    # Step 7: Ensure blank lines between paragraphs and numbered lists
-    # Add blank line after numbered list if followed by text
-    text = re.sub(r'(\d+[\)\.]\s[^\n]+)\n([A-Z][a-z])', r'\1\n\n\2', text)
-    
-    # Step 8: Clean up excessive blank lines (but preserve double newlines for spacing)
-    text = re.sub(r'\n{4,}', '\n\n\n', text)  # Allow up to 3 newlines for extra spacing
-    
-    # Step 7: Add emojis (1-2 total) - DISABLED
-    # NOTE: Emojis are now added incrementally during streaming in the frontend TypeScript code
-    # We skip emoji addition here to avoid duplicate emojis at the end
-    # The streamed response already has emojis in the correct inline positions
-    emoji_pattern = re.compile(
-        "[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
-        "\U00002702-\U000027B0\U00002600-\U000026FF\U0001F900-\U0001F9FF"
-        "\U0001FA00-\U0001FAFF]+", flags=re.UNICODE)
-    existing_emojis = emoji_pattern.findall(text)
-    emoji_count = len(''.join(existing_emojis))
-    
-    print(f"[FORMATTING] Found {emoji_count} existing emojis - skipping emoji addition (emojis added during streaming)", file=sys.stderr)
-    
-    # Skip emoji addition entirely - emojis are added during streaming in the frontend
-    # This prevents duplicate emojis at the end of the response
-    
-    # Final cleanup
+    # Clean up excessive blank lines (keep at most two consecutive newlines)
+    text = re.sub(r'\n{4,}', '\n\n\n', text)
     text = text.strip()
     text = re.sub(r'\n{3,}', '\n\n', text)
-    
-    print(f"[FORMATTING] Finished - final length: {len(text)} chars", file=sys.stderr)
     
     return text
 
@@ -2441,6 +2931,8 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
     try:
         query_raw = request_data['query']
         vector_store_path = request_data['vector_store_path']
+        vector_store_paths = request_data.get('vector_store_paths')  # Dict for "all" mode
+        is_all_mode = vector_store_paths is not None and request_data.get('chat_type') == 'all'
         # Run PII and vector load in parallel for TTFT (saves min(pii_time, load_time); target 1-3s)
         def _pii_timed(q):
             t0 = time.time()
@@ -2451,11 +2943,19 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
             r = load_vector_store_index(path)
             return (r, time.time() - t0)
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            fut_pii = executor.submit(_pii_timed, query_raw)
-            fut_load = executor.submit(_load_timed, vector_store_path)
-            (query, pii_time) = fut_pii.result()
-            (store_data, load_time) = fut_load.result()
+        if is_all_mode:
+            # "All" mode: just run PII (multi-collection query happens later after guard)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                fut_pii = executor.submit(_pii_timed, query_raw)
+                (query, pii_time) = fut_pii.result()
+            store_data = None
+            load_time = 0.0
+        else:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                fut_pii = executor.submit(_pii_timed, query_raw)
+                fut_load = executor.submit(_load_timed, vector_store_path)
+                (query, pii_time) = fut_pii.result()
+                (store_data, load_time) = fut_load.result()
         print(f"🔒 PII stripping applied to query", file=sys.stderr)
         if pii_time > 0.2:
             print(f"⏱️ PII stripping time: {pii_time:.3f}s", file=sys.stderr)
@@ -2472,7 +2972,10 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         request_id = request_data['request_id']
         message_history = request_data.get('message_history', [])
         # PII stripping is done only on the current query; history is used as-is
-        chat_type = request_data.get('chat_type', 'class_material')  # 'class_material' or 'syllabus'
+        chat_type = request_data.get('chat_type', 'assignments')  # 'assignments', 'syllabus', 'announcements', 'modules', 'discussions', 'grades'
+        # Backward compat: treat legacy "class_material" as "assignments"
+        if chat_type == 'class_material':
+            chat_type = 'assignments'
         checkpoint_state = request_data.get('checkpoint_state', {
             'checkpoint_1_passed': False,
             'checkpoint_2_passed': False,
@@ -2802,20 +3305,24 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                     except Exception as db_err:
                         print(f"⚠️ Failed to update DB with persistent_images: {db_err}", file=sys.stderr)
         
-        # SYLLABUS-SPECIFIC OPTIMIZATIONS: Only apply to syllabus queries
-        is_syllabus = chat_type == 'syllabus'
-        if is_syllabus:
-            top_k_initial = 20  # Retrieve 20 candidates (vs 10 for class materials)
-            top_k_final = 8    # Keep 8 chunks (vs 5 for class materials)
-        else:
-            top_k_initial = TOP_K_INITIAL
-            top_k_final = TOP_K_FINAL
-        # No truncation - preserve full chunk content to avoid information loss
+        # CATEGORY-SPECIFIC OPTIMIZATIONS
+        flow_type = request_data.get('flow_type', 'teach')
+        is_assignments = chat_type == 'assignments'
+        # "informative" flow on assignments → treat as simple RAG (direct Q&A, no pedagogy)
+        is_informative_assignments = is_assignments and flow_type == 'informative'
+        is_simple_rag = (not is_assignments) or is_informative_assignments
+        is_syllabus = is_simple_rag  # backward compat alias
+        if is_informative_assignments:
+            print(f"[RAG] Assignments in INFORMATIVE mode — using direct Q&A (no checkpoints/TA pedagogy)", file=sys.stderr)
+        # Unified retrieval: 15 candidates → keep top 10 (or 15 for modules)
+        top_k_initial = TOP_K_INITIAL
+        top_k_final = 15 if chat_type == 'modules' else TOP_K_FINAL
         
         # Input Guard (store_data already from parallel PII+load above)
         guard_result, guard_time = _run_input_guard(query)
-        index = store_data["index"]
-        metadata = store_data["metadata"]
+        if not is_all_mode:
+            index = store_data["index"]
+            metadata = store_data["metadata"]
         print(f"⏱️ Vector store load time: {load_time:.3f}s (was parallel with PII)", file=sys.stderr)
         print(f"⏱️ Input Guard time: {guard_time:.3f}s (LLM: {ENABLE_LLM_GUARDS}, 1s timeout)", file=sys.stderr)
         
@@ -2856,117 +3363,109 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         except:
             query = ""
         
-        # Optimize query embedding prefix for syllabus queries
-        if is_syllabus:
-            query_for_embedding = f"syllabus question: {query}" if query else "syllabus question"
+        # Optimize query embedding prefix based on category
+        if is_simple_rag:
+            category_label = CATEGORY_CONTEXT_LABELS.get(chat_type, chat_type)
+            query_for_embedding = f"{category_label} question: {query}" if query else f"{category_label} question"
         else:
             query_for_embedding = f"search_query: {query}" if query else "search_query"
         
         embed_time = time.time() - embed_start
         print(f"⏱️ Query embedding time: {embed_time:.3f}s", file=sys.stderr)
         
-        # Use LlamaIndex retriever with Qdrant
+        # Query Expansion — expand vague queries into multiple specific search queries
+        expanded_queries = expand_vague_query(query, chat_type=chat_type, timeout=8)
+
+        # RAG Retrieval — branch on "all" mode vs single collection
         search_start = time.time()
-        
-        # Get the index and metadata from store_data
-        index = store_data["index"]
-        metadata = store_data["metadata"]
-        
-        # Extract class_id from request_data for filtering (if provided)
         class_id = request_data.get('class_id')
-        
-        # Use LlamaIndex retriever with optional Qdrant filtering by class_id
-        # QdrantVectorStore supports filters via node_ids or metadata filters
-        retriever = VectorIndexRetriever(
-            index=index,
-            similarity_top_k=top_k_initial
-        )
-        
-        # Verify collection still exists before query (helps debug 404 if name/instance mismatch)
-        qdrant_client = store_data.get("qdrant_client")
-        rag_collection_name = store_data.get("collection_name", "")
-        if qdrant_client and rag_collection_name:
-            try:
-                qdrant_client.get_collection(rag_collection_name)
-            except Exception as e:
+
+        if is_all_mode:
+            # "All" mode: query all 6 collections in parallel — use higher final K for broader coverage
+            all_mode_top_k_final = max(top_k_final, 25)
+            multi_results = query_multiple_collections(
+                vector_store_paths, query_for_embedding,
+                class_id=class_id, top_k_per=15, top_k_final=all_mode_top_k_final
+            )
+            search_time = time.time() - search_start
+            print(f"⏱️ Multi-collection search time: {search_time:.3f}s (all mode, {len(multi_results)} chunks)", file=sys.stderr)
+
+            # Feed directly into filtered_results (already in the right format with material_type)
+            filtered_results = multi_results
+            # Skip the node→dict conversion and chunk debug below (already logged in query_multiple_collections)
+            retrieved_nodes = []  # Not used in all mode
+        else:
+            # Single collection mode — hybrid search (dense + keyword)
+            qdrant_client = store_data.get("qdrant_client")
+            rag_collection_name = store_data.get("collection_name", "")
+
+            # Verify collection still exists before query
+            if qdrant_client and rag_collection_name:
                 try:
-                    available = [c.name for c in qdrant_client.get_collections().collections]
-                    print(f"[RAG Error] Before retrieve: collection '{rag_collection_name}' not found ({e}). Available: {available}", file=sys.stderr)
-                except Exception:
-                    print(f"[RAG Error] Before retrieve: collection '{rag_collection_name}' not found: {e}", file=sys.stderr)
-        
-        # Retrieve nodes (Qdrant filtering by class_id happens at vector store level if needed)
-        try:
-            retrieved_nodes = retriever.retrieve(query_for_embedding)
-            original_count = len(retrieved_nodes)
-            
-            # Post-filter by class_id if provided (since LlamaIndex doesn't expose Qdrant filters directly)
-            if class_id:
-                # Debug: print first few metadata entries to understand structure
-                if retrieved_nodes and len(retrieved_nodes) > 0:
-                    sample_meta = retrieved_nodes[0].metadata if hasattr(retrieved_nodes[0], 'metadata') else {}
-                    print(f"[RAG DEBUG] Sample metadata keys: {list(sample_meta.keys())}", file=sys.stderr)
-                    print(f"[RAG DEBUG] Looking for class_id={class_id} (type: {type(class_id).__name__})", file=sys.stderr)
-                    sample_class_id = sample_meta.get('class_id', 'NOT FOUND')
-                    print(f"[RAG DEBUG] Actual class_id in chunk: {sample_class_id} (type: {type(sample_class_id).__name__})", file=sys.stderr)
-                
-                filtered_nodes = []
-                for node in retrieved_nodes:
-                    node_metadata = node.metadata if hasattr(node, 'metadata') else {}
-                    node_class_id = node_metadata.get('class_id', '')
-                    # Convert both to string for comparison
-                    node_class_id_str = str(node_class_id) if node_class_id else ''
-                    class_id_str = str(class_id) if class_id else ''
-                    # Match class_id or allow if class_id is not set (backward compatibility)
-                    if node_class_id_str == class_id_str or not node_class_id:
-                        filtered_nodes.append(node)
-                retrieved_nodes = filtered_nodes
-                if len(filtered_nodes) < original_count:
-                    print(f"[RAG] Filtered by class_id={class_id}: {original_count} → {len(filtered_nodes)} chunks", file=sys.stderr)
-        except Exception as e:
-            print(f"[RAG Error] Retrieval failed: {e}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            retrieved_nodes = []
-        
-        search_time = time.time() - search_start
-        print(f"⏱️ Qdrant search time: {search_time:.3f}s (retrieved {len(retrieved_nodes)} chunks, syllabus={is_syllabus})", file=sys.stderr)
-        
-        # Convert retrieved nodes to the expected format
-        filtered_results = []
-        for node in retrieved_nodes:
-            # Get metadata from node
-            node_metadata = node.metadata if hasattr(node, 'metadata') else {}
-            # Try multiple ways to get text from NodeWithScore (LlamaIndex version compatibility)
-            node_text = ""
-            if hasattr(node, 'text') and node.text:
-                node_text = node.text
-            elif hasattr(node, 'node') and hasattr(node.node, 'text') and node.node.text:
-                node_text = node.node.text
-            elif hasattr(node, 'node') and hasattr(node.node, 'get_content'):
-                node_text = node.node.get_content()
-            elif hasattr(node, 'get_content'):
-                node_text = node.get_content()
-            
-            # Get similarity score (Qdrant returns this in node.score)
-            score = node.score if hasattr(node, 'score') else 0.0
-            
-            # Build metadata dict matching the expected format
-            chunk_meta = {
-                "source_file": node_metadata.get("source_file", ""),
-                "chunk_index": node_metadata.get("chunk_index", 0),
-                "chunk_text": node_text,
-                "section_title": node_metadata.get("section_title", "")
-            }
-            
-            filtered_results.append({
-                "metadata": chunk_meta,
-                "score": float(score),
-                "original_similarity": float(score)
-            })
+                    qdrant_client.get_collection(rag_collection_name)
+                except Exception as e:
+                    try:
+                        available = [c.name for c in qdrant_client.get_collections().collections]
+                        print(f"[RAG Error] Before retrieve: collection '{rag_collection_name}' not found ({e}). Available: {available}", file=sys.stderr)
+                    except Exception:
+                        print(f"[RAG Error] Before retrieve: collection '{rag_collection_name}' not found: {e}", file=sys.stderr)
+
+            try:
+                # Run hybrid search for each expanded query and merge results
+                all_hybrid_results = []
+                seen_ids = set()
+                for eq in expanded_queries:
+                    # Build embedding prefix for this query
+                    if is_simple_rag:
+                        category_label = CATEGORY_CONTEXT_LABELS.get(chat_type, chat_type)
+                        eq_for_embedding = f"{category_label} question: {eq}"
+                    else:
+                        eq_for_embedding = f"search_query: {eq}"
+                    eq_vector = embedder.get_query_embedding(eq_for_embedding)
+                    results = hybrid_search_single_collection(
+                        qdrant_client, rag_collection_name, eq_vector,
+                        query_text=eq, class_id=class_id, top_k=top_k_initial,
+                    )
+                    for r in results:
+                        # Deduplicate by chunk text hash
+                        chunk_hash = hash(r["metadata"]["chunk_text"][:200])
+                        if chunk_hash not in seen_ids:
+                            seen_ids.add(chunk_hash)
+                            all_hybrid_results.append(r)
+
+                # Sort by RRF score descending
+                all_hybrid_results.sort(key=lambda x: x.get("rrf_score", x["score"]), reverse=True)
+                filtered_results = all_hybrid_results
+                if len(expanded_queries) > 1:
+                    print(f"[QueryExpansion] Merged {len(filtered_results)} unique chunks from {len(expanded_queries)} queries", file=sys.stderr)
+            except Exception as e:
+                print(f"[RAG Error] Hybrid retrieval failed: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                filtered_results = []
+
+            search_time = time.time() - search_start
+            print(f"⏱️ Hybrid search time: {search_time:.3f}s (retrieved {len(filtered_results)} chunks)", file=sys.stderr)
+
+            # === CHUNK DEBUG LOG ===
+            print(f"\n{'='*80}", file=sys.stderr)
+            print(f"📄 RETRIEVED CHUNKS DEBUG (query: {query[:100]}...)" if len(query) > 100 else f"📄 RETRIEVED CHUNKS DEBUG (query: {query})", file=sys.stderr)
+            print(f"{'='*80}", file=sys.stderr)
+            for i, result in enumerate(filtered_results):
+                chunk_text = result["metadata"]["chunk_text"]
+                score = result["score"]
+                source = result["metadata"].get("source_file", "?")
+                kw_tag = " [KW-BOOST]" if result.get("keyword_boosted") else ""
+                preview = chunk_text[:300].replace('\n', ' ')
+                print(f"  Chunk {i+1} [score={score:.4f}]{kw_tag} [{source}]:", file=sys.stderr)
+                print(f"    {preview}{'...' if len(chunk_text) > 300 else ''}", file=sys.stderr)
+                print(f"    (total length: {len(chunk_text)} chars)", file=sys.stderr)
+            print(f"{'='*80}\n", file=sys.stderr)
+            retrieved_nodes = []  # Not used in hybrid mode
         
         # Reranking Stage
         rerank_start = time.time()
+        pre_threshold_count = 0
         if filtered_results:
             use_reranking = False  # Disabled for speed optimization
             
@@ -2988,20 +3487,38 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                     filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
                     rerank_method = "⚠️ Fallback (Qdrant scores)"
             else:
-                # Use Qdrant cosine similarity scores directly (higher = more relevant)
                 for result in filtered_results:
-                    result["rerank_score"] = result["score"]
+                    result["rerank_score"] = result.get("rrf_score", result["score"])
                 filtered_results.sort(key=lambda x: x["rerank_score"], reverse=True)
-                rerank_method = "⚡ SKIPPED (Qdrant scores only)"
+                rerank_method = "⚡ SKIPPED (RRF fused scores)"
             
+            # Apply similarity threshold — must use dense cosine `score`, NOT `rerank_score` when
+            # reranking is off: rerank_score is copied from RRF (different scale, often << 0.5).
+            pre_threshold_count = len(filtered_results)
+            _sim_thr = max(SIMILARITY_THRESHOLD - 0.2, 0.3) if is_all_mode else SIMILARITY_THRESHOLD
+            if use_reranking and reranker is not None:
+                filtered_results = [
+                    r for r in filtered_results
+                    if r.get("rerank_score", r.get("score", 0)) >= _sim_thr or r.get("keyword_boosted")
+                ]
+            else:
+                filtered_results = [
+                    r for r in filtered_results
+                    if r.get("score", 0) >= _sim_thr or r.get("keyword_boosted")
+                ]
+            if pre_threshold_count != len(filtered_results):
+                print(f"[RAG] Similarity threshold ({_sim_thr}, dense score): {pre_threshold_count} → {len(filtered_results)} chunks", file=sys.stderr)
+
             final_results = filtered_results[:top_k_final]
         else:
             final_results = []
             rerank_method = "N/A (no results)"
-        
+
         rerank_time = time.time() - rerank_start
-        print(f"⏱️ Reranking time: {rerank_time:.3f}s - {rerank_method} ({len(filtered_results)} → {len(final_results)} chunks)", file=sys.stderr)
-        
+        print(f"⏱️ Reranking time: {rerank_time:.3f}s - {rerank_method} ({pre_threshold_count if filtered_results or not final_results else 0} → {len(final_results)} chunks)", file=sys.stderr)
+
+        _url_placeholder_map = {}  # URL placeholder map (populated if URLs found in context)
+
         if not final_results:
             # Check if this is a greeting or casual conversation
             query_lower = query.lower().strip()
@@ -3034,17 +3551,38 @@ Could you try rephrasing your question, or ask about a specific topic from the c
             llm_time = 0  # Initialize llm_time for logging
         else:
             # Build context from retrieved chunks (no truncation - preserve full content)
-            context_text = "\n\n".join([
-                f"[Source {i+1} - {result['metadata'].get('section_title', 'Unknown')}]\n{result['metadata']['chunk_text']}"
-                for i, result in enumerate(final_results)
-            ])
-            
-            # Debug: log context content to diagnose empty/missing chunk text issues
-            if is_syllabus:
-                print(f"[SYLLABUS DEBUG] context_text length: {len(context_text)} chars, {len(final_results)} chunks", file=sys.stderr)
-                for i, result in enumerate(final_results):
-                    ct = result['metadata'].get('chunk_text', '')
-                    print(f"[SYLLABUS DEBUG] Chunk {i+1}: {len(ct)} chars, score={result.get('score', 'N/A')}, preview: {ct[:150]!r}...", file=sys.stderr)
+            # For "all" mode, include material_type tag so the LLM knows which category each chunk is from
+            if is_all_mode:
+                context_text = "\n\n".join([
+                    f"[Source {i+1} - {result.get('material_type', 'unknown').title()} - {result['metadata'].get('section_title') or result['metadata'].get('source_file', 'Unknown')}]\n{result['metadata']['chunk_text']}"
+                    for i, result in enumerate(final_results)
+                ])
+            else:
+                context_text = "\n\n".join([
+                    f"[Source {i+1} - {result['metadata'].get('section_title', 'Unknown')}]\n{result['metadata']['chunk_text']}"
+                    for i, result in enumerate(final_results)
+                ])
+
+            # Replace URLs with placeholders so the LLM never sees raw URLs
+            # (Gemma's tokenizer breaks long URLs by inserting spaces between tokens)
+            # Placeholders are restored in the final response after LLM generation
+            import re as _re
+            _url_placeholder_map = {}
+            _url_counter = [0]
+            def _replace_url(match):
+                url = match.group(0).rstrip(')')  # Strip trailing ) that might be part of markdown
+                trailing = match.group(0)[len(url):]  # Preserve the trailing )
+                _url_counter[0] += 1
+                key = f"[LINK_{_url_counter[0]}]"
+                _url_placeholder_map[key] = url
+                return key + trailing
+            context_text = _re.sub(r'https?://[^\s]+', _replace_url, context_text)
+            if _url_placeholder_map:
+                for _k, _v in _url_placeholder_map.items():
+                    print(f"[RAG] URL placeholder {_k} → {_v[:80]}{'...' if len(_v) > 80 else ''}", file=sys.stderr)
+                print(f"[RAG] URL placeholders: {len(_url_placeholder_map)} URLs replaced in context", file=sys.stderr)
+                link_list = ", ".join(_url_placeholder_map.keys())
+                context_text += f"\n\n---\nURL REFERENCES: The tokens {link_list} in the context above are URL placeholders. When you mention a resource that has one of these nearby, include it as a Markdown link: [descriptive title](PLACEHOLDER). Example: [Porter's Five Forces video]([LINK_1]). They will be auto-converted to real clickable URLs."
             
             # Build message history context
             history_text = ""
@@ -3055,7 +3593,7 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 if len(message_history) > context_window_size:
                     # Summarize older messages (everything before last 6)
                     older_messages = message_history[:-context_window_size]
-                    older_summary = summarize_older_messages(older_messages, is_syllabus)
+                    older_summary = summarize_older_messages(older_messages, is_simple_rag)
                     if older_summary:
                         history_text += older_summary + "\n\n"
                     
@@ -3067,7 +3605,7 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                 
                 # Format history based on chat type
                 # Use consistent labels: "USER" and "AI TA" for both types
-                if is_syllabus:
+                if is_simple_rag:
                     for i, msg in enumerate(recent_history):
                         if not isinstance(msg, dict):
                             continue
@@ -3116,203 +3654,176 @@ Could you try rephrasing your question, or ask about a specific topic from the c
                         if content:
                             history_text += f"{role}: {content}\n\n"
             
-            # Build final prompt for LLM (Blackwell gets compressed prompt to avoid vLLM long-prompt limits)
+            # Build final prompt for LLM (Blackwell gets compressed prompt)
+            # Gemma 3 12B supports 128K context — allow up to 24K chars (~6K tokens) for RAG context
+            # and 8K chars for conversation history to preserve retrieval quality.
             if preferred_model == 'remote-blackwell':
-                # Syllabus: send ALL chunks (typically only 6-8 chunks, ~11K chars, well within Gemma 128K context)
-                # Class materials: truncate to 4000 chars (many chunks, compressed prompt)
-                if is_syllabus:
-                    _ctx = context_text  # No truncation — syllabus has few chunks, all are important
-                else:
-                    _ctx = context_text[:4000] if len(context_text) > 4000 else context_text
-                if is_syllabus:
-                    compressed_system = SYLLABUS_SYSTEM_PROMPT
+                _ctx = context_text[:48000] if len(context_text) > 48000 else context_text
+                if is_simple_rag:
+                    # Simple RAG categories: single system prompt, no TA mode, no checkpoints, no deep thinking
+                    category_label = CATEGORY_CONTEXT_LABELS.get(chat_type, chat_type)
+                    full_prompt = ""
+                    if history_text:
+                        _hist = history_text[:24000] if len(history_text) > 24000 else history_text
+                        full_prompt += f"Previous conversation:\n{_hist}\n\n"
+                    full_prompt += f"Context from {category_label}:\n{_ctx}\n\n"
+                    full_prompt += f"Student question: {query}\n\n"
+                    full_prompt += f"Answer the student's question using the {category_label} context above. Be direct, detailed, and informative. Include ALL relevant items from the context when the student asks for a list. When the context contains reading lists, article references, coursepack entries, links (URLs), or citations, include EVERY item with full details (title, author, source, page count, links). NEVER summarize or omit readings. NEVER mention checkpoints, guided discovery, or ask 'does that solve your doubt' — this is direct Q&A only. Use Markdown formatting: **bold** key terms, use `|` pipe tables for tabular data, `##` for headers, `-` for bullet lists."
+                    print(f"[RAG] {chat_type} chat: using category system prompt (no TA mode, no checkpoints)", file=sys.stderr)
+                    print(f"[RAG] 📏 full_prompt length={len(full_prompt)} chars | _ctx length={len(_ctx)} chars | context_text length={len(context_text)} chars", file=sys.stderr)
                 else:
                     compressed_system = BLACKWELL_COMPRESSED_SYSTEMS.get(ta_mode, BLACKWELL_COMPRESSED_SYSTEMS["normal"])
-                if deep_thinking:
-                    compressed_system = compressed_system + BLACKWELL_DEEP_THINKING_SUFFIX
-                    print(f"🧠 Deep thinking mode enabled for Blackwell (Gemma) — reasoning + in-depth, vLLM-friendly", file=sys.stderr)
-                full_prompt = f"{compressed_system}\n\n"
+                    if deep_thinking:
+                        compressed_system = compressed_system + BLACKWELL_DEEP_THINKING_SUFFIX
+                        print(f"🧠 Deep thinking mode enabled for Blackwell (Gemma) — reasoning + in-depth, vLLM-friendly", file=sys.stderr)
+                    full_prompt = f"{compressed_system}\n\n"
                 
-                # Parse checkpoint progress from ALL messages (not just recent window)
-                cp_progress = {'1': False, '2': False, '3': False}
-                if not is_syllabus and message_history:
-                    for msg in message_history:
-                        if not isinstance(msg, dict):
-                            continue
-                        content = msg.get('content', '')
-                        if msg.get('role') == 'assistant' and 'CHECKPOINT_UPDATE:' in content:
-                            import re
-                            cp_match = re.search(r'CHECKPOINT_UPDATE:\s*1=(true|false)\s*,\s*2=(true|false)\s*,\s*3=(true|false)', content, re.IGNORECASE)
-                            if cp_match:
-                                cp_progress['1'] = cp_match.group(1).lower() == 'true' or cp_progress['1']
-                                cp_progress['2'] = cp_match.group(2).lower() == 'true' or cp_progress['2']
-                                cp_progress['3'] = cp_match.group(3).lower() == 'true' or cp_progress['3']
-                        # Also detect checkpoints from conversation content (fallback if CHECKPOINT_UPDATE missing)
-                        if msg.get('role') == 'assistant':
-                            content_lower = content.lower()
-                            if 'checkpoint 1' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
-                                cp_progress['1'] = True
-                            if 'checkpoint 2' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
-                                cp_progress['2'] = True
-                            if 'checkpoint 3' in content_lower and ('formula' in content_lower or 'setup' in content_lower):
-                                cp_progress['3'] = True
+                    # Parse checkpoint progress from ALL messages (not just recent window)
+                    cp_progress = {'1': False, '2': False, '3': False}
+                    if message_history:
+                        for msg in message_history:
+                            if not isinstance(msg, dict):
+                                continue
+                            content = msg.get('content', '')
+                            if msg.get('role') == 'assistant' and 'CHECKPOINT_UPDATE:' in content:
+                                import re
+                                cp_match = re.search(r'CHECKPOINT_UPDATE:\s*1=(true|false)\s*,\s*2=(true|false)\s*,\s*3=(true|false)', content, re.IGNORECASE)
+                                if cp_match:
+                                    cp_progress['1'] = cp_match.group(1).lower() == 'true' or cp_progress['1']
+                                    cp_progress['2'] = cp_match.group(2).lower() == 'true' or cp_progress['2']
+                                    cp_progress['3'] = cp_match.group(3).lower() == 'true' or cp_progress['3']
+                            # Also detect checkpoints from conversation content (fallback if CHECKPOINT_UPDATE missing)
+                            if msg.get('role') == 'assistant':
+                                content_lower = content.lower()
+                                if 'checkpoint 1' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
+                                    cp_progress['1'] = True
+                                if 'checkpoint 2' in content_lower and ('great' in content_lower or 'correct' in content_lower or 'right' in content_lower or 'nailed' in content_lower or 'excellent' in content_lower):
+                                    cp_progress['2'] = True
+                                if 'checkpoint 3' in content_lower and ('formula' in content_lower or 'setup' in content_lower):
+                                    cp_progress['3'] = True
                 
-                # Inject checkpoint progress into prompt
-                any_passed = any(cp_progress.values())
-                if any_passed and not is_syllabus:
-                    cp_status = []
-                    if cp_progress['1']:
-                        cp_status.append("Checkpoint 1 (Classification): COMPLETED")
-                    if cp_progress['2']:
-                        cp_status.append("Checkpoint 2 (Conceptual): COMPLETED")
-                    if cp_progress['3']:
-                        cp_status.append("Checkpoint 3 (Formula & Setup): COMPLETED")
-                    next_cp = "1" if not cp_progress['1'] else ("2" if not cp_progress['2'] else ("3" if not cp_progress['3'] else "ALL DONE"))
-                    full_prompt += f"CHECKPOINT PROGRESS (DO NOT RESTART — continue from where we left off):\n"
-                    full_prompt += "\n".join(cp_status) + "\n"
-                    if next_cp != "ALL DONE":
-                        full_prompt += f"→ Continue with Checkpoint {next_cp}. Do NOT repeat completed checkpoints.\n\n"
-                    else:
-                        full_prompt += f"→ All checkpoints completed. Help the student verify their work.\n\n"
-                
-                # Inject persistent attachment context (loaded from DB at start of process_query)
-                if _injected_persistent_attachments:
-                    full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
-                    full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
-                    for idx, att in enumerate(_injected_persistent_attachments):
-                        if isinstance(att, dict):
-                            full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                    # Inject checkpoint progress into prompt
+                    any_passed = any(cp_progress.values())
+                    if any_passed:
+                        cp_status = []
+                        if cp_progress['1']:
+                            cp_status.append("Checkpoint 1 (Classification): COMPLETED")
+                        if cp_progress['2']:
+                            cp_status.append("Checkpoint 2 (Conceptual): COMPLETED")
+                        if cp_progress['3']:
+                            cp_status.append("Checkpoint 3 (Formula & Setup): COMPLETED")
+                        next_cp = "1" if not cp_progress['1'] else ("2" if not cp_progress['2'] else ("3" if not cp_progress['3'] else "ALL DONE"))
+                        full_prompt += f"CHECKPOINT PROGRESS (DO NOT RESTART — continue from where we left off):\n"
+                        full_prompt += "\n".join(cp_status) + "\n"
+                        if next_cp != "ALL DONE":
+                            full_prompt += f"→ Continue with Checkpoint {next_cp}. Do NOT repeat completed checkpoints.\n\n"
                         else:
-                            full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
-                    full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
+                            full_prompt += f"→ All checkpoints completed. Help the student verify their work.\n\n"
                 
-                # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
-                is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
-                if is_follow_up and not is_syllabus:
-                    if ta_mode == 'strict':
-                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
-                    else:
-                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
-
-                if history_text:
-                    _hist = history_text[:4000] if len(history_text) > 4000 else history_text
-                    full_prompt += f"Previous conversation:\n{_hist}\n\n"
-                context_label = "Context from syllabus/schedule" if is_syllabus else "Context from textbook"
-                full_prompt += f"{context_label}:\n{_ctx}\n\n"
-                full_prompt += f"Student question: {query}\n\n"
-                if bypass_attempt_occurred and not is_syllabus:
-                    full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
-                if is_syllabus:
-                    full_prompt += "Answer the student's question directly and accurately based on the syllabus/schedule context above."
-                    print(f"[SYLLABUS DEBUG] Blackwell full_prompt length: {len(full_prompt)} chars, _ctx length: {len(_ctx)} chars", file=sys.stderr)
-                    print(f"[SYLLABUS DEBUG] _ctx preview (first 500 chars): {_ctx[:500]!r}", file=sys.stderr)
-                else:
+                    # Inject persistent attachment context (loaded from DB at start of process_query)
+                    if _injected_persistent_attachments:
+                        full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
+                        full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
+                        for idx, att in enumerate(_injected_persistent_attachments):
+                            if isinstance(att, dict):
+                                full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                            else:
+                                full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
+                        full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
+                
+                    # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
+                    is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
+                    if is_follow_up:
+                        if ta_mode == 'strict':
+                            full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
+                        else:
+                            full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
+                
+                    if history_text:
+                        _hist = history_text[:24000] if len(history_text) > 24000 else history_text
+                        full_prompt += f"Previous conversation:\n{_hist}\n\n"
+                    full_prompt += f"Context from textbook:\n{_ctx}\n\n"
+                    full_prompt += f"Student question: {query}\n\n"
+                    if bypass_attempt_occurred:
+                        full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
                     full_prompt += "Provide a helpful educational response following the rules above."
             else:
-                if is_syllabus:
-                    full_prompt = f"{SYLLABUS_SYSTEM_PROMPT}\n\n"
-                    final_system_prompt = SYLLABUS_SYSTEM_PROMPT
+                # Non-Blackwell models (Claude, OpenRouter, etc.)
+                if is_simple_rag:
+                    # Simple RAG: direct Q&A — no checkpoints, no TA mode, no pedagogy
+                    category_label = CATEGORY_CONTEXT_LABELS.get(chat_type, chat_type)
+                    full_prompt = ""
+                    if history_text:
+                        full_prompt += f"Previous conversation:\n{history_text}\n\n"
+                    full_prompt += f"Context from {category_label}:\n{context_text}\n\n"
+                    full_prompt += f"Student question: {query}\n\n"
+                    full_prompt += f"Answer the student's question using the {category_label} context above. Be direct, detailed, and informative. Include ALL relevant items from the context when the student asks for a list. When the context contains reading lists, article references, coursepack entries, links (URLs), or citations, include EVERY item with full details (title, author, source, page count, links). NEVER summarize or omit readings. NEVER mention checkpoints, guided discovery, or ask 'does that solve your doubt' — this is direct Q&A only."
+                    print(f"[RAG] {chat_type} chat (non-Blackwell): using simple RAG prompt (no checkpoints)", file=sys.stderr)
                 else:
                     full_prompt = f"{system_prompt}\n\n"
-                
-                # Inject persistent attachment context for fallback models (loaded from DB at start)
-                if _injected_persistent_attachments:
-                    full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
-                    full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
-                    for idx, att in enumerate(_injected_persistent_attachments):
-                        if isinstance(att, dict):
-                            full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+
+                    # Inject persistent attachment context for fallback models (loaded from DB at start)
+                    if _injected_persistent_attachments:
+                        full_prompt += "[ATTACHMENT CONTEXT FLAG: TRUE]\n"
+                        full_prompt += "The user has previously attached the following documents to this conversation. You must consider their contents when answering related questions:\n"
+                        for idx, att in enumerate(_injected_persistent_attachments):
+                            if isinstance(att, dict):
+                                full_prompt += f"- Document {idx+1} ({att.get('name', 'Unknown')}): {att.get('summary', '')}\n"
+                            else:
+                                full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
+                        full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
+
+                    # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
+                    is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
+                    if is_follow_up:
+                        if ta_mode == 'strict':
+                            full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
                         else:
-                            full_prompt += f"- Document {idx+1} ({str(att)[:80]}):\n"
-                    full_prompt += "Do NOT re-acknowledge or repeat this document list in your response unless the user just attached a new document in this message. For simple text queries, answer using the document context without restating what was uploaded.\n\n"
-                
-                # Follow-up: do not repeat greeting; handle student question per TA mode (model often ignores system-prompt without this)
-                is_follow_up = any(isinstance(m, dict) and m.get('role') == 'assistant' for m in (message_history or []))
-                if is_follow_up and not is_syllabus:
-                    if ta_mode == 'strict':
-                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, guide them (do not give direct answer); when they say the correct thing, confirm it. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
-                    else:
-                        full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
-                
-                if history_text:
-                    full_prompt += f"Previous conversation:\n{history_text}\n\n"
-                context_label = "Context from syllabus/schedule" if is_syllabus else "Context from textbook"
-                full_prompt += f"{context_label}:\n{context_text}\n\n"
-                full_prompt += f"Student question: {query}\n\n"
-                if bypass_attempt_occurred and not is_syllabus:
-                    full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
-                if is_syllabus:
-                    full_prompt += "Answer the student's question directly and accurately based on the syllabus/schedule context above. Use **bold** for key details like dates, names, and policies. Keep the response clear and well-organized."
-                else:
+                            full_prompt += "FOLLOW-UP: The student has already been greeted. Do NOT repeat the greeting or checkpoint introduction. If they asked a direct question or doubt, answer it (lenient: helpfully; normal: balanced). Do NOT just re-ask the checkpoint. After addressing their doubt, ask: 'Does that solve your doubt? If yes, we can move ahead to the next checkpoint; if not, ask me further questions.' Then continue naturally.\n\n"
+
+                    if history_text:
+                        full_prompt += f"Previous conversation:\n{history_text}\n\n"
+                    full_prompt += f"Context from textbook:\n{context_text}\n\n"
+                    full_prompt += f"Student question: {query}\n\n"
+                    if bypass_attempt_occurred:
+                        full_prompt += "IMPORTANT: The student's message was detected as asking for a direct answer (bypass attempt). In your first sentence, briefly acknowledge that you're here to guide them instead of giving the answer, then continue with your teaching response.\n\n"
                     full_prompt += """Please provide a helpful, educational response.
 
 ================================================================================
-CRITICAL FORMATTING REQUIREMENTS - YOU MUST FOLLOW THESE EXACTLY:
+FORMATTING REQUIREMENTS:
 ================================================================================
 
-1. CHECKPOINT NAMING:
-   - ALWAYS use "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" (full form)
-   - NEVER use abbreviations like "CP1", "CP2", "CP3" or "CP 1", "CP 2", "CP 3"
+1. Use proper Markdown throughout your response. The UI renders Markdown natively.
+   - Use `##` or `###` for section headers
+   - Use `-` for bullet lists and `1.` for numbered/ordered lists
+   - Use **bold** for key terms, checkpoint names, and important concepts
+   - Use *italic* for emphasis where appropriate
 
-2. NUMBERED LISTS FORMATTING (MANDATORY):
-   When you list numbered items like (1), 2), 3), 4)), you MUST format them EXACTLY like this:
-   
-   CORRECT FORMAT (DO THIS):
-   
-   1) First item text here
-   
-   2) Second item text here
-   
-   3) Third item text here
-   
-   4) Fourth item text here
-   
-   WRONG FORMAT (NEVER DO THIS):
-   1) First item 2) Second item 3) Third item 4) Fourth item
-   
-   RULES:
-   - Add a blank line BEFORE the numbered list starts
-   - Each numbered item MUST be on its own separate line
-   - Add a blank line AFTER each numbered item
-   - NEVER put multiple numbered items on the same line
-   - NEVER put numbered items together without blank lines between them
-   - DO NOT use numbered lists (1., 2., 3.) inside numbered list items
-   - When providing examples inside numbered items, use plain text with commas or dashes, NOT numbered lists
+2. TABLES: When presenting tabular data (grading breakdowns, assignment lists,
+   schedules, comparisons, or any data with multiple columns), ALWAYS use
+   Markdown pipe tables:
 
-3. SECTION SPACING:
-   - Add blank lines between major sections to improve readability
-   - Separate paragraphs with blank lines
+   | Column 1 | Column 2 | Column 3 |
+   |----------|----------|----------|
+   | data     | data     | data     |
 
-4. BOLD FORMATTING FOR IMPORTANT TERMS:
-   - Use markdown bold syntax (**text**) to highlight important terms and concepts that students shouldn't miss
-   - Examples of what to bold:
-     * Checkpoint names: **Checkpoint 1**, **Checkpoint 2**, **Checkpoint 3**
-     * Key concepts: **mean**, **median**, **outlier**, **formula**, **calculation**
-     * Important phrases: **the key point**, **remember**, **important**, **don't forget**
-     * Critical instructions: **make sure**, **pay attention**, **be careful**
-     * Problem-solving steps: **Step 1**, **Step 2**, **first**, **second**, **finally**
-     * Answers/conclusions: **the answer is**, **the solution is**, **in summary**
-   - Use bold sparingly - only for truly important terms (3-5 per response maximum)
-   - Let the context guide you - bold terms that are critical for understanding or that students might miss
+   NEVER use space-aligned columns or plain-text tables.
 
-5. GENERAL FORMATTING:
-   - Write in clean, natural text like Claude or ChatGPT - conversational and professional
-   - Use simple line breaks for paragraphs
-- Add emojis sparingly (1-2 per response) at the end of sentences to make it engaging, not overwhelming
-   - Keep formatting clean and professional
+3. CHECKPOINT NAMING: Always write "Checkpoint 1", "Checkpoint 2", "Checkpoint 3" in full. Never abbreviate as CP1/CP2/CP3.
 
-================================================================================
-REMEMBER: Every numbered list item MUST be on its own line with blank lines 
-before and after. This is MANDATORY, not optional.
+4. READING REFERENCES & LINKS: When the context contains reading lists, coursepack entries, article references, or resource links/URLs, include ALL of them with full details (title, author, source, page count, and any links). Never omit or summarize reading lists — list every item.
+
+5. Keep formatting clean and professional. Add emojis sparingly (1-2 per response).
 ================================================================================"""
             
-            # Deep thinking mode is already integrated into the system prompt from TypeScript
-            # The system_prompt passed from TypeScript already includes deep thinking instructions
-            # if deep_thinking was enabled, so we just use it as-is
-            if is_syllabus:
-                final_system_prompt = SYLLABUS_SYSTEM_PROMPT
-            else:
+            # For simple RAG categories use dedicated system prompts; for assignments use the TA checkpoint prompt
+            # When system_prompt is empty (Flask path), fall back to the TA-mode-specific compressed prompt
+            if is_simple_rag:
+                final_system_prompt = CATEGORY_SYSTEM_PROMPTS.get(chat_type, BLACKWELL_SYLLABUS_SYSTEM)
+            elif system_prompt:
                 final_system_prompt = system_prompt
+            else:
+                final_system_prompt = BLACKWELL_COMPRESSED_SYSTEMS.get(ta_mode, BLACKWELL_COMPRESSED_SYSTEMS["normal"])
             if deep_thinking:
                 print(f"🧠 Deep thinking mode enabled (combined with TA mode)", file=sys.stderr)
             
@@ -3378,7 +3889,7 @@ before and after. This is MANDATORY, not optional.
         import re as _re  # use _re throughout to avoid shadowing from inner 'import re' elsewhere in process_query
         output_guard_start = time.time()
         leak_detected = False
-        skip_output_guard = is_syllabus or ta_mode in ('lenient', 'normal')
+        skip_output_guard = is_simple_rag or ta_mode in ('lenient', 'normal')
         if skip_output_guard:
             print(f"🛡️ Output Guard: SKIPPED (ta_mode={ta_mode} allows answer verification)", file=sys.stderr)
         else:
@@ -3465,7 +3976,7 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
                         leak_detected = True
 
             if leak_detected:
-                if final_results and not is_syllabus:
+                if final_results and is_assignments:
                     if not checkpoint_state.get('checkpoint_1_passed', False):
                         teaching_response = "Let's start by identifying the problem. What type of problem is this? What information is given?"
                     elif not checkpoint_state.get('checkpoint_2_passed', False):
@@ -3512,8 +4023,8 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
             except Exception as e:
                 print(f"Error parsing checkpoint update: {e}", file=sys.stderr)
         
-        # For class_material chats, append checkpoint update to stream
-        if chat_type == 'class_material' and not is_syllabus:
+        # For assignments chats, append checkpoint update to stream
+        if is_assignments:
             cp1 = 'true' if updated_checkpoint_state.get('checkpoint_1_passed', False) else 'false'
             cp2 = 'true' if updated_checkpoint_state.get('checkpoint_2_passed', False) else 'false'
             cp3 = 'true' if updated_checkpoint_state.get('checkpoint_3_passed', False) else 'false'
@@ -3577,6 +4088,17 @@ Use confidence 0.9+ only when the response clearly states the final answer. Use 
         print(f"[EMOJI DEBUG] Emojis in response before returning to frontend: {emojis_before_return}", file=sys.stderr)
         print(f"[EMOJI DEBUG] Response length: {len(teaching_response)} chars", file=sys.stderr)
         
+        # Restore URL placeholders with real URLs in the final response
+        if _url_placeholder_map:
+            for placeholder, real_url in _url_placeholder_map.items():
+                found = placeholder in teaching_response
+                teaching_response = teaching_response.replace(placeholder, real_url)
+                print(f"[RAG] URL restore: {placeholder} found={found} → {real_url[:60]}...", file=sys.stderr)
+            # Log a snippet of the final response to verify URLs are clean
+            url_snippet = [line for line in teaching_response.split('\n') if 'http' in line]
+            if url_snippet:
+                print(f"[RAG] URL in final response: {url_snippet[0][:120]}", file=sys.stderr)
+
         return {
             "request_id": request_id,
             "conversation_id": conversation_id,

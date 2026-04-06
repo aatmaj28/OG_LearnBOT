@@ -133,7 +133,7 @@ def conversations():
             user_id = data.get("userId")
             title = data.get("title")
             class_id = data.get("classId")
-            chat_type = data.get("chatType", "class_material")
+            chat_type = data.get("chatType", "assignments")
             
             if not user_id:
                 return jsonify({"error": "User ID is required"}), 400
@@ -213,11 +213,12 @@ def ai_response():
             user_id = request.form.get("userId")
             session_id = request.form.get("sessionId")
             class_id = request.form.get("classId")
-            chat_type = request.form.get("chatType", "class_material")
+            chat_type = request.form.get("chatType", "assignments")
             preferred_model = request.form.get("preferredModel", "remote-a6000")
             stream_param = request.form.get("stream", "true")  # Default to "true" string
             stream = stream_param.lower() == "true" if stream_param else True  # Default to True
             deep_thinking = request.form.get("deepThinking") == "true"
+            flow_type = request.form.get("flowType", "teach")
         elif "application/json" in content_type:
             data = request.get_json()
             if not data:
@@ -227,10 +228,11 @@ def ai_response():
             user_id = data.get("userId")
             session_id = data.get("sessionId")
             class_id = data.get("classId")
-            chat_type = data.get("chatType", "class_material")
+            chat_type = data.get("chatType", "assignments")
             preferred_model = data.get("preferredModel", "remote-a6000")
             stream = data.get("stream", True)  # Default to streaming for better UX
             deep_thinking = data.get("deepThinking", False)
+            flow_type = data.get("flowType", "teach")  # "teach" (pedagogical) or "informative" (direct Q&A)
         else:
             return jsonify({
                 "error": "Request must be application/json or multipart/form-data (for file attachments)."
@@ -267,19 +269,56 @@ def ai_response():
                         ta_mode = found_norm
         except Exception as e:
             print(f"[CHAT] Failed to resolve TA mode (defaulting to normal): {e}", flush=True)
-        is_syllabus = (chat_type or conversation.get("chatType") or "class_material") == "syllabus"
+        # Resolve vector store folder based on chat type category
+        resolved_chat_type = chat_type or conversation.get("chatType") or "assignments"
+        # Backward compat: treat legacy "class_material" as "assignments"
+        if resolved_chat_type == "class_material":
+            resolved_chat_type = "assignments"
+
+        # Map chat type to vector store folder suffix and DB field
+        CATEGORY_SUFFIX = {
+            "assignments": "",           # default folder (was class_material)
+            "syllabus": "_syllabus",
+            "announcements": "_announcements",
+            "modules": "_modules",
+            "discussions": "_discussions",
+            "grades": "_grades",
+        }
+        suffix = CATEGORY_SUFFIX.get(resolved_chat_type, "")
+
+        # "All" mode: build paths for all 6 category collections
+        all_vector_store_paths = None
         base_folder = cls.get("vectorStoreFolder") or db_service.generate_vector_store_folder_name(cls["name"])
-        if is_syllabus:
-            folder = cls.get("syllabusVectorStoreFolder") or (base_folder + "_syllabus")
+        if resolved_chat_type == "all":
+            syllabus_folder = cls.get("syllabusVectorStoreFolder") or (base_folder + "_syllabus")
+            all_vector_store_paths = {
+                "assignments": str(pathlib.Path("vector_stores") / base_folder),
+                "syllabus": str(pathlib.Path("vector_stores") / syllabus_folder),
+                "announcements": str(pathlib.Path("vector_stores") / (base_folder + "_announcements")),
+                "modules": str(pathlib.Path("vector_stores") / (base_folder + "_modules")),
+                "discussions": str(pathlib.Path("vector_stores") / (base_folder + "_discussions")),
+                "grades": str(pathlib.Path("vector_stores") / (base_folder + "_grades")),
+            }
+            # Use assignments as primary fallback path
+            vector_store_path = all_vector_store_paths["assignments"]
+            print(f"[CHAT] ALL mode: querying {len(all_vector_store_paths)} collections for class {cls.get('name')}", flush=True)
         else:
-            folder = base_folder
-        vector_store_path = str(pathlib.Path("vector_stores") / folder)
-        
+            # Single-category mode (Option A)
+            if resolved_chat_type == "syllabus":
+                folder = cls.get("syllabusVectorStoreFolder") or (base_folder + "_syllabus")
+            elif resolved_chat_type == "assignments":
+                folder = base_folder
+            else:
+                folder = base_folder + suffix
+
+            vector_store_path = str(pathlib.Path("vector_stores") / folder)
+
         # Prepare request for RAG service
         request_data = {
             "query": message,
             "conversation_id": session_id,
             "user_id": user_id,
+            "class_id": conv_class_id,
             "vector_store_path": vector_store_path,
             "system_prompt": "",  # Will be generated by RAG service
             "preferred_model": preferred_model,
@@ -289,8 +328,11 @@ def ai_response():
             "checkpoint_state": conversation.get('checkpointState', {}),
             "deep_thinking": deep_thinking,
             "ta_mode": ta_mode,
+            "flow_type": flow_type,
             "attachments": []
         }
+        if all_vector_store_paths:
+            request_data["vector_store_paths"] = all_vector_store_paths
         
         # Populate attachments from FormData (base64) and detect images for non-Claude early-return
         has_image_attachment = False
