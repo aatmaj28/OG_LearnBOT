@@ -3492,35 +3492,41 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
         _url_placeholder_map = {}  # URL placeholder map (populated if URLs found in context)
 
         if not final_results:
-            # Check if this is a greeting or casual conversation
-            query_lower = query.lower().strip()
-            greeting_words = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy', 'greetings', 'yo', 'sup', "what's up", 'hiya']
-            is_greeting = any(query_lower.startswith(g) or query_lower == g for g in greeting_words)
-            
-            if is_greeting:
-                # Friendly greeting response with introduction
-                teaching_response = """Hello! 👋 I'm LearnBOT, your AI learning assistant! I'm here to help you understand the course material step-by-step.
+            # No relevant chunks retrieved — still call the LLM for a natural response
+            # (greetings, off-topic queries, general questions all get a human-like reply)
+            print(f"[RAG] 0 chunks after threshold — calling LLM without RAG context for natural response", file=sys.stderr)
 
-I can help you with:
-📚 Explaining concepts from your textbook
-🧮 Working through problems together (without just giving you answers!)
-❓ Answering questions about the course content
-📝 Understanding formulas and how to apply them
+            no_context_prompt = f"Student message: {query}\n\n"
+            no_context_prompt += "No course material context was retrieved for this query. "
+            no_context_prompt += "If the student is greeting you, respond naturally and warmly, introduce yourself as LearnBOT, and ask what they'd like help with. "
+            no_context_prompt += "If they asked a specific question, let them know you couldn't find matching content in the course materials and suggest they rephrase or ask about a specific topic. "
+            no_context_prompt += "Keep your response concise and conversational."
 
-What would you like to learn about today?"""
+            # Use the TA mode system prompt so the LLM stays in character
+            if system_prompt:
+                no_context_system = system_prompt
             else:
-                # Helpful fallback for non-greeting queries without content
-                teaching_response = f"""I couldn't find specific information about '{query}' in the course materials. 📚
+                no_context_system = BLACKWELL_COMPRESSED_SYSTEMS.get(ta_mode, BLACKWELL_COMPRESSED_SYSTEMS["normal"])
 
-Here's what I can help you with:
-• Questions about concepts covered in your textbook
-• Understanding formulas and calculations
-• Working through practice problems step-by-step
+            print(f"[RAG] 📌 Teaching LLM stage (no context) - preferred_model={preferred_model!r}", file=sys.stderr)
+            llm_start = time.time()
+            teaching_response, model_used, llm_time_ms = call_llm_with_streaming(
+                no_context_prompt,
+                no_context_system,
+                preferred_model,
+                request_id,
+                checkpoint_state,
+                chat_type,
+                attachments,
+                stream_callback=stream_callback
+            )
+            llm_time = time.time() - llm_start
 
-Could you try rephrasing your question, or ask about a specific topic from the course?"""
-            model_used = "none"
-            time_taken = 0
-            llm_time = 0  # Initialize llm_time for logging
+            if not teaching_response:
+                # Ultimate fallback if LLM also fails
+                teaching_response = "Hi! I'm LearnBOT. I'm having a bit of trouble responding right now — please try again in a moment."
+                model_used = "fallback"
+                llm_time_ms = int(llm_time * 1000)
         else:
             # Build context from retrieved chunks (no truncation - preserve full content)
             # For "all" mode, include material_type tag so the LLM knows which category each chunk is from
