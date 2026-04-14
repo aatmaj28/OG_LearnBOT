@@ -1532,12 +1532,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   <SelectValue placeholder="Choose a model..." />
                 </SelectTrigger>
                 <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                  <SelectItem
-                    value="claude"
-                    disabled
-                    className={`${isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100 text-gray-500' : 'text-gray-400'} cursor-not-allowed`}
-                  >
-                    🧠 Claude (temporarily unavailable)
+                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    🧠 Claude (Opus 4.6)
                   </SelectItem>
                   <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                     ⚡ Gemma (Blackwell)

@@ -2121,12 +2121,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                        <SelectItem
-                          value="claude"
-                          disabled
-                          className={`${isDarkMode ? 'focus:bg-white/10 focus:text-white text-white/40' : 'text-gray-400'} cursor-not-allowed`}
-                        >
-                          🧠 Claude (temporarily unavailable)
+                        <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          🧠 Claude (Opus 4.6)
                         </SelectItem>
                         <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
                           ⚡ Gemma (Blackwell)
@@ -2272,8 +2268,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                      <SelectItem value="claude" disabled className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">🧠 Claude (temporarily unavailable)</span>
+                      <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">🧠 Claude (Opus 4.6)</span>
                       </SelectItem>
                       <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
                         <span className="text-sm">⚡ Gemma (Blackwell)</span>

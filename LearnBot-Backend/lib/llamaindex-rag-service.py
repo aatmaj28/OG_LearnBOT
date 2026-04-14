@@ -2258,33 +2258,19 @@ def call_llm_with_fallback(prompt, system_prompt, preferred_model, attachments=N
     if preferred_model == 'claude':
         response_text, model_used = try_claude()
         if not response_text:
-            response_text, model_used = try_openrouter()
-        if not response_text:
             response_text, model_used = try_blackwell()
-    elif preferred_model == 'openrouter':
-        response_text, model_used = try_openrouter()
-        if not response_text:
-            response_text, model_used = try_blackwell()
-        if not response_text:
-            response_text, model_used = try_claude()
     elif preferred_model == 'remote-blackwell':
         response_text, model_used = try_blackwell()
-        if not response_text:
-            response_text, model_used = try_openrouter()
         if not response_text:
             response_text, model_used = try_claude()
     elif preferred_model == 'remote-blackwell-2':
         response_text, model_used = try_blackwell_2()
-        if not response_text:
-            response_text, model_used = try_openrouter()
         if not response_text:
             response_text, model_used = try_claude()
     else:  # remote-a6000 or default
         response_text, model_used = try_remote_ollama()
         if not response_text:
             response_text, model_used = try_blackwell()
-        if not response_text:
-            response_text, model_used = try_openrouter()
         if not response_text:
             response_text, model_used = try_claude()
     
@@ -2820,35 +2806,21 @@ def call_llm_with_streaming(prompt, system_prompt, preferred_model, request_id, 
     if preferred_model == 'claude':
         response_text, model_used = try_claude_stream()
         if not response_text:
-            response_text, model_used = try_openrouter_stream()
-        if not response_text:
             response_text, model_used = try_blackwell_stream()
-    elif preferred_model == 'openrouter':
-        response_text, model_used = try_openrouter_stream()
-        if not response_text:
-            response_text, model_used = try_blackwell_stream()
-        if not response_text:
-            response_text, model_used = try_claude_stream()
     elif preferred_model == 'remote-blackwell':
         response_text, model_used = try_blackwell_stream()
         if not response_text:
-            print(f"[RAG] ⚠️ Blackwell returned no response, trying OpenRouter fallback", file=sys.stderr)
-            response_text, model_used = try_openrouter_stream()
-        if not response_text:
+            print(f"[RAG] ⚠️ Blackwell returned no response, trying Claude fallback", file=sys.stderr)
             response_text, model_used = try_claude_stream()
     elif preferred_model == 'remote-blackwell-2':
         response_text, model_used = try_blackwell_2_stream()
         if not response_text:
-            print(f"[RAG] ⚠️ Blackwell2 returned no response, trying OpenRouter fallback", file=sys.stderr)
-            response_text, model_used = try_openrouter_stream()
-        if not response_text:
+            print(f"[RAG] ⚠️ Blackwell2 returned no response, trying Claude fallback", file=sys.stderr)
             response_text, model_used = try_claude_stream()
     else:  # remote-a6000 or default
         response_text, model_used = try_remote_ollama_stream()
         if not response_text:
             response_text, model_used = try_blackwell_stream()
-        if not response_text:
-            response_text, model_used = try_openrouter_stream()
         if not response_text:
             response_text, model_used = try_claude_stream()
     
