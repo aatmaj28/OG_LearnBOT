@@ -3521,12 +3521,14 @@ def process_query(request_data: Dict[str, Any], stream_callback=None) -> Dict[st
                 stream_callback=stream_callback
             )
             llm_time = time.time() - llm_start
+            time_taken = llm_time_ms
 
             if not teaching_response:
                 # Ultimate fallback if LLM also fails
                 teaching_response = "Hi! I'm LearnBOT. I'm having a bit of trouble responding right now — please try again in a moment."
                 model_used = "fallback"
                 llm_time_ms = int(llm_time * 1000)
+                time_taken = llm_time_ms
         else:
             # Build context from retrieved chunks (no truncation - preserve full content)
             # For "all" mode, include material_type tag so the LLM knows which category each chunk is from
