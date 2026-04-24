@@ -225,43 +225,40 @@ jobs:
           COMPOSE_CMD="docker compose"
           command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 || COMPOSE_CMD="docker-compose"
 
-          # --- Qdrant ---
-          # LearnBot Qdrant uses host ports 6335 (REST) / 6336 (gRPC) to avoid conflict with EssayBot on 6333/6334
-          if curl -sf http://localhost:6335/health >/dev/null 2>&1; then
-            echo "✅ LearnBot Qdrant already running on port 6335"
-          else
-            echo "🐳 Starting LearnBot Qdrant container (ports 6335/6336)..."
-            sudo docker stop learnbot-qdrant 2>/dev/null || true
-            sudo docker rm -f learnbot-qdrant 2>/dev/null || true
-            sleep 2
-            if sudo $COMPOSE_CMD up -d qdrant 2>&1; then
-              sleep 5
-              if curl -f http://localhost:6335/health >/dev/null 2>&1; then
-                echo "✅ Qdrant is healthy on port 6335"
-              else
-                echo "⚠️ Qdrant health check failed (container may still be starting)"
-              fi
-            else
-              echo "⚠️ LearnBot Qdrant could not start. Deploy continues."
-            fi
+          # `docker compose up -d` is idempotent: it leaves running containers
+          # alone and (re)creates only those that are stopped or missing. It is
+          # compose-project-scoped, so it only touches containers defined in THIS
+          # compose file — it will NEVER kill the other environment's container,
+          # even if container names would otherwise collide.
+          #
+          # IMPORTANT: do NOT run `docker stop learnbot-qdrant` or
+          # `docker rm -f learnbot-qdrant` here. Those commands operate by
+          # container name across the whole Docker daemon, and would cascade-
+          # kill whichever environment currently owns that name — previously
+          # this caused UAT deploys to take down PROD Qdrant (and vice versa).
+          echo "🐳 Starting Qdrant + RabbitMQ via docker compose..."
+          if ! sudo $COMPOSE_CMD up -d qdrant rabbitmq; then
+            echo "❌ docker compose up failed for qdrant/rabbitmq"
+            sudo $COMPOSE_CMD logs --tail 80 qdrant rabbitmq 2>&1 || true
+            exit 1
           fi
 
-          # --- RabbitMQ ---
-          # LearnBot RabbitMQ uses host port 5673 (AMQP) / 15673 (management) to avoid conflict with EssayBot on 5672/15672
-          if curl -sf http://localhost:15673/api/health/checks/alarms -u learnbot:learnbot123 >/dev/null 2>&1; then
-            echo "✅ LearnBot RabbitMQ already running on port 5673"
-          else
-            echo "🐰 Starting LearnBot RabbitMQ container (port 5673)..."
-            sudo $COMPOSE_CMD up -d rabbitmq 2>&1 || true
-            echo "⏳ Waiting for RabbitMQ to be ready..."
-            sleep 15
-            if curl -sf http://localhost:15673/api/health/checks/alarms -u learnbot:learnbot123 >/dev/null 2>&1; then
-              echo "✅ RabbitMQ is healthy on port 5673"
-            else
-              echo "⚠️ RabbitMQ health check failed (container may still be starting)"
-              echo "   Check logs with: docker logs learnbot-rabbitmq"
-            fi
+          # Allow services to fully boot before downstream steps connect
+          sleep 10
+
+          # Confirm both services are running. Any non-running state fails the deploy.
+          sudo $COMPOSE_CMD ps
+          if ! sudo $COMPOSE_CMD ps qdrant | grep -qE "running|Up"; then
+            echo "❌ Qdrant did not enter a running state"
+            sudo $COMPOSE_CMD logs --tail 80 qdrant
+            exit 1
           fi
+          if ! sudo $COMPOSE_CMD ps rabbitmq | grep -qE "running|Up"; then
+            echo "❌ RabbitMQ did not enter a running state"
+            sudo $COMPOSE_CMD logs --tail 80 rabbitmq
+            exit 1
+          fi
+          echo "✅ Qdrant + RabbitMQ are running"
 
       # ======= CREATE ENV FILE =======
       # Secrets must be named with _PROD or _UAT suffix, e.g. QDRANT_URL_PROD, DB_HOST_PROD (not QDRANT_URL).
