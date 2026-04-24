@@ -43,3 +43,6 @@ Thumbs.db
 # Documentation files (keep README.md)
 *.md
 !README.md
+
+# Local Qdrant persistent storage dir (created when QDRANT_URL is empty)
+vector_stores/

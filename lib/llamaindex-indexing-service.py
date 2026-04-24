@@ -32,7 +32,7 @@ QDRANT_PERSIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspat
 # Set QDRANT_URL environment variable to override (e.g., "http://localhost:6333" or cloud URL)
 # Set QDRANT_URL="" to use local mode instead
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)  # Optional API key for cloud Qdrant
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None  # coerce empty string to None so qdrant-client doesn't auto-upgrade to HTTPS
 
 # Global cache for embedding model and Qdrant client (loaded once, reused for all indexing operations)
 _global_embed_model = None
