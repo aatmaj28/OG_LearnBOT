@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   nuid VARCHAR(50) UNIQUE,
   degree VARCHAR(255),
   major VARCHAR(255),
+  ta_mode VARCHAR(20) DEFAULT 'normal',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS classes (
   faculty_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   vector_store_folder VARCHAR(255),
   syllabus_vector_store_folder VARCHAR(255),
+  ta_mode VARCHAR(20) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -112,7 +114,6 @@ CREATE TABLE IF NOT EXISTS rag_conversations (
   analytics_last_updated TIMESTAMP,
   conversation_summary TEXT,
   chat_type VARCHAR(50) DEFAULT 'class_material',
-  user_masked_id VARCHAR(100) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -196,6 +197,52 @@ CREATE TABLE IF NOT EXISTS pending_class_enrollments (
 CREATE INDEX IF NOT EXISTS idx_pending_class_enrollments_email 
 ON pending_class_enrollments(email);
 
+-- Canvas imports (tracks each Canvas bundle import per class)
+CREATE TABLE IF NOT EXISTS canvas_imports (
+  id            SERIAL PRIMARY KEY,
+  import_id     VARCHAR(64) NOT NULL UNIQUE,
+  class_id      INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  course_name   VARCHAR(512),
+  categories    JSONB NOT NULL DEFAULT '{}',
+  total_chunks  INTEGER NOT NULL DEFAULT 0,
+  imported_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_canvas_imports_class_id ON canvas_imports(class_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_imports_imported_at ON canvas_imports(imported_at DESC);
+
+-- Canvas items (individual items within each import)
+CREATE TABLE IF NOT EXISTS canvas_items (
+  id          SERIAL PRIMARY KEY,
+  import_id   VARCHAR(64) NOT NULL REFERENCES canvas_imports(import_id) ON DELETE CASCADE,
+  class_id    INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  category    VARCHAR(50) NOT NULL,
+  canvas_id   VARCHAR(128),
+  title       VARCHAR(1024) NOT NULL,
+  body_text   TEXT DEFAULT '',
+  metadata    JSONB NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_canvas_items_class_id ON canvas_items(class_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_items_import_id ON canvas_items(import_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_items_class_category ON canvas_items(class_id, category);
+
+-- Corpus files (uploaded PDFs / DOCX / etc. per class, per material type)
+CREATE TABLE IF NOT EXISTS corpus_files (
+  id SERIAL PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  file_name VARCHAR(255) NOT NULL,
+  material_type VARCHAR(50) NOT NULL DEFAULT 'assignments' CHECK (material_type IN ('assignments', 'class_material', 'syllabus', 'announcements', 'modules', 'discussions', 'grades')),
+  file_size BIGINT,
+  chunk_count INTEGER DEFAULT 0,
+  is_indexed BOOLEAN DEFAULT false,
+  indexed_at TIMESTAMP,
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(class_id, file_name, material_type)
+);
+CREATE INDEX IF NOT EXISTS idx_corpus_files_class_id ON corpus_files(class_id);
+CREATE INDEX IF NOT EXISTS idx_corpus_files_material_type ON corpus_files(material_type);
+CREATE INDEX IF NOT EXISTS idx_corpus_files_class_material ON corpus_files(class_id, material_type);
+
 -- Password reset tokens (forgot-password flow)
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
   id SERIAL PRIMARY KEY,
@@ -208,17 +255,21 @@ CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tok
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at);
 
 -- Insert sample data
-INSERT INTO users (email, password, name, role, nuid, degree, major) VALUES
-('student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science'),
-('faculty@northeastern.edu', 'faculty123', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL)
+INSERT INTO users (masked_id, email, password, name, role, nuid, degree, major) VALUES
+('STUDENT_MASKED_001', 'student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science'),
+('FACULTY_MASKED_001', 'faculty@northeastern.edu', 'faculty123', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL)
 ON CONFLICT (email) DO NOTHING;
 
--- Create a sample class
-INSERT INTO classes (name, description, faculty_id) VALUES
-('Introduction to Computer Science', 'Learn the fundamentals of programming and computer science', 2)
-ON CONFLICT DO NOTHING;
+-- Create a sample class (idempotent: ON CONFLICT DO NOTHING alone doesn't work because
+-- there's no UNIQUE constraint on name/faculty_id and SERIAL auto-increments, so the seed
+-- would insert a duplicate on every re-run. Use WHERE NOT EXISTS instead.)
+INSERT INTO classes (name, description, faculty_id)
+SELECT 'Introduction to Computer Science', 'Learn the fundamentals of programming and computer science', 2
+WHERE NOT EXISTS (
+  SELECT 1 FROM classes WHERE name = 'Introduction to Computer Science' AND faculty_id = 2
+);
 
 -- Add student to class
-INSERT INTO class_students (class_id, student_id) VALUES
-(1, 1)
+INSERT INTO class_students (class_id, student_id, student_masked_id) VALUES
+(1, 1, 'STUDENT_MASKED_001')
 ON CONFLICT (class_id, student_id) DO NOTHING;
