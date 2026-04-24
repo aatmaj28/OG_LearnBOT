@@ -89,7 +89,7 @@ function LoginContent() {
       const message = err instanceof Error ? err.message : "An error occurred. Please try again."
       setError(
         message.includes("Cannot connect") || message === "Failed to fetch"
-          ? "Cannot connect to the login server. Make sure the backend is running (e.g. LearnBot-Backend on port 5000)."
+          ? "Cannot connect to the login server. Make sure the Flask backend (LearnBOT-Server repo) is running on port 5000."
           : message
       )
       setLoading(false)

@@ -66,7 +66,7 @@ async function apiRequest<T>(
       (error?.name === 'TypeError' && msg.toLowerCase().includes('fetch'))
     ) {
       throw new Error(
-        `Cannot connect to the login server at ${FLASK_API_URL}. Make sure the backend is running (e.g. LearnBot-Backend on port 5000).`
+        `Cannot connect to the login server at ${FLASK_API_URL}. Make sure the Flask backend (LearnBOT-Server repo) is running on port 5000.`
       )
     }
 
