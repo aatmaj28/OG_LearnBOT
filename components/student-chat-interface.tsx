@@ -2129,6 +2129,11 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         </SelectItem>
                       </SelectContent>
                     </Select>
+                    {preferredModel === 'claude' && (
+                      <p className={`text-xs mt-1.5 leading-snug ${isDarkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
+                        ⚠️ Claude (Opus 4.6) sends your messages to Anthropic&apos;s cloud for processing. For a fully local experience, switch to Gemma (Blackwell).
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
@@ -2337,6 +2342,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
               </Button>
             )}
           </div>
+
+          {sidebarLayout !== 'full' && preferredModel === 'claude' && (
+            <div className={`px-4 py-1.5 text-xs border-b ${isDarkMode ? 'bg-amber-900/20 border-white/10 text-amber-300/90' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
+              ⚠️ Claude sends data to Anthropic&apos;s cloud. Switch to Gemma (Blackwell) for local processing.
+            </div>
+          )}
 
           {/* Chat Content */}
           <>

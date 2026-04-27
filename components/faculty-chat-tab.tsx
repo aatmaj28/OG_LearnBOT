@@ -1540,6 +1540,11 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   </SelectItem>
                 </SelectContent>
               </Select>
+              {preferredModel === 'claude' && (
+                <p className={`text-xs mt-1.5 leading-snug ${isDarkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
+                  ⚠️ Heads up: Claude (Opus 4.6) sends your messages to Anthropic&apos;s cloud for processing. If you&apos;d rather keep everything on our local infrastructure, switch to Gemma (Blackwell).
+                </p>
+              )}
             </div>
 
             {/* TA Mode Selection */}
