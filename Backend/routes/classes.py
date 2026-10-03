@@ -23,6 +23,9 @@ for _subdir in ('resources', 'assignments'):
 
 bp = Blueprint("classes", __name__)
 
+# Model ids the UI may assign to a team. Mirrors LOCAL_MODELS in the RAG service.
+ALLOWED_MODELS = {"local-nemotron", "local-qwen", "local-nano"}
+
 def create_vector_store_manually(folder_name: str, class_name: str) -> bool:
     """Manually creates vector store folder"""
     try:
@@ -107,7 +110,8 @@ def classes():
         print(f"[CLASSES] ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
 
-@bp.route("/add-student", methods=["POST"])
+@bp.route("/add-employee", methods=["POST"])
+@bp.route("/add-student", methods=["POST"])  # legacy alias
 def add_student():
     """Add student endpoint - migrated from app/api/classes/add-student/route.ts"""
     try:
@@ -130,7 +134,8 @@ def add_student():
         print(f"[CLASSES] ADD STUDENT ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
 
-@bp.route("/remove-student", methods=["POST"])
+@bp.route("/remove-employee", methods=["POST"])
+@bp.route("/remove-student", methods=["POST"])  # legacy alias
 def remove_student():
     """Remove student endpoint - migrated from app/api/classes/remove-student/route.ts"""
     try:
@@ -153,7 +158,8 @@ def remove_student():
         print(f"[CLASSES] REMOVE STUDENT ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
 
-@bp.route("/invite-student", methods=["POST"])
+@bp.route("/invite-employee", methods=["POST"])
+@bp.route("/invite-student", methods=["POST"])  # legacy alias
 def invite_student():
     """Invite student endpoint"""
     try:
@@ -759,3 +765,37 @@ def send_reminder():
     except Exception as error:
         print(f"[CLASSES] SEND REMINDER ERROR: {error}")
         return jsonify({"error": "Failed to send reminder emails"}), 500
+
+
+@bp.route("/settings", methods=["PUT"])
+def update_settings():
+    """Update a team's chat settings. The manager sets these; employees inherit them."""
+    try:
+        data = request.get_json() or {}
+        class_id = data.get("classId")
+        if not class_id:
+            return jsonify({"error": "Class ID is required"}), 400
+
+        ta_mode = data.get("taMode")
+        if ta_mode is not None:
+            ta_mode = str(ta_mode).strip().lower()
+            if ta_mode not in ("lenient", "normal", "strict"):
+                return jsonify({"error": "taMode must be lenient, normal or strict"}), 400
+
+        preferred_model = data.get("preferredModel")
+        if preferred_model is not None:
+            preferred_model = str(preferred_model).strip()
+            if preferred_model not in ALLOWED_MODELS:
+                return jsonify({"error": f"preferredModel must be one of {sorted(ALLOWED_MODELS)}"}), 400
+
+        if ta_mode is None and preferred_model is None:
+            return jsonify({"error": "Nothing to update"}), 400
+
+        if not db_service.get_class_by_id(class_id):
+            return jsonify({"error": "Class not found"}), 404
+
+        db_service.update_class_settings(class_id, ta_mode=ta_mode, preferred_model=preferred_model)
+        return jsonify({"success": True, "class": db_service.get_class_by_id(class_id)})
+    except Exception as error:
+        print(f"[CLASSES] UPDATE SETTINGS ERROR: {error}")
+        return jsonify({"error": "Internal server error"}), 500

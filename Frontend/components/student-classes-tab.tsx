@@ -161,14 +161,14 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
 
   return (
     <div className="h-full flex">
-      {/* Left: My Sectors */}
+      {/* Left: My Teams */}
       <div className={`w-96 border-r shadow-sm p-4 flex-shrink-0 ${isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white"}`}>
-        <h2 className={`font-semibold mb-4 ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>My Sectors</h2>
+        <h2 className={`font-semibold mb-4 ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>My Teams</h2>
         <ScrollArea className="h-[calc(100vh-180px)]">
           <div className="space-y-2">
             {classes.length === 0 ? (
               <p className={`text-sm text-center py-8 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-                You are not assigned to any sectors yet.
+                You are not assigned to any teams yet.
               </p>
             ) : (
               classes.map((classItem) => (
@@ -193,7 +193,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                   </p>
                   <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
                     <Users className="h-3 w-3" />
-                    <span>Sector</span>
+                    <span>Team</span>
                   </div>
                 </Card>
               ))
@@ -202,7 +202,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
         </ScrollArea>
       </div>
 
-      {/* Right: Sector detail - Onboarding Tasks & Reference Material */}
+      {/* Right: Team detail - Onboarding Tasks & Reference Material */}
       <div className="flex-1 p-6 overflow-auto">
         {!selectedClass ? (
           <div className="h-full flex items-center justify-center">
@@ -215,10 +215,10 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                 <FolderOpen className={`h-10 w-10 ${isDarkMode ? "text-blue-400" : "text-blue-600"}`} />
               </div>
               <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>
-                Select a Sector
+                Select a Team
               </h2>
               <p className={isDarkMode ? "text-gray-400" : "text-gray-600"}>
-                Choose a sector from the list to view onboarding tasks and reference material
+                Choose a team from the list to view onboarding tasks and reference material
               </p>
             </div>
           </div>

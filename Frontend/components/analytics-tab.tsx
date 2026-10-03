@@ -146,14 +146,14 @@ export function AnalyticsTab({ isDarkMode = false }: AnalyticsTabProps) {
     <div className="h-full flex flex-col p-6">
       <div className="mb-6">
         <h2 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Onboarding Analytics</h2>
-        <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>How new hires in this sector are using the assistant, and what they keep asking about</p>
+        <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>How new hires in this team are using the assistant, and what they keep asking about</p>
       </div>
 
       {classes.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
-            <p className="text-muted-foreground mb-2">No sectors found</p>
-            <p className="text-sm text-muted-foreground">Create a sector to view its onboarding analytics</p>
+            <p className="text-muted-foreground mb-2">No teams found</p>
+            <p className="text-sm text-muted-foreground">Create a team to view its onboarding analytics</p>
           </div>
         </div>
       ) : !analytics ? (
@@ -168,7 +168,7 @@ export function AnalyticsTab({ isDarkMode = false }: AnalyticsTabProps) {
           <div className="mb-6 flex flex-row items-center justify-between gap-4">
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
               <SelectTrigger className={`w-[300px] ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-                <SelectValue placeholder="Select a sector" />
+                <SelectValue placeholder="Select a team" />
               </SelectTrigger>
               <SelectContent>
                 {classes.map((classItem) => (
@@ -199,7 +199,7 @@ export function AnalyticsTab({ isDarkMode = false }: AnalyticsTabProps) {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-blue-600">{analytics.totalStudents}</div>
-                <p className="text-xs text-muted-foreground mt-1">New hires in this sector</p>
+                <p className="text-xs text-muted-foreground mt-1">New hires in this team</p>
               </CardContent>
             </Card>
 

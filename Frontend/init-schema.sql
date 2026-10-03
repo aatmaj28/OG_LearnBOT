@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS classes (
   vector_store_folder VARCHAR(255),
   syllabus_vector_store_folder VARCHAR(255),
   ta_mode VARCHAR(20) DEFAULT NULL,
+  preferred_model VARCHAR(50) DEFAULT 'local-nemotron',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

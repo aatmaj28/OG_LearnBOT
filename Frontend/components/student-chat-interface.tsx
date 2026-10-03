@@ -26,12 +26,12 @@ import { DeepThinkingAnimation } from "@/components/deep-thinking-animation"
 
 type ChatType = "class_material" | "syllabus"
 
-// A document uploaded for one of the employee's sectors.
+// A document uploaded for one of the employee's teams.
 type CorpusDocument = { classId: string; className: string; fileName: string }
 
 // Encoding for the document picker. A selection is stored as "<classId>::<fileName>" so one
-// Select carries both; an empty fileName means "every document in that sector".
-// The sector id is always a real class id, because the backend resolves the Qdrant collection
+// Select carries both; an empty fileName means "every document in that team".
+// The team id is always a real class id, because the backend resolves the Qdrant collection
 // from it and would otherwise fail on a non-numeric value.
 const DOC_SEPARATOR = "::"
 const encodeDocValue = (classId: string, fileName: string) => `${classId}${DOC_SEPARATOR}${fileName}`
@@ -256,7 +256,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [chatType, setChatType] = useState<ChatType>("class_material")
   const [preferredModel, setPreferredModel] = useState<ModelBackend>("local-nemotron")
   const [classes, setClasses] = useState<Class[]>([])
-  // Every document across the sectors this employee belongs to.
+  // Every document across the teams this employee belongs to.
   const [documents, setDocuments] = useState<CorpusDocument[]>([])
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
   // "" means all documents; otherwise the file the chat is scoped to.
@@ -395,7 +395,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     return () => clearInterval(statusInterval)
   }, [])
 
-  // Default to the employee's first sector once sectors are known.
+  // Default to the employee's first team once teams are known.
   useEffect(() => {
     if (!selectedClassId && classes.length > 0) {
       setSelectedClassId(classes[0].id)
@@ -403,7 +403,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classes]) // Only depend on classes, not selectedClassId to avoid loops
 
-  // Build the document list from every sector the employee belongs to.
+  // Build the document list from every team the employee belongs to.
   useEffect(() => {
     let cancelled = false
 
@@ -426,7 +426,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                 fileName,
               }))
             } catch {
-              // One sector failing shouldn't blank out the whole picker.
+              // One team failing shouldn't blank out the whole picker.
               return [] as CorpusDocument[]
             }
           })
@@ -944,7 +944,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
     if (!classIdToUse) {
       console.error("[v0] No sector available for this employee")
-      alert("You are not assigned to a sector yet. Ask your manager to add you to one.")
+      alert("You are not assigned to a team yet. Ask your manager to add you to one.")
       return
     }
 
@@ -2004,7 +2004,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     }
 
     // Get class name
-    const className = classes.find(c => c.id === selectedClassId)?.name || 'Unknown sector'
+    const className = classes.find(c => c.id === selectedClassId)?.name || 'Unknown team'
 
     // Format chat type
     const chatTypeFormatted = chatType === 'class_material' ? 'Training Material' : 'Policies & Schedule'
@@ -2026,8 +2026,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     let exportContent = `LearnBOT Chat Export\n`
     exportContent += `${'='.repeat(80)}\n\n`
     exportContent += `Employee: ${userName}\n`
-    exportContent += `Sector: ${className}\n`
-    exportContent += `Document: ${selectedDocument || 'All documents in sector'}\n`
+    exportContent += `Team: ${className}\n`
+    exportContent += `Document: ${selectedDocument || 'All documents in team'}\n`
     exportContent += `Chat Type: ${chatTypeFormatted}\n`
     exportContent += `Date Started: ${formattedDate}\n`
     exportContent += `Time Started: ${formattedTime}\n`
@@ -2476,7 +2476,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         {selectedDocument
                           ? `Ask me anything about ${selectedDocument}.`
                           : selectedClassId
-                            ? `Ask me anything about ${classes.find(c => c.id === selectedClassId)?.name || 'your sector'}. I'm here to help you get up to speed.`
+                            ? `Ask me anything about ${classes.find(c => c.id === selectedClassId)?.name || 'your team'}. I'm here to help you get up to speed.`
                             : "Pick a document to start chatting with the assistant"
                         }
                       </p>

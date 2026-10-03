@@ -27,7 +27,7 @@ const ALL_SECTORS = "all-sectors"
 export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTabProps) {
   const [classes, setClasses] = useState<Class[]>([])
   const [selectedClassId, setSelectedClassId] = useState<string>(ALL_SECTORS)
-  // Activity per sector, so "All sectors" can show everyone with the sector they belong to.
+  // Activity per team, so "All teams" can show everyone with the team they belong to.
   const [activitiesBySector, setActivitiesBySector] = useState<Record<string, StudentActivityData[]>>({})
   const [isLoading, setIsLoading] = useState(false)
 
@@ -59,7 +59,7 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
             const data = await analyticsApi.getClassActivity(sector.id) as { activities: StudentActivityData[] }
             return [sector.id, data.activities ?? []] as const
           } catch {
-            // One sector failing shouldn't blank out the whole list.
+            // One team failing shouldn't blank out the whole list.
             return [sector.id, [] as StudentActivityData[]] as const
           }
         })
@@ -101,8 +101,8 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
     return "Neutral"
   }
 
-  // Flatten into one row per employee, tagged with the sector they belong to.
-  const sectorName = (classId: string) => classes.find((c) => c.id === classId)?.name ?? "Unknown sector"
+  // Flatten into one row per employee, tagged with the team they belong to.
+  const sectorName = (classId: string) => classes.find((c) => c.id === classId)?.name ?? "Unknown team"
   const employees = Object.entries(activitiesBySector).flatMap(([classId, activities]) =>
     activities.map((activity) => ({ ...activity, classId, sectorName: sectorName(classId) }))
   )
@@ -112,15 +112,15 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
       <div className="mb-6">
         <h2 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Employees</h2>
         <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
-          Onboarding activity for every employee, by sector
+          Onboarding activity for every employee, by team
         </p>
       </div>
 
       {classes.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
-            <p className="text-muted-foreground mb-2">No sectors found</p>
-            <p className="text-sm text-muted-foreground">Create a sector to start onboarding employees</p>
+            <p className="text-muted-foreground mb-2">No teams found</p>
+            <p className="text-sm text-muted-foreground">Create a team to start onboarding employees</p>
           </div>
         </div>
       ) : (
@@ -128,11 +128,11 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
           <div className="mb-6 flex items-center gap-4">
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
               <SelectTrigger className={`w-[300px] ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'border-gray-300'}`}>
-                <SelectValue placeholder="Select a sector" />
+                <SelectValue placeholder="Select a team" />
               </SelectTrigger>
               <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
                 <SelectItem value={ALL_SECTORS} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                  All sectors
+                  All teams
                 </SelectItem>
                 {classes.map((classItem) => (
                   <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
@@ -159,7 +159,7 @@ export function StudentMonitoringTab({ isDarkMode = false }: StudentMonitoringTa
                   </div>
                   <h3 className={`text-xl font-bold mb-3 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>No employees yet</h3>
                   <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
-                    Add employees to a sector to see their onboarding activity here
+                    Add employees to a team to see their onboarding activity here
                   </p>
                 </div>
               ) : (

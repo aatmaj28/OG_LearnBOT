@@ -46,13 +46,15 @@ except ImportError:
 
 try:
     from routes import students
-    app.register_blueprint(students.bp, url_prefix="/api/students")
+    app.register_blueprint(students.bp, url_prefix="/api/employees")
+    app.register_blueprint(students.bp, url_prefix="/api/students", name="students_legacy")
 except ImportError:
     pass
 
 try:
     from routes import classes
-    app.register_blueprint(classes.bp, url_prefix="/api/classes")
+    app.register_blueprint(classes.bp, url_prefix="/api/teams")
+    app.register_blueprint(classes.bp, url_prefix="/api/classes", name="classes_legacy")
 except ImportError:
     pass
 
@@ -70,7 +72,8 @@ except ImportError:
 
 try:
     from routes import corpus
-    app.register_blueprint(corpus.bp, url_prefix="/api/corpus")
+    app.register_blueprint(corpus.bp, url_prefix="/api/documents")
+    app.register_blueprint(corpus.bp, url_prefix="/api/corpus", name="corpus_legacy")
 except ImportError:
     pass
 

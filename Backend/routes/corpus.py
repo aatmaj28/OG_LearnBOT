@@ -479,3 +479,63 @@ def stats():
     except Exception as error:
         print(f"[CORPUS] STATS ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
+
+
+@bp.route("/file", methods=["GET"])
+def serve_file():
+    """Serve an uploaded corpus document so the manager can read it in the browser.
+
+    Path handling is deliberate: the other download routes in this app build a path straight
+    from query params, which lets "../" escape the storage directory. Here the class is looked
+    up in the DB (so the folder comes from our own data, never the client), the filename is
+    reduced to its basename, and the resolved path is checked to be inside source_pdfs before
+    anything is read.
+    """
+    try:
+        from flask import send_file
+
+        class_id = request.args.get("classId")
+        filename = request.args.get("filename")
+        material_type = request.args.get("materialType", "class_material")
+        if not class_id or not filename:
+            return jsonify({"error": "Class ID and filename are required"}), 400
+        # class_id reaches SQL as an integer column; a non-numeric value would raise and
+        # surface as a 500 rather than a clear rejection.
+        if not str(class_id).isdigit():
+            return jsonify({"error": "Invalid class ID"}), 400
+
+        cls = db_service.get_class_by_id(class_id)
+        if not cls:
+            return jsonify({"error": "Class not found"}), 404
+
+        folder = cls.get("syllabusVectorStoreFolder" if material_type == "syllabus" else "vectorStoreFolder")
+        if not folder:
+            return jsonify({"error": "No documents for this class"}), 404
+
+        pdf_dir = (_store_dir(folder) / "source_pdfs").resolve()
+        safe_name = pathlib.Path(filename).name  # strip any directory component
+        file_path = (pdf_dir / safe_name).resolve()
+
+        # Reject anything that resolves outside the folder (symlinks included).
+        if not str(file_path).startswith(str(pdf_dir) + os.sep):
+            return jsonify({"error": "Invalid filename"}), 400
+        if not file_path.is_file():
+            return jsonify({"error": "File not found"}), 404
+
+        suffix = file_path.suffix.lower()
+        mimetypes_by_ext = {
+            ".pdf": "application/pdf",
+            ".txt": "text/plain",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".doc": "application/msword",
+        }
+        # as_attachment=False so a PDF opens in the browser's viewer instead of downloading.
+        return send_file(
+            str(file_path),
+            mimetype=mimetypes_by_ext.get(suffix, "application/octet-stream"),
+            as_attachment=suffix not in (".pdf", ".txt"),
+            download_name=safe_name,
+        )
+    except Exception as error:
+        print(f"[CORPUS] SERVE FILE ERROR: {error}")
+        return jsonify({"error": "Internal server error"}), 500

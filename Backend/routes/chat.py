@@ -257,18 +257,27 @@ def ai_response():
         if not cls:
             return jsonify({"error": "Class not found"}), 404
 
-        # TA mode (lenient/normal/strict) is configured per faculty and applies to all classes they teach.
+        # Agent behaviour and model are now per team: the manager sets them on the team and every
+        # employee in it inherits them. Falls back to the manager's own setting for teams created
+        # before this moved, then to the default.
         ta_mode = "normal"
         try:
-            faculty_id = cls.get("facultyId")
-            if faculty_id:
-                found = db_service.get_user_ta_mode(str(faculty_id))
-                if isinstance(found, str):
-                    found_norm = found.strip().lower()
-                    if found_norm in ("lenient", "normal", "strict"):
-                        ta_mode = found_norm
+            team_mode = cls.get("taMode")
+            if isinstance(team_mode, str) and team_mode.strip().lower() in ("lenient", "normal", "strict"):
+                ta_mode = team_mode.strip().lower()
+            else:
+                faculty_id = cls.get("facultyId")
+                if faculty_id:
+                    found = db_service.get_user_ta_mode(str(faculty_id))
+                    if isinstance(found, str) and found.strip().lower() in ("lenient", "normal", "strict"):
+                        ta_mode = found.strip().lower()
         except Exception as e:
-            print(f"[CHAT] Failed to resolve TA mode (defaulting to normal): {e}", flush=True)
+            print(f"[CHAT] Failed to resolve agent mode (defaulting to normal): {e}", flush=True)
+
+        # The team's model wins over whatever the client asked for.
+        team_model = cls.get("preferredModel")
+        if isinstance(team_model, str) and team_model.strip():
+            preferred_model = team_model.strip()
         # Resolve vector store folder based on chat type category
         resolved_chat_type = chat_type or conversation.get("chatType") or "assignments"
         # Backward compat: treat legacy "class_material" as "assignments"

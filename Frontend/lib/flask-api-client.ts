@@ -204,7 +204,7 @@ export const studentsApi = {
     degree?: string
     major?: string
   }) => {
-    return apiRequest('/api/students', {
+    return apiRequest('/api/employees', {
       method: 'POST',
       body: JSON.stringify(data),
     })
@@ -219,7 +219,7 @@ export const classesApi = {
     const params = new URLSearchParams()
     if (facultyId) params.append('facultyId', facultyId)
     if (studentId) params.append('studentId', studentId)
-    return apiRequest(`/api/classes?${params.toString()}`)
+    return apiRequest(`/api/teams?${params.toString()}`)
   },
 
   createClass: async (data: {
@@ -227,21 +227,21 @@ export const classesApi = {
     description?: string
     facultyId: string
   }) => {
-    return apiRequest('/api/classes', {
+    return apiRequest('/api/teams', {
       method: 'POST',
       body: JSON.stringify(data),
     })
   },
 
   addStudent: async (classId: string, studentId: string) => {
-    return apiRequest('/api/classes/add-student', {
+    return apiRequest('/api/teams/add-employee', {
       method: 'POST',
       body: JSON.stringify({ classId, studentId }),
     })
   },
 
   removeStudent: async (classId: string, studentId: string) => {
-    return apiRequest('/api/classes/remove-student', {
+    return apiRequest('/api/teams/remove-employee', {
       method: 'POST',
       body: JSON.stringify({ classId, studentId }),
     })
@@ -253,7 +253,7 @@ export const classesApi = {
       enrolled: boolean
       message?: string
       class?: any
-    }>('/api/classes/invite-student', {
+    }>('/api/teams/invite-employee', {
       method: 'POST',
       body: JSON.stringify({ classId, email }),
     })
@@ -263,7 +263,7 @@ export const classesApi = {
     return apiRequest<{
       success: boolean
       message?: string
-    }>('/api/classes/cancel-invite', {
+    }>('/api/teams/cancel-invite', {
       method: 'POST',
       body: JSON.stringify({ classId, email }),
     })
@@ -273,27 +273,27 @@ export const classesApi = {
     return apiRequest<{
       success: boolean
       message?: string
-    }>('/api/classes/resend-invite', {
+    }>('/api/teams/resend-invite', {
       method: 'POST',
       body: JSON.stringify({ classId, email }),
     })
   },
 
   deleteClass: async (classId: string) => {
-    return apiRequest(`/api/classes/delete?classId=${classId}`, {
+    return apiRequest(`/api/teams/delete?classId=${classId}`, {
       method: 'DELETE',
     })
   },
 
   getAssignments: async (classId: string, userId: string) => {
-    return apiRequest(`/api/classes/assignments?classId=${classId}`, {
+    return apiRequest(`/api/teams/assignments?classId=${classId}`, {
       headers: { 'X-User-Id': userId },
     })
   },
 
   createAssignment: async (formData: FormData) => {
     const sessionId = typeof window !== 'undefined' ? localStorage.getItem('sessionId') : null
-    return fetch(`${FLASK_API_URL}/api/classes/assignments`, {
+    return fetch(`${FLASK_API_URL}/api/teams/assignments`, {
       method: 'POST',
       headers: sessionId ? { 'X-Session-Id': sessionId } : {},
       body: formData,
@@ -301,14 +301,14 @@ export const classesApi = {
   },
 
   deleteAssignment: async (classId: string, assignmentId: string, userId: string) => {
-    return apiRequest(`/api/classes/assignments?classId=${classId}&assignmentId=${assignmentId}`, {
+    return apiRequest(`/api/teams/assignments?classId=${classId}&assignmentId=${assignmentId}`, {
       method: 'DELETE',
       headers: { 'X-User-Id': userId },
     })
   },
 
   downloadAssignment: async (classId: string, assignmentId: string) => {
-    const response = await fetch(`${FLASK_API_URL}/api/classes/assignments/download?classId=${classId}&assignmentId=${assignmentId}`)
+    const response = await fetch(`${FLASK_API_URL}/api/teams/assignments/download?classId=${classId}&assignmentId=${assignmentId}`)
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: `Failed to download assignment: ${response.statusText}` }))
       throw new Error(errorData.error || `Failed to download assignment: ${response.statusText}`)
@@ -317,7 +317,7 @@ export const classesApi = {
   },
 
   getResources: async (classId: string, userId: string) => {
-    return apiRequest(`/api/classes/resources?classId=${classId}`, {
+    return apiRequest(`/api/teams/resources?classId=${classId}`, {
       headers: { 'X-User-Id': userId },
     })
   },
@@ -328,7 +328,7 @@ export const classesApi = {
     files.forEach(file => formData.append('files', file))
 
     const sessionId = typeof window !== 'undefined' ? localStorage.getItem('sessionId') : null
-    return fetch(`${FLASK_API_URL}/api/classes/resources?classId=${classId}`, {
+    return fetch(`${FLASK_API_URL}/api/teams/resources?classId=${classId}`, {
       method: 'POST',
       headers: sessionId ? { 'X-Session-Id': sessionId, 'X-User-Id': userId } : { 'X-User-Id': userId },
       body: formData,
@@ -336,14 +336,14 @@ export const classesApi = {
   },
 
   deleteResource: async (classId: string, fileName: string, userId: string) => {
-    return apiRequest(`/api/classes/resources?classId=${classId}&fileName=${encodeURIComponent(fileName)}`, {
+    return apiRequest(`/api/teams/resources?classId=${classId}&fileName=${encodeURIComponent(fileName)}`, {
       method: 'DELETE',
       headers: { 'X-User-Id': userId },
     })
   },
 
   downloadResource: async (classId: string, fileName: string) => {
-    const response = await fetch(`${FLASK_API_URL}/api/classes/resources/download?classId=${classId}&fileName=${encodeURIComponent(fileName)}`)
+    const response = await fetch(`${FLASK_API_URL}/api/teams/resources/download?classId=${classId}&fileName=${encodeURIComponent(fileName)}`)
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: `Failed to download resource: ${response.statusText}` }))
       throw new Error(errorData.error || `Failed to download resource: ${response.statusText}`)
@@ -352,7 +352,7 @@ export const classesApi = {
   },
 
   sendReminder: async (emails: string[], className: string, facultyName?: string) => {
-    return apiRequest('/api/classes/send-reminder', {
+    return apiRequest('/api/teams/send-reminder', {
       method: 'POST',
       body: JSON.stringify({ emails, className, facultyName }),
     })
@@ -483,7 +483,7 @@ export const corpusApi = {
     files.forEach(file => formData.append('files', file))
 
     const sessionId = typeof window !== 'undefined' ? localStorage.getItem('sessionId') : null
-    return fetch(`${FLASK_API_URL}/api/corpus/upload?classId=${classId}&materialType=${materialType}`, {
+    return fetch(`${FLASK_API_URL}/api/documents/upload?classId=${classId}&materialType=${materialType}`, {
       method: 'POST',
       headers: sessionId ? { 'X-Session-Id': sessionId } : {},
       body: formData,
@@ -491,7 +491,7 @@ export const corpusApi = {
   },
 
   index: async (classId: string, materialType: string = 'class_material', forceReindex: boolean = false) => {
-    return apiRequest('/api/corpus/index', {
+    return apiRequest('/api/documents/index', {
       method: 'POST',
       body: JSON.stringify({ classId, materialType, forceReindex }),
     })
@@ -501,11 +501,11 @@ export const corpusApi = {
     const params = new URLSearchParams()
     params.append('classId', classId)
     if (materialType) params.append('materialType', materialType)
-    return apiRequest(`/api/corpus/files?${params.toString()}`)
+    return apiRequest(`/api/documents/files?${params.toString()}`)
   },
 
   deleteFile: async (classId: string, filename: string, materialType: string = 'class_material') => {
-    return apiRequest(`/api/corpus/files?classId=${classId}&filename=${encodeURIComponent(filename)}&materialType=${materialType}`, {
+    return apiRequest(`/api/documents/files?classId=${classId}&filename=${encodeURIComponent(filename)}&materialType=${materialType}`, {
       method: 'DELETE',
     })
   },
@@ -513,20 +513,20 @@ export const corpusApi = {
   /** Removes every indexed chunk for the class; uploaded files are kept. */
   clearChunks: async (classId: string, materialType: string = 'class_material') => {
     return apiRequest<{ success: boolean; message?: string; pdfCount?: number; chunkCount?: number }>(
-      `/api/corpus/chunks?classId=${classId}&materialType=${materialType}`,
+      `/api/documents/chunks?classId=${classId}&materialType=${materialType}`,
       { method: 'DELETE' }
     )
   },
 
   mergeAll: async (classIds: string[], classNames: string[]) => {
-    return apiRequest('/api/corpus/merge-all', {
+    return apiRequest('/api/documents/merge-all', {
       method: 'POST',
       body: JSON.stringify({ classIds, classNames }),
     })
   },
 
   getStats: async (collectionName: string) => {
-    return apiRequest(`/api/corpus/stats?collectionName=${collectionName}`)
+    return apiRequest(`/api/documents/stats?collectionName=${collectionName}`)
   },
 
   /** For student portal: check if class has indexed PDFs (enables chat box). */
@@ -535,7 +535,7 @@ export const corpusApi = {
     params.append('classId', classId)
     params.append('materialType', materialType)
     if (studentId) params.append('studentId', studentId)
-    return apiRequest(`/api/corpus/stats?${params.toString()}`) as Promise<{
+    return apiRequest(`/api/documents/stats?${params.toString()}`) as Promise<{
       pdfCount?: number
       chunkCount?: number
       isEnrolled?: boolean

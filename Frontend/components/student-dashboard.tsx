@@ -92,7 +92,7 @@ export function StudentDashboard() {
                 className={`gap-2 ${isDarkMode ? "data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" : "data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"}`}
               >
                 <BookOpen className="h-4 w-4" />
-                Sectors
+                Teams
               </TabsTrigger>
             </TabsList>
           </div>

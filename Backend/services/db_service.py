@@ -607,6 +607,9 @@ def get_class_by_id(class_id: str) -> Optional[Dict]:
             'facultyId': str(row_dict['faculty_id']),
             'vectorStoreFolder': row_dict.get('vector_store_folder'),
             'syllabusVectorStoreFolder': row_dict.get('syllabus_vector_store_folder'),
+            # Per-team chat settings the manager controls; employees inherit them.
+            'taMode': row_dict.get('ta_mode') or 'normal',
+            'preferredModel': row_dict.get('preferred_model') or 'local-nemotron',
             'studentIds': [str(id) for id in (row_dict.get('student_ids') or [])],
             'pendingEmails': row_dict.get('pending_emails') or [],
             'createdAt': row_dict.get('created_at')
@@ -652,6 +655,9 @@ def get_classes_by_faculty(faculty_id: str) -> List[Dict]:
             'facultyId': str(row['faculty_id']),
             'vectorStoreFolder': row.get('vector_store_folder'),
             'syllabusVectorStoreFolder': row.get('syllabus_vector_store_folder'),
+            # Per-team chat settings the manager controls; employees inherit them.
+            'taMode': row.get('ta_mode') or 'normal',
+            'preferredModel': row.get('preferred_model') or 'local-nemotron',
             'studentIds': [str(id) for id in (row.get('student_ids') or [])],
             'pendingEmails': row.get('pending_emails') or [],
             'createdAt': row.get('created_at')
@@ -697,6 +703,9 @@ def get_classes_by_student(student_id: str) -> List[Dict]:
             'facultyId': str(row['faculty_id']),
             'vectorStoreFolder': row.get('vector_store_folder'),
             'syllabusVectorStoreFolder': row.get('syllabus_vector_store_folder'),
+            # Per-team chat settings the manager controls; employees inherit them.
+            'taMode': row.get('ta_mode') or 'normal',
+            'preferredModel': row.get('preferred_model') or 'local-nemotron',
             'studentIds': [str(id) for id in (row.get('student_ids') or [])],
             'pendingEmails': row.get('pending_emails') or [],
             'createdAt': row.get('created_at')
@@ -1595,3 +1604,25 @@ def get_student_activities_by_class(class_id: str) -> List[Dict]:
         activities.append(activity)
     
     return activities
+
+
+def update_class_settings(class_id: str, ta_mode: Optional[str] = None, preferred_model: Optional[str] = None) -> bool:
+    """Update a team's chat settings (agent behaviour and model). Employees inherit these."""
+    fields, values = [], []
+    if ta_mode is not None:
+        fields.append('ta_mode = %s'); values.append(ta_mode)
+    if preferred_model is not None:
+        fields.append('preferred_model = %s'); values.append(preferred_model)
+    if not fields:
+        return False
+    values.append(class_id)
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f'UPDATE classes SET {", ".join(fields)} WHERE id = %s', tuple(values))
+        conn.commit()
+        updated = cursor.rowcount > 0
+        cursor.close()
+        return updated
+    finally:
+        return_connection(conn)
