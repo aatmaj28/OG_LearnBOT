@@ -8,7 +8,7 @@
 
 const FLASK_API_URL = (process.env.NEXT_PUBLIC_FLASK_API_URL || "http://localhost:5050").replace(/\/$/, "")
 
-const POLL_INTERVAL_MS = 600
+const POLL_INTERVAL_MS = 250
 const POLL_TIMEOUT_MS = 180000
 
 function sessionHeaders(): HeadersInit {
@@ -44,6 +44,9 @@ export async function askAgent(options: AskOptions): Promise<string> {
       preferredModel: options.preferredModel || "local-nemotron",
       stream: false,
       deepThinking: false,
+      // Ask for a spoken-length answer: shorter text is both faster to generate and
+      // faster to synthesize, which is most of the delay the user feels.
+      voice: true,
     }),
   })
 

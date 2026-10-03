@@ -218,6 +218,7 @@ def ai_response():
             stream_param = request.form.get("stream", "true")  # Default to "true" string
             stream = stream_param.lower() == "true" if stream_param else True  # Default to True
             deep_thinking = request.form.get("deepThinking") == "true"
+            voice_mode = request.form.get("voice") == "true"
             flow_type = request.form.get("flowType", "teach")
         elif "application/json" in content_type:
             data = request.get_json()
@@ -232,6 +233,7 @@ def ai_response():
             preferred_model = data.get("preferredModel", "local-nemotron")
             stream = data.get("stream", True)  # Default to streaming for better UX
             deep_thinking = data.get("deepThinking", False)
+            voice_mode = bool(data.get("voice", False))
             flow_type = data.get("flowType", "teach")  # "teach" (pedagogical) or "informative" (direct Q&A)
         else:
             return jsonify({
@@ -357,6 +359,7 @@ def ai_response():
             "chat_type": chat_type,
             "checkpoint_state": conversation.get('checkpointState', {}),
             "deep_thinking": deep_thinking,
+            "voice_mode": voice_mode,
             "ta_mode": ta_mode,
             "flow_type": flow_type,
             "attachments": []
