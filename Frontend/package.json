@@ -7,7 +7,8 @@
     "dev": "next dev -p 3000",
     "lint": "eslint .",
     "start": "next start",
-    "migrate:ta-mode": "node scripts/migrate-add-class-ta-mode.js"
+    "migrate:ta-mode": "node scripts/migrate-add-class-ta-mode.js",
+    "build:static": "STATIC_EXPORT=1 next build"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -1,13 +1,46 @@
 # OG_LearnBOT
 
-Monorepo for LearnBOT.
+Monorepo for LearnBOT: an onboarding assistant for new developers that runs entirely on a Dell GB10. Managers
+connect project repositories; new employees ask about the code (answers cite files and lines), learn
+interactively and give feedback; managers see who is struggling and which docs need fixing. Interfaces between
+the three owners are in [`CONTRACTS.md`](CONTRACTS.md).
 
-| Folder | Contents | Source |
-| --- | --- | --- |
-| [`Frontend/`](Frontend/) | Next.js UI | [dmsb-dash-labs/LearnBot-UI](https://github.com/dmsb-dash-labs/LearnBot-UI) |
-| [`Backend/`](Backend/) | Flask API + chat worker | [dmsb-dash-labs/LearnBOT-Server](https://github.com/dmsb-dash-labs/LearnBOT-Server) |
+| Folder | Contents |
+| --- | --- |
+| [`Backend/app/`](Backend/app/) | FastAPI + LangGraph backend (agents, RAG, routers) |
+| [`Backend/data/`](Backend/data/) | Employees, fake history, projects, meetings; runtime index/events (gitignored) |
+| [`Frontend/`](Frontend/) | Next.js UI, exported as static files and served by the backend at `/` |
+| `Backend/app.py`, `Backend/routes/` | Legacy Flask API (from [LearnBOT-Server](https://github.com/dmsb-dash-labs/LearnBOT-Server)), kept until merge time |
 
-## Running locally
+## Local development
+
+### SSH tunnel
+
+The model, the embeddings and the voice service run on the GB10. Keep this tunnel open:
+
+```bash
+ssh -N -L 21434:127.0.0.1:11434 -L 8100:127.0.0.1:8100 -L 18000:127.0.0.1:8000 dell@172.20.65.152
+```
+
+| Local port | GB10 service |
+| --- | --- |
+| 21434 | Ollama: chat model (`/v1`) and embeddings (`/api/embed`) |
+| 8100 | Voice service (STT/TTS), called by the browser only |
+| 18000 | LearnBOT running in the GB10 sandbox |
+
+### Backend and frontend
+
+```bash
+cp .env.example .env            # defaults point at the tunnel
+npm run setup:app               # Backend/.venv-app with only the allowed packages (Backend/requirements-app.txt)
+npm run dev:app                 # FastAPI on http://localhost:8001 (API under /api)
+npm run build:web               # static frontend in Frontend/out, served by the backend at /
+```
+
+For frontend work with hot reload: `cd Frontend && NEXT_PUBLIC_API_BASE=http://localhost:8001 npm run dev`.
+Port 8001 is used locally because 8000 is often taken by an OpenShell forward.
+
+## Legacy Flask stack (running locally)
 
 ```
 Browser ──► Next.js  :3000 ──┐

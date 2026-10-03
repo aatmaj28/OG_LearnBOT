@@ -12,7 +12,10 @@
     "infra:up": "bash scripts/docker.sh compose up -d --wait",
     "infra:down": "bash scripts/docker.sh compose down",
     "infra:reset": "bash scripts/docker.sh compose down -v && npm run infra:up",
-    "infra:logs": "bash scripts/docker.sh compose logs -f"
+    "infra:logs": "bash scripts/docker.sh compose logs -f",
+    "dev:app": "cd Backend && .venv-app/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload",
+    "build:web": "npm --prefix Frontend run build:static",
+    "setup:app": "cd Backend && uv venv --python 3.13 .venv-app && uv pip install --python .venv-app/bin/python -r requirements-app.txt"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

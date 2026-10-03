@@ -8,3 +8,14 @@ node_modules/
 # Python
 .venv/
 __pycache__/
+
+# LearnBOT FastAPI backend runtime data (see CONTRACTS.md › Data)
+Backend/data/repos/
+Backend/data/index/
+Backend/data/events.jsonl
+Backend/data/memory/
+Backend/data/learn_sessions.json
+Backend/.venv-app/
+
+# Customer data bundles: never commit
+harborline-bank-docs*.zip
