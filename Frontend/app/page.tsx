@@ -46,7 +46,7 @@ export default function HomePage() {
             <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow">
               <Bot className="h-6 w-6 text-white" />
             </div>
-            <span className="text-2xl font-bold text-gray-900">LearnBot</span>
+            <span className="text-2xl font-bold text-gray-900">OnboardAI</span>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/login?role=student">
@@ -65,7 +65,7 @@ export default function HomePage() {
           {/* Welcome Section */}
           <div className="text-center mb-16">
             <h1 className="text-5xl font-bold text-gray-900 mb-4 tracking-tight">
-              Welcome to LearnBot
+              Welcome to OnboardAI
             </h1>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
               An AI onboarding assistant that gets new hires productive faster and gives managers back their time.

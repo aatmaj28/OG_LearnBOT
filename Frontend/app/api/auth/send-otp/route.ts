@@ -23,9 +23,9 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
 ╠══════════════════════════════════════════════════════════════╣
 ║ To: ${email.padEnd(55)}║
 ║                                                              ║
-║ Subject: LearnBOT Portal - Email Verification               ║
+║ Subject: OnboardAI Portal - Email Verification               ║
 ║                                                              ║
-║ Welcome to LearnBOT Portal!                                 ║
+║ Welcome to OnboardAI Portal!                                 ║
 ║                                                              ║
 ║ Hello ${name.padEnd(51)}║
 ║                                                              ║
@@ -41,7 +41,7 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
 ║ If you didn't request this verification, please ignore      ║
 ║ this email.                                                  ║
 ║                                                              ║
-║ © 2026 LearnBot                                              ║
+║ © 2026 OnboardAI                                              ║
 ╚══════════════════════════════════════════════════════════════╝
     `)
     console.warn('⚠️  Gmail credentials not configured. Email logged to console only.')
@@ -123,13 +123,13 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
 <body>
   <div class="container">
     <div class="header">
-      <h1>LearnBOT Portal</h1>
+      <h1>OnboardAI Portal</h1>
       <p>Email Verification</p>
     </div>
     
     <p>Hello <strong>${name}</strong>,</p>
     
-    <p>Welcome to <strong>LearnBot</strong>!</p>
+    <p>Welcome to <strong>OnboardAI</strong>!</p>
     
     <p>Please use the verification code below to complete your registration:</p>
     
@@ -145,7 +145,7 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
     </div>
     
     <div class="footer">
-      <p>© 2026 LearnBot</p>
+      <p>© 2026 OnboardAI</p>
       <p>This is an automated message, please do not reply to this email.</p>
     </div>
   </div>
@@ -155,11 +155,11 @@ async function sendVerificationEmail(email: string, otp: string, name: string) {
 
     // Send email
     await transporter.sendMail({
-      from: `"LearnBOT Portal" <${gmailUser}>`,
+      from: `"OnboardAI Portal" <${gmailUser}>`,
       to: email,
-      subject: 'LearnBOT Portal - Email Verification',
+      subject: 'OnboardAI Portal - Email Verification',
       html: htmlContent,
-      text: `Welcome to LearnBot!\n\nHello ${name},\n\nYour verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this verification, please ignore this email.\n\n© 2026 LearnBot`
+      text: `Welcome to OnboardAI!\n\nHello ${name},\n\nYour verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this verification, please ignore this email.\n\n© 2026 OnboardAI`
     })
 
     console.log(`✅ Verification email sent successfully to ${email}`)

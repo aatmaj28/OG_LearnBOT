@@ -80,8 +80,8 @@ function Shell({ children }: { children: React.ReactNode }) {
               <Bot className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="font-semibold text-gray-900">LearnBOT · {user.role === "manager" ? "Manager Portal" : "Employee Portal"}</h1>
-              <p className="text-sm text-gray-600">Onboarding assistant · runs locally on the GB10</p>
+              <h1 className="font-semibold text-gray-900">OnboardAI · {user.role === "manager" ? "Manager Portal" : "Employee Portal"}</h1>
+              <p className="text-sm text-gray-600">Onboarding assistant</p>
             </div>
           </Link>
           <div className="flex items-center gap-3">

@@ -1,4 +1,4 @@
-// LearnBOT API client for the P1 endpoints (see CONTRACTS.md › API).
+// OnboardAI API client for the P1 endpoints (see CONTRACTS.md › API).
 import { getSession, type SessionUser } from "./session"
 
 // Same-origin in prod (FastAPI serves the static build at /). When running `next dev`, set
@@ -24,7 +24,13 @@ export type Chunk = {
 
 export type Employee = { id: string; name: string; role: string }
 
-export type ChatResponse = { answer: string; citations: Chunk[]; unanswered: boolean; steps: string[] }
+export type ChatResponse = {
+  answer: string
+  citations: Chunk[]
+  unanswered: boolean
+  steps: string[]
+  conversation_id?: string
+}
 
 export type Project = {
   id: string
@@ -57,6 +63,8 @@ export type Team = {
   projects: TeamProject[]
 }
 export type HistoryEntry = ChatResponse & { ts: string; question: string; project_id: string | null }
+export type ConversationMeta = { id: string; title: string; created: string; updated: string; messages: number }
+export type Conversation = ConversationMeta & { messages: HistoryEntry[] }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getSession()?.token
@@ -107,8 +115,13 @@ export const api = {
   history: (employeeId: string) => request<HistoryEntry[]>(`/chat/history${qs({ employee_id: employeeId })}`),
   health: () => request<{ ok: boolean; model: string }>("/health"),
   employees: () => request<Employee[]>("/employees"),
-  chat: (body: { message: string; employee_id: string; project_id?: string | null; think?: boolean }) =>
+  chat: (body: { message: string; employee_id: string; project_id?: string | null; think?: boolean; conversation_id?: string | null }) =>
     post<ChatResponse>("/chat", body),
+  conversations: (employeeId: string) => request<ConversationMeta[]>(`/chat/conversations${qs({ employee_id: employeeId })}`),
+  conversation: (id: string, employeeId: string) =>
+    request<Conversation>(`/chat/conversations/${encodeURIComponent(id)}${qs({ employee_id: employeeId })}`),
+  deleteConversation: (id: string, employeeId: string) =>
+    request<{ ok: boolean }>(`/chat/conversations/${encodeURIComponent(id)}${qs({ employee_id: employeeId })}`, { method: "DELETE" }),
   files: (projectId?: string | null) => request<string[]>(`/files${qs({ project_id: projectId })}`),
   fileContent: (path: string, projectId?: string | null, employeeId?: string | null) =>
     request<FileContent>(`/files/content${qs({ path, project_id: projectId, employee_id: employeeId })}`),

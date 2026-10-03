@@ -47,7 +47,7 @@ async function sendPasswordResetEmail(email: string, resetLink: string) {
 <body>
   <div class="container">
     <div class="header">
-      <h1>LearnBOT Portal</h1>
+      <h1>OnboardAI Portal</h1>
       <p>Password Reset</p>
     </div>
     <p>We received a request to reset your password. Click the button below to proceed. This link will expire in ${RESET_EXPIRY_HOURS} hour.</p>
@@ -56,7 +56,7 @@ async function sendPasswordResetEmail(email: string, resetLink: string) {
     </p>
     <p class="notice">If you did not request this, you can safely ignore this email.</p>
     <div class="footer">
-      <p>© 2026 LearnBot</p>
+      <p>© 2026 OnboardAI</p>
       <p>This is an automated message, please do not reply.</p>
     </div>
   </div>
@@ -65,11 +65,11 @@ async function sendPasswordResetEmail(email: string, resetLink: string) {
   `
 
   await transporter.sendMail({
-    from: `"LearnBOT Portal" <${gmailUser}>`,
+    from: `"OnboardAI Portal" <${gmailUser}>`,
     to: email,
-    subject: "LearnBOT Portal - Reset your password",
+    subject: "OnboardAI Portal - Reset your password",
     html: htmlContent,
-    text: `We received a request to reset your password. Open this link to proceed (expires in ${RESET_EXPIRY_HOURS} hour):\n\n${resetLink}\n\nIf you did not request this, you can safely ignore this email.\n\n© 2026 LearnBot`,
+    text: `We received a request to reset your password. Open this link to proceed (expires in ${RESET_EXPIRY_HOURS} hour):\n\n${resetLink}\n\nIf you did not request this, you can safely ignore this email.\n\n© 2026 OnboardAI`,
   })
   console.log(`✅ Password reset email sent to ${email}`)
   return { success: true }

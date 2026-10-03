@@ -1469,7 +1469,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     })
 
     // Build the export content
-    let exportContent = `LearnBOT Chat Export\n`
+    let exportContent = `OnboardAI Chat Export\n`
     exportContent += `${'='.repeat(80)}\n\n`
     exportContent += `Manager: ${userName}\n`
     exportContent += `Sector: ${className}\n`
@@ -1521,11 +1521,11 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     const link = document.createElement('a')
     link.href = url
 
-    // Create filename: LearnBOT_ClassName_Date_Time.txt
+    // Create filename: OnboardAI_ClassName_Date_Time.txt
     const sanitizedClassName = className.replace(/[^a-z0-9]/gi, '_')
     const dateStr = startDate.toISOString().split('T')[0]
     const timeStr = startDate.toTimeString().split(' ')[0].replace(/:/g, '-')
-    link.download = `LearnBOT_${sanitizedClassName}_${dateStr}_${timeStr}.txt`
+    link.download = `OnboardAI_${sanitizedClassName}_${dateStr}_${timeStr}.txt`
 
     document.body.appendChild(link)
     link.click()
@@ -2151,7 +2151,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
                   <Textarea
                     ref={textareaRef}
-                    placeholder={hasCorpusPdfs === false && selectedClassId ? "No documents uploaded yet..." : "Message LearnBot..."}
+                    placeholder={hasCorpusPdfs === false && selectedClassId ? "No documents uploaded yet..." : "Message OnboardAI..."}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyPress}
@@ -2190,7 +2190,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   </Button>
                 </div>
                 <p className={`text-xs text-center mt-3 ${isDarkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                  Press Enter to send • LearnBOT can make mistakes
+                  Press Enter to send • OnboardAI can make mistakes
                 </p>
               </div>
             </div>

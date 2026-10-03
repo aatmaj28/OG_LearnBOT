@@ -414,7 +414,7 @@ export function VoiceMode() {
     <div className="fixed inset-0 flex flex-col items-center justify-between bg-gradient-to-b from-gray-950 via-blue-950 to-gray-950 px-6 py-10">
       <div className="w-full flex items-center justify-between max-w-3xl">
         <div className="min-w-0">
-          <span className="text-sm font-medium text-white/60">LearnBot voice</span>
+          <span className="text-sm font-medium text-white/60">OnboardAI voice</span>
           {sectorName && <p className="text-xs text-white/35 truncate">{sectorName}</p>}
         </div>
         <Button

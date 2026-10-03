@@ -255,7 +255,7 @@ export function EmployeeTeamDetail({ team, isDarkMode = false, onBack, onOpenDoc
                 <div>
                   <CardTitle className={isDarkMode ? "text-gray-100" : ""}>Training Documents</CardTitle>
                   <CardDescription className={isDarkMode ? "text-gray-400" : ""}>
-                    Pick a document to start learning. LearnBOT answers only from what your manager uploaded to{" "}
+                    Pick a document to start learning. OnboardAI answers only from what your manager uploaded to{" "}
                     {team.name}.
                   </CardDescription>
                 </div>

@@ -1,4 +1,4 @@
-"""LearnBOT FastAPI app: every router under /api, plus the built frontend at /.
+"""OnboardAI FastAPI app: every router under /api, plus the built frontend at /.
 
 Dev (from Backend/):  .venv-app/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 Prod (GB10 sandbox):  uvicorn app.main:app --host 127.0.0.1 --port 8000   (see deploy.sh)
@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.core import config
 from app.routers import admin, analytics, auth, chat, feedback, files, learn, projects, team, teams
 
-app = FastAPI(title="LearnBOT", version="0.1.0")
+app = FastAPI(title="OnboardAI", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",  # next dev, SSH-tunnelled browsers
@@ -41,7 +41,7 @@ def _frontend_file(path: str):
 @app.get("/{path:path}", include_in_schema=False)
 def frontend(path: str):
     if not config.FRONTEND_DIR.is_dir():
-        return JSONResponse({"ok": True, "message": "LearnBOT API. Build the frontend (npm run build:web) to serve "
+        return JSONResponse({"ok": True, "message": "OnboardAI API. Build the frontend (npm run build:web) to serve "
                              f"the UI from {config.FRONTEND_DIR}; the API is under /api."})
     f = _frontend_file(path)
     if f is None:

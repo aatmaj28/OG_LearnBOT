@@ -44,9 +44,9 @@ export async function POST(request: NextRequest) {
     for (const email of emails) {
       try {
         await transporter.sendMail({
-          from: `"LearnBOT" <${gmailUser}>`,
+          from: `"OnboardAI" <${gmailUser}>`,
           to: email,
-          subject: `Action Required: Register for ${className} on LearnBOT`,
+          subject: `Action Required: Register for ${className} on OnboardAI`,
           html: `
             <!DOCTYPE html>
             <html>
@@ -98,14 +98,14 @@ export async function POST(request: NextRequest) {
             </head>
             <body>
               <div class="header">
-                <h1>LearnBOT Registration Required</h1>
+                <h1>OnboardAI Registration Required</h1>
               </div>
               <div class="content">
                 <p>Hello,</p>
                 
-                <p>${facultyName ? `Your manager ${facultyName}` : 'Your manager'} attempted to add you to the sector <span class="class-name">${className}</span> on LearnBOT, but your account was not found in our system.</p>
+                <p>${facultyName ? `Your manager ${facultyName}` : 'Your manager'} attempted to add you to the sector <span class="class-name">${className}</span> on OnboardAI, but your account was not found in our system.</p>
 
-                <p><strong>To gain access to the sector, you need to register on LearnBOT first.</strong></p>
+                <p><strong>To gain access to the sector, you need to register on OnboardAI first.</strong></p>
                 
                 <p>Click the button below to register:</p>
                 
@@ -124,11 +124,11 @@ export async function POST(request: NextRequest) {
 
                 <p>If you have any questions or need assistance, please contact your manager.</p>
                 
-                <p>Best regards,<br>The LearnBOT Team</p>
+                <p>Best regards,<br>The OnboardAI Team</p>
               </div>
               <div class="footer">
-                <p>This is an automated message from LearnBOT. Please do not reply to this email.</p>
-                <p>&copy; ${new Date().getFullYear()} LearnBOT. All rights reserved.</p>
+                <p>This is an automated message from OnboardAI. Please do not reply to this email.</p>
+                <p>&copy; ${new Date().getFullYear()} OnboardAI. All rights reserved.</p>
               </div>
             </body>
             </html>
@@ -136,9 +136,9 @@ export async function POST(request: NextRequest) {
           text: `
 Hello,
 
-${facultyName ? `Your manager ${facultyName}` : 'Your manager'} attempted to add you to the sector "${className}" on LearnBOT, but your account was not found in our system.
+${facultyName ? `Your manager ${facultyName}` : 'Your manager'} attempted to add you to the sector "${className}" on OnboardAI, but your account was not found in our system.
 
-To gain access to the sector, you need to register on LearnBOT first.
+To gain access to the sector, you need to register on OnboardAI first.
 
 Please visit the following link to register:
 ${registrationUrl}
@@ -150,10 +150,10 @@ Once you complete your registration, your manager will be able to add you to the
 If you have any questions or need assistance, please contact your manager.
 
 Best regards,
-The LearnBOT Team
+The OnboardAI Team
 
 ---
-This is an automated message from LearnBOT.
+This is an automated message from OnboardAI.
           `,
         })
 

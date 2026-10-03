@@ -247,7 +247,7 @@ function RegisterContent() {
               <div className="w-14 h-14 rounded-xl bg-white/15 flex items-center justify-center">
                 <Bot className="h-8 w-8 text-white" />
               </div>
-              <span className="text-3xl font-bold text-white">LearnBot</span>
+              <span className="text-3xl font-bold text-white">OnboardAI</span>
             </div>
             {/* Separator Line */}
             <div className="w-16 h-0.5 bg-white mb-6"></div>
@@ -342,7 +342,7 @@ function RegisterContent() {
                   <h2 className="text-3xl font-bold text-gray-900 mb-2">Account Created Successfully!</h2>
                   <div className="w-16 h-0.5 bg-green-600 mb-4 mx-auto"></div>
                   <p className="text-gray-600 mb-2">
-                    Welcome to LearnBot!
+                    Welcome to OnboardAI!
                   </p>
                   <p className="text-sm text-gray-500">
                     Hello <span className="font-medium">{name}</span>! Your {roleLabel.toLowerCase()} account has been verified and is ready to use.

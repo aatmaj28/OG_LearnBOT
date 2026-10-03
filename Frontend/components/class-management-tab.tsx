@@ -1259,7 +1259,7 @@ mike.johnson@company.com`}
                                     </ScrollArea>
                                     <div className="space-y-2">
                                       <p className="text-xs text-muted-foreground">
-                                        These employees need to register on LearnBOT. They have been emailed an invitation automatically.
+                                        These employees need to register on OnboardAI. They have been emailed an invitation automatically.
                                       </p>
                                     </div>
                                   </div>

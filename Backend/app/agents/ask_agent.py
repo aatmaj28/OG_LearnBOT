@@ -1,7 +1,7 @@
 """Ask Agent: answers an employee's question about the codebase with path + line citations.
 
     run(message, employee_id, project_id=None, think=False)
-      -> {answer, citations:[Chunk], unanswered:bool, steps:[str]}
+      -> {answer, citations:[Chunk], unanswered:bool, steps:[str], conversation_id}
 
 LangGraph tool loop (llm <-> tools, at most MAX_STEPS tool rounds) over the employee's assigned projects.
 Tools: search_knowledge, read_file, flag_doc_gap. The model must answer only from tool results, cite path + lines,
@@ -15,12 +15,12 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from app.core import chats, events, llm, memory
+from app.core import chats, events, llm
 from app.rag import files as rag_files
 from app.rag import search as rag_search
 
 MAX_STEPS = 4
-SYSTEM = """You are LearnBOT, an onboarding assistant for new developers on this codebase.
+SYSTEM = """You are OnboardAI, an onboarding assistant for new developers on this codebase.
 Answer ONLY from what the tools return: call search_knowledge first, and read_file when you need more of a file.
 Cite every claim as `path:start-end` (e.g. `Backend/app/main.py:12-30`) using the paths and line numbers from the
 tool results. Keep answers short and concrete (what, where, how).
@@ -154,10 +154,12 @@ def _citations(answer, found, limit=5):
     return out[:limit]
 
 
-def run(message, employee_id, project_id=None, think=False) -> dict:
+def run(message, employee_id, project_id=None, think=False, conversation_id=None) -> dict:
+    """conversation_id continues a chat thread (its last 10 turns are the model's context); None starts a new
+    one. The reply includes the conversation_id it was saved to."""
     from app.routers.projects import project_ids_for  # avoid an import cycle at module load
     project_ids = [project_id] if project_id else project_ids_for(employee_id)
-    messages = [{"role": "system", "content": SYSTEM}, *memory.history(employee_id),
+    messages = [{"role": "system", "content": SYSTEM}, *chats.recent_messages(employee_id, conversation_id),
                 {"role": "user", "content": message}]
     try:
         # Always start from a search on the question itself (the model sometimes answers from general knowledge
@@ -188,8 +190,6 @@ def run(message, employee_id, project_id=None, think=False) -> dict:
     if unanswered:
         events.log_event("chat_unanswered", employee_id, **common,
                          details={"question": message, "reason": gaps[0].get("reason") if gaps else None})
-    if citations and not answer.startswith(("I couldn't", "The model isn't")):
-        memory.add_turn(employee_id, message, answer)
     reply = {"answer": answer, "citations": citations, "unanswered": unanswered, "steps": steps}
-    chats.append(employee_id, message, reply, project_id)
-    return reply
+    conv = chats.append(employee_id, conversation_id, message, reply, project_id)
+    return {**reply, "conversation_id": conv["id"]}
