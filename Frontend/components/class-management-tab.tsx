@@ -66,7 +66,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   const [bulkUploadResult, setBulkUploadResult] = useState<BulkUploadResult | null>(null)
   const [isProcessingBulk, setIsProcessingBulk] = useState(false)
   const [isSendingReminders, setIsSendingReminders] = useState(false)
-  const [activeView, setActiveView] = useState<"students" | "documents" | "settings" | "assignments" | "resources">("students")
+  const [activeView, setActiveView] = useState<"students" | "documents" | "settings" | "assignments" | "resources">("documents")
   // Documents view (merged in from the old separate Documents tab)
   const [docFiles, setDocFiles] = useState<Array<{ fileName: string; chunkCount: number }>>([])
   const [docsLoading, setDocsLoading] = useState(false)
@@ -111,7 +111,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   useEffect(() => {
     if (selectedClass) {
       loadClassStudents()
-      setActiveView("students") // Reset to students view when class changes
+      setActiveView("documents") // Opening a team shows its documents first
     }
   }, [selectedClass])
 
@@ -995,45 +995,33 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                 </Dialog>
               </div>
 
-              {/* View Selection Dropdown */}
+              {/* Team view switcher */}
               <div className="mb-4">
-                <Select value={activeView} onValueChange={(value) => setActiveView(value as "students" | "documents" | "settings" | "assignments" | "resources")}>
-                  <SelectTrigger className={`w-64 border-2 ${isDarkMode ? 'bg-gray-700 border-gray-500 text-gray-100 hover:border-gray-400' : 'border-gray-300 hover:border-gray-400'}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                    <SelectItem value="students" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                      <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4" />
-                        <span>Manage Employees</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="documents" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                      <div className="flex items-center gap-2">
-                        <Database className="h-4 w-4" />
-                        <span>Documents</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="settings" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                      <div className="flex items-center gap-2">
-                        <Settings className="h-4 w-4" />
-                        <span>Assistant Settings</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="assignments" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4" />
-                        <span>Onboarding Tasks</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="resources" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                      <div className="flex items-center gap-2">
-                        <FolderOpen className="h-4 w-4" />
-                        <span>Reference Material</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className={`inline-flex flex-wrap gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`} role="tablist" aria-label="Team view">
+                  {([
+                    { value: "documents", label: "Documents", Icon: Database },
+                    { value: "students", label: "Employees", Icon: Users },
+                    { value: "settings", label: "Assistant Settings", Icon: Settings },
+                    { value: "assignments", label: "Onboarding Tasks", Icon: FileText },
+                    { value: "resources", label: "Reference Material", Icon: FolderOpen },
+                  ] as const).map(({ value, label, Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeView === value}
+                      onClick={() => setActiveView(value)}
+                      className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                        activeView === value
+                          ? isDarkMode ? 'bg-gray-900 text-blue-300 shadow-sm' : 'bg-white text-blue-700 shadow-sm'
+                          : isDarkMode ? 'text-gray-300 hover:bg-gray-600' : 'text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

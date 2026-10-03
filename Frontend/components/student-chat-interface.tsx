@@ -262,7 +262,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   // employee's own picks inside the chat.
   const initialClassIdRef = useRef<string | undefined>(initialClassId)
   const [chatType, setChatType] = useState<ChatType>("class_material")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("local-nemotron")
+  // No picker for this any more: the manager sets the model per team and the backend
+  // overrides whatever the client sends, so employees all get the team's configured model.
+  const [preferredModel] = useState<ModelBackend>("local-nemotron")
   const [classes, setClasses] = useState<Class[]>([])
   // Every document across the teams this employee belongs to.
   const [documents, setDocuments] = useState<CorpusDocument[]>([])
@@ -2188,28 +2190,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                 <div className={`min-w-0 p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
                   <div className="space-y-2">
                     <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
-                      <Zap className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
-                      Select Model
-                    </label>
-                    <Select value={normalizeModelBackend(preferredModel)} onValueChange={(v) => setPreferredModel(v as ModelBackend)}>
-                      <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                        <SelectItem value="local-nemotron" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          ⚡ Nemotron 3.5 Lightning (30B)
-                        </SelectItem>
-                        <SelectItem value="local-qwen" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          🧠 Qwen3.6 (35B-A3B)
-                        </SelectItem>
-                        <SelectItem value="local-nano" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          🍃 Nemotron 3 Nano (4B)
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
                       <FileText className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
                       Select Document
                     </label>
@@ -2370,23 +2350,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             <div className="flex items-center gap-3 flex-1 min-w-0">
               {sidebarLayout !== 'full' && (
                 <>
-                  {/* Model Selector */}
-                  <Select value={normalizeModelBackend(preferredModel)} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-                    <SelectTrigger className={`h-8 w-[210px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                      <SelectItem value="local-nemotron" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">⚡ Nemotron 3.5 Lightning (30B)</span>
-                      </SelectItem>
-                      <SelectItem value="local-qwen" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">🧠 Qwen3.6 (35B-A3B)</span>
-                      </SelectItem>
-                      <SelectItem value="local-nano" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">🍃 Nemotron 3 Nano (4B)</span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
                   <Select
                     value={encodeDocValue(selectedClassId, selectedDocument)}
                     onValueChange={(value) => {
