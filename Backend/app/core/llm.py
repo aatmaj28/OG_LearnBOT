@@ -19,6 +19,8 @@ _THINK_TAGS = re.compile(r"<think>.*?</think>", re.S)
 
 
 def _think_options(think: bool) -> dict:
+    # Measured on nemotron-3.5-lightning:30b through Ollama's /v1: reasoning_effort="none" skips the reasoning
+    # pass (0.2 s, 11 tokens vs 2.6 s, 264 tokens). Ollama's native "think": false is ignored on /v1.
     return {"reasoning_effort": "high" if think else "none"}
 
 
