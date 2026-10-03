@@ -215,6 +215,14 @@ export const studentsApi = {
  * Classes API endpoints
  */
 export const classesApi = {
+  /** Update a team's chat settings. Employees in the team inherit these. */
+  updateSettings: async (classId: string, settings: { taMode?: string; preferredModel?: string }) => {
+    return apiRequest('/api/teams/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ classId, ...settings }),
+    })
+  },
+
   getClasses: async (facultyId?: string, studentId?: string) => {
     const params = new URLSearchParams()
     if (facultyId) params.append('facultyId', facultyId)
@@ -478,6 +486,10 @@ export const chatApi = {
  * Corpus API endpoints
  */
 export const corpusApi = {
+  /** Direct URL for viewing an uploaded document (PDFs render inline in the browser). */
+  fileUrl: (classId: string, filename: string, materialType: string = 'class_material') =>
+    `${FLASK_API_URL}/api/documents/file?classId=${encodeURIComponent(classId)}&filename=${encodeURIComponent(filename)}&materialType=${materialType}`,
+
   upload: async (classId: string, files: File[], materialType: string = 'class_material') => {
     const formData = new FormData()
     files.forEach(file => formData.append('files', file))

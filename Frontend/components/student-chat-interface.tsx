@@ -243,16 +243,24 @@ interface StudentChatInterfaceProps {
   showHeader?: boolean
   sidebarLayout?: 'minimal' | 'full'
   isDarkMode?: boolean
+  // Optional starting scope. When the employee opens a document from the My Teams tab we mount
+  // the chat already pointed at that team + document. Omit both and the chat behaves exactly as
+  // before: it falls back to the employee's first team and "all documents".
+  initialClassId?: string
+  initialDocument?: string
 }
 
-export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minimal', isDarkMode: isDarkModeProp }: StudentChatInterfaceProps = {}) {
+export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minimal', isDarkMode: isDarkModeProp, initialClassId, initialDocument }: StudentChatInterfaceProps = {}) {
   const router = useRouter()
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [userName, setUserName] = useState("")
-  const [selectedClassId, setSelectedClassId] = useState<string>("")
+  const [selectedClassId, setSelectedClassId] = useState<string>(initialClassId ?? "")
+  // Captured once so a re-render never re-applies the caller's starting scope over the
+  // employee's own picks inside the chat.
+  const initialClassIdRef = useRef<string | undefined>(initialClassId)
   const [chatType, setChatType] = useState<ChatType>("class_material")
   const [preferredModel, setPreferredModel] = useState<ModelBackend>("local-nemotron")
   const [classes, setClasses] = useState<Class[]>([])
@@ -260,7 +268,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [documents, setDocuments] = useState<CorpusDocument[]>([])
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
   // "" means all documents; otherwise the file the chat is scoped to.
-  const [selectedDocument, setSelectedDocument] = useState<string>("")
+  const [selectedDocument, setSelectedDocument] = useState<string>(initialDocument ?? "")
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
   }>({ isAvailable: false })
@@ -444,13 +452,16 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   // A document picked under one chat type may not exist under the other.
   useEffect(() => {
     if (!selectedDocument) return
+    // Teams haven't arrived yet, so the document list is empty for that reason alone — don't
+    // read it as "the file is gone" and clear a starting document handed in by the caller.
+    if (classes.length === 0) return
     const stillExists = documents.some(
       (doc) => doc.classId === selectedClassId && doc.fileName === selectedDocument
     )
     if (!isLoadingDocuments && !stillExists) {
       setSelectedDocument("")
     }
-  }, [documents, isLoadingDocuments, selectedDocument, selectedClassId])
+  }, [documents, isLoadingDocuments, selectedDocument, selectedClassId, classes.length])
 
   useEffect(() => {
     if (selectedClassId) {
@@ -737,9 +748,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       const { classesApi } = await import("@/lib/flask-api-client")
       const data = (await classesApi.getClasses(undefined, userId)) as { classes?: Class[] }
       setClasses(data.classes || [])
-      // Auto-select first class if available
+      // Auto-select first class if available, unless the caller asked to start on a specific
+      // team and the employee is actually assigned to it.
       if (data.classes && data.classes.length > 0) {
-        setSelectedClassId(data.classes[0].id)
+        const requested = initialClassIdRef.current
+        const requestedIsAssigned = !!requested && data.classes.some((c) => c.id === requested)
+        setSelectedClassId(requestedIsAssigned ? (requested as string) : data.classes[0].id)
       }
     } catch (error) {
       console.error("[Student Chat] Failed to load classes:", error)

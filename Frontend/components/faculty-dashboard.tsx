@@ -4,16 +4,14 @@ import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { LogoutButton } from "@/components/logout-button"
-import { MessageSquare, Users, BarChart3, BookOpen, Database, Sun, Moon } from "lucide-react"
-import { FacultyChatTab } from "@/components/faculty-chat-tab"
+import { Users, BarChart3, BookOpen, Sun, Moon } from "lucide-react"
 import { ClassManagementTab } from "@/components/class-management-tab"
 import { StudentMonitoringTab } from "@/components/student-monitoring-tab"
 import { AnalyticsTab } from "@/components/analytics-tab"
-import { CorpusManagementTab } from "@/components/corpus-management-tab"
 
 export function FacultyDashboard() {
   const [userName, setUserName] = useState("")
-  const [activeTab, setActiveTab] = useState("chat")
+  const [activeTab, setActiveTab] = useState("classes")
   const [isDarkMode, setIsDarkMode] = useState(false)
 
   useEffect(() => {
@@ -89,17 +87,9 @@ export function FacultyDashboard() {
         <Tabs value={activeTab} onValueChange={handleTabChange} className="h-full flex flex-col">
           <div className={`border-b px-4 shadow-sm ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
             <TabsList className="h-12 bg-transparent">
-              <TabsTrigger value="chat" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
-                <MessageSquare className="h-4 w-4" />
-                Chat
-              </TabsTrigger>
               <TabsTrigger value="classes" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
                 <BookOpen className="h-4 w-4" />
-                Sectors
-              </TabsTrigger>
-              <TabsTrigger value="corpus" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
-                <Database className="h-4 w-4" />
-                Documents
+                Teams
               </TabsTrigger>
               <TabsTrigger value="students" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
                 <Users className="h-4 w-4" />
@@ -113,14 +103,8 @@ export function FacultyDashboard() {
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            <TabsContent value="chat" className="h-full m-0">
-              <FacultyChatTab isDarkMode={isDarkMode} />
-            </TabsContent>
             <TabsContent value="classes" className="h-full m-0">
               <ClassManagementTab isDarkMode={isDarkMode} />
-            </TabsContent>
-            <TabsContent value="corpus" className="h-full m-0">
-              <CorpusManagementTab isDarkMode={isDarkMode} />
             </TabsContent>
             <TabsContent value="students" className="h-full m-0">
               <StudentMonitoringTab isDarkMode={isDarkMode} />

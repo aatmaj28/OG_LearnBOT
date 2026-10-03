@@ -1,7 +1,9 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { corpusApi } from "@/lib/flask-api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,7 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Users, Trash2, UserPlus, AlertTriangle, Upload, FileText, CheckCircle2, XCircle, FolderOpen, ChevronLeft, ChevronRight, X, Calendar, ExternalLink, Download, Send, Search } from "lucide-react"
+import { Plus, Users, Trash2, UserPlus, AlertTriangle, Upload, FileText, CheckCircle2, XCircle, FolderOpen, ChevronLeft, ChevronRight, X, Calendar, ExternalLink, Download, Send, Search, Database, Settings } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import type { Class, User } from "@/lib/types"
@@ -64,7 +66,18 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   const [bulkUploadResult, setBulkUploadResult] = useState<BulkUploadResult | null>(null)
   const [isProcessingBulk, setIsProcessingBulk] = useState(false)
   const [isSendingReminders, setIsSendingReminders] = useState(false)
-  const [activeView, setActiveView] = useState<"students" | "assignments" | "resources">("students")
+  const [activeView, setActiveView] = useState<"students" | "documents" | "settings" | "assignments" | "resources">("students")
+  // Documents view (merged in from the old separate Documents tab)
+  const [docFiles, setDocFiles] = useState<Array<{ fileName: string; chunkCount: number }>>([])
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [pendingUploads, setPendingUploads] = useState<File[]>([])
+  const [isIndexing, setIsIndexing] = useState(false)
+  const [viewingDoc, setViewingDoc] = useState<string | null>(null)
+  const docInputRef = useRef<HTMLInputElement>(null)
+  // Team chat settings the manager controls; employees inherit them
+  const [teamModel, setTeamModel] = useState<string>("local-nemotron")
+  const [teamAgentMode, setTeamAgentMode] = useState<string>("normal")
+  const [savingSettings, setSavingSettings] = useState(false)
   const [resources, setResources] = useState<Array<{ name: string; size: number; uploadedAt: Date | string; fileExists?: boolean }>>([])
   const [isUploadingResources, setIsUploadingResources] = useState(false)
   const resourcesFileInputRef = useRef<HTMLInputElement | null>(null)
@@ -113,6 +126,82 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       loadAssignments()
     }
   }, [selectedClass, activeView])
+
+
+  const loadDocuments = useCallback(async () => {
+    if (!selectedClass) return
+    setDocsLoading(true)
+    try {
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      const data = await corpusApi.getFiles(selectedClass.id, "class_material") as {
+        filesData?: Array<{ fileName: string; chunkCount: number }>; files?: string[]
+      }
+      setDocFiles(data.filesData ?? (data.files ?? []).map((f) => ({ fileName: f, chunkCount: 0 })))
+    } catch {
+      setDocFiles([])
+    } finally {
+      setDocsLoading(false)
+    }
+  }, [selectedClass])
+
+  useEffect(() => {
+    if (selectedClass && activeView === "documents") loadDocuments()
+  }, [selectedClass, activeView, loadDocuments])
+
+  // Mirror the selected team's stored settings into the form
+  useEffect(() => {
+    if (!selectedClass) return
+    setTeamModel((selectedClass as any).preferredModel || "local-nemotron")
+    setTeamAgentMode((selectedClass as any).taMode || "normal")
+  }, [selectedClass])
+
+  const uploadAndIndex = async () => {
+    if (!selectedClass || pendingUploads.length === 0) return
+    setIsIndexing(true)
+    try {
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      await corpusApi.upload(selectedClass.id, pendingUploads, "class_material")
+      toast.success(`Uploaded ${pendingUploads.length} document${pendingUploads.length === 1 ? "" : "s"}`)
+      setPendingUploads([])
+      if (docInputRef.current) docInputRef.current.value = ""
+      toast.info("Indexing… this can take a few minutes for a large document.")
+      await corpusApi.index(selectedClass.id, "class_material", false)
+      toast.success("Documents indexed and ready")
+      await loadDocuments()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload failed")
+    } finally {
+      setIsIndexing(false)
+    }
+  }
+
+  const deleteDocument = async (fileName: string) => {
+    if (!selectedClass) return
+    if (!confirm(`Delete "${fileName}"? The assistant will stop answering from it.`)) return
+    try {
+      const { corpusApi } = await import("@/lib/flask-api-client")
+      await corpusApi.deleteFile(selectedClass.id, fileName, "class_material")
+      toast.success("Document deleted")
+      await loadDocuments()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete the document")
+    }
+  }
+
+  const saveTeamSettings = async (next: { taMode?: string; preferredModel?: string }) => {
+    if (!selectedClass) return
+    setSavingSettings(true)
+    try {
+      const { classesApi } = await import("@/lib/flask-api-client")
+      await classesApi.updateSettings(selectedClass.id, next)
+      toast.success("Team settings saved")
+      await loadClasses()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save settings")
+    } finally {
+      setSavingSettings(false)
+    }
+  }
 
   const loadClasses = async () => {
     const facultyId = localStorage.getItem("userId")
@@ -166,10 +255,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       setNewClassDescription("")
       setShowCreateDialog(false)
       await loadClasses()
-      toast.success('Sector created successfully!')
+      toast.success('Team created successfully!')
     } catch (error: any) {
       console.error("[v0] Failed to create class:", error)
-      toast.error(error?.message || 'Failed to create sector')
+      toast.error(error?.message || 'Failed to create team')
     }
   }
 
@@ -220,7 +309,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       if (isEnrolled) {
         toast.warning('Employee already added', {
-          description: 'This employee is already assigned to this sector.'
+          description: 'This employee is already assigned to this team.'
         })
         return
       }
@@ -260,7 +349,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       // Show success message
       if (response.enrolled) {
         toast.success('Employee added successfully!', {
-          description: "Employee was found and added to the sector."
+          description: "Employee was found and added to the team."
         })
       } else {
         toast.success('Invitation sent!', {
@@ -453,10 +542,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       setDeleteConfirmationText("")
       setSelectedClass(null)
       await loadClasses()
-      toast.success('Sector deleted successfully')
+      toast.success('Team deleted successfully')
     } catch (error: any) {
       console.error("[v0] Failed to delete class:", error)
-      toast.error('Failed to delete sector', {
+      toast.error('Failed to delete team', {
         description: error?.message || 'An unexpected error occurred. Please try again.'
       })
     }
@@ -760,22 +849,22 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       {/* Classes List */}
       <div className={`w-96 border-r shadow-sm p-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Sectors</h2>
+          <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Teams</h2>
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
                 <Plus className="h-4 w-4 mr-1" />
-                New Sector
+                New Team
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New Sector</DialogTitle>
-                <DialogDescription>Add a new sector to manage your employees</DialogDescription>
+                <DialogTitle>Create New Team</DialogTitle>
+                <DialogDescription>Add a new team to manage your employees</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="className">Sector Name</Label>
+                  <Label htmlFor="className">Team Name</Label>
                   <Input
                     id="className"
                     placeholder="e.g., Engineering, Sales, Marketing"
@@ -787,14 +876,14 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                   <Label htmlFor="classDescription">Description</Label>
                   <Textarea
                     id="classDescription"
-                    placeholder="Brief description of the sector"
+                    placeholder="Brief description of the team"
                     value={newClassDescription}
                     onChange={(e) => setNewClassDescription(e.target.value)}
                     rows={3}
                   />
                 </div>
                 <Button onClick={createClass} className="w-full">
-                  Create Sector
+                  Create Team
                 </Button>
               </div>
             </DialogContent>
@@ -805,7 +894,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
           <div className="space-y-2">
             {classes.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No sectors yet. Create one to get started!
+                No teams yet. Create one to get started!
               </p>
             ) : (
               classes.map((classItem) => (
@@ -836,8 +925,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
               <div className={`p-4 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center shadow-lg ${isDarkMode ? 'bg-gradient-to-br from-blue-900 to-indigo-900' : 'bg-gradient-to-br from-blue-100 to-indigo-100'}`}>
                 <Users className={`h-10 w-10 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
               </div>
-              <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Select a Sector</h2>
-              <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Choose a sector from the list to view and manage employees</p>
+              <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Select a Team</h2>
+              <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Choose a team from the list to view and manage employees</p>
             </div>
           </div>
         ) : (
@@ -852,23 +941,23 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                   <DialogTrigger asChild>
                     <Button variant="destructive" size="sm">
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete Sector
+                      Delete Team
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-md">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
                         <AlertTriangle className="h-5 w-5 text-destructive" />
-                        Delete Sector
+                        Delete Team
                       </DialogTitle>
                       <DialogDescription>
-                        This action cannot be undone. This will permanently delete the sector and remove all associated data.
+                        This action cannot be undone. This will permanently delete the team and remove all associated data.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
                         <p className="text-sm font-medium text-destructive mb-2">
-                          Type the sector name exactly to confirm deletion:
+                          Type the team name exactly to confirm deletion:
                         </p>
                         <p className="text-sm font-mono bg-background p-2 rounded border">
                           {selectedClass.name}
@@ -898,7 +987,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                           onClick={deleteClass}
                           disabled={deleteConfirmationText !== selectedClass.name}
                         >
-                          Delete Sector
+                          Delete Team
                         </Button>
                       </div>
                     </div>
@@ -908,7 +997,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
               {/* View Selection Dropdown */}
               <div className="mb-4">
-                <Select value={activeView} onValueChange={(value) => setActiveView(value as "students" | "assignments" | "resources")}>
+                <Select value={activeView} onValueChange={(value) => setActiveView(value as "students" | "documents" | "settings" | "assignments" | "resources")}>
                   <SelectTrigger className={`w-64 border-2 ${isDarkMode ? 'bg-gray-700 border-gray-500 text-gray-100 hover:border-gray-400' : 'border-gray-300 hover:border-gray-400'}`}>
                     <SelectValue />
                   </SelectTrigger>
@@ -917,6 +1006,18 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                       <div className="flex items-center gap-2">
                         <Users className="h-4 w-4" />
                         <span>Manage Employees</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="documents" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4" />
+                        <span>Documents</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="settings" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                      <div className="flex items-center gap-2">
+                        <Settings className="h-4 w-4" />
+                        <span>Assistant Settings</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="assignments" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
@@ -940,14 +1041,14 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
             <Dialog open={showRemoveStudentDialog} onOpenChange={setShowRemoveStudentDialog}>
               <DialogContent className="max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Remove Employee from Sector</DialogTitle>
+                  <DialogTitle>Remove Employee from Team</DialogTitle>
                   <DialogDescription>
                     Are you sure you want to remove {studentToRemove?.name} from {selectedClass?.name}?
                   </DialogDescription>
                 </DialogHeader>
                 <div className="py-4">
                   <p className="text-sm text-muted-foreground">
-                    This action will remove the employee from this sector. They will no longer have access to training materials or chat sessions.
+                    This action will remove the employee from this team. They will no longer have access to training materials or chat sessions.
                   </p>
                 </div>
                 <div className="flex justify-end space-x-2">
@@ -999,7 +1100,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                         </DialogTrigger>
                         <DialogContent className="max-w-md">
                           <DialogHeader>
-                            <DialogTitle>Add Employee to Sector</DialogTitle>
+                            <DialogTitle>Add Employee to Team</DialogTitle>
                             <DialogDescription>
                               Enter the registered employee's email address. The employee must have already registered an account.
                             </DialogDescription>
@@ -1020,7 +1121,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                                 <p className="text-sm text-red-500">{WORK_EMAIL_HINT}</p>
                               )}
                               <p className="text-xs text-muted-foreground">
-                                Note: Employee must register first before they can be added to a sector.
+                                Note: Employee must register first before they can be added to a team.
                               </p>
                             </div>
                             <div className="flex justify-end space-x-2 pt-4">
@@ -1364,6 +1465,167 @@ mike.johnson@company.com`}
                       </div>
                     )
                   })()}
+                </CardContent>
+              </Card>
+            )}
+
+
+            {/* Document viewer — PDFs render inline via the backend's file endpoint */}
+            <Dialog open={!!viewingDoc} onOpenChange={(open) => !open && setViewingDoc(null)}>
+              <DialogContent className="!max-w-5xl w-[92vw] h-[88vh] flex flex-col" style={{ maxWidth: '92vw' }}>
+                <DialogHeader>
+                  <DialogTitle className="truncate pr-8">{viewingDoc}</DialogTitle>
+                  <DialogDescription>{selectedClass?.name}</DialogDescription>
+                </DialogHeader>
+                {viewingDoc && selectedClass && (
+                  <iframe
+                    src={corpusApi.fileUrl(selectedClass.id, viewingDoc)}
+                    className="flex-1 w-full rounded border"
+                    title={viewingDoc}
+                  />
+                )}
+              </DialogContent>
+            </Dialog>
+
+            {activeView === "documents" && (
+              <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''}>
+                <CardHeader>
+                  <CardTitle className={isDarkMode ? 'text-gray-100' : ''}>Documents</CardTitle>
+                  <CardDescription className={isDarkMode ? 'text-gray-400' : ''}>
+                    The assistant answers {selectedClass?.name} only from these documents. Click one to read it.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={docInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf,.docx,.doc,.txt"
+                      className="hidden"
+                      onChange={(e) => setPendingUploads(Array.from(e.target.files || []))}
+                    />
+                    <Button variant="outline" onClick={() => docInputRef.current?.click()} disabled={isIndexing}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Choose documents
+                    </Button>
+                    <Button onClick={uploadAndIndex} disabled={pendingUploads.length === 0 || isIndexing}>
+                      {isIndexing
+                        ? "Indexing…"
+                        : `Upload & index${pendingUploads.length ? ` (${pendingUploads.length})` : ""}`}
+                    </Button>
+                    {pendingUploads.length > 0 && !isIndexing && (
+                      <span className="text-sm text-muted-foreground">
+                        {pendingUploads.map((f) => f.name).join(", ")}
+                      </span>
+                    )}
+                  </div>
+
+                  {docsLoading ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">Loading documents…</p>
+                  ) : docFiles.length === 0 ? (
+                    <div className="text-center py-10">
+                      <Database className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+                      <p className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>No documents yet</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Upload handbooks, policies or process docs so the assistant can answer from them.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {docFiles.map((doc) => (
+                        <div
+                          key={doc.fileName}
+                          className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${isDarkMode ? 'border-gray-700 hover:bg-gray-700/40' : 'border-gray-200 hover:bg-gray-50'}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setViewingDoc(doc.fileName)}
+                            className="flex items-center gap-3 min-w-0 flex-1 text-left"
+                            title="Open this document"
+                          >
+                            <FileText className="h-4 w-4 flex-shrink-0 text-blue-600" />
+                            <span className={`truncate text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+                              {doc.fileName}
+                            </span>
+                          </button>
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            {doc.chunkCount > 0 && (
+                              <Badge variant="secondary" className="text-xs">{doc.chunkCount} sections</Badge>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => deleteDocument(doc.fileName)}
+                              title="Delete document"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {activeView === "settings" && (
+              <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''}>
+                <CardHeader>
+                  <CardTitle className={isDarkMode ? 'text-gray-100' : ''}>Assistant Settings</CardTitle>
+                  <CardDescription className={isDarkMode ? 'text-gray-400' : ''}>
+                    Applies to everyone in {selectedClass?.name}. Employees use these settings and cannot change them.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6 max-w-xl">
+                  <div className="space-y-2">
+                    <Label className={isDarkMode ? 'text-gray-200' : ''}>Model</Label>
+                    <Select
+                      value={teamModel}
+                      onValueChange={(v) => { setTeamModel(v); saveTeamSettings({ preferredModel: v }) }}
+                      disabled={savingSettings}
+                    >
+                      <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
+                        <SelectItem value="local-nemotron">⚡ Nemotron 3.5 Lightning (30B)</SelectItem>
+                        <SelectItem value="local-qwen">🧠 Qwen3.6 (35B-A3B)</SelectItem>
+                        <SelectItem value="local-nano">🍃 Nemotron 3 Nano (4B)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      All three run locally on your own hardware. Nano is the fastest; the 30B models are more thorough.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className={isDarkMode ? 'text-gray-200' : ''}>Agent behaviour</Label>
+                    <div className={`flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                      {(["lenient", "normal", "strict"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          disabled={savingSettings}
+                          onClick={() => { setTeamAgentMode(mode); saveTeamSettings({ taMode: mode }) }}
+                          className={`flex-1 px-3 py-2 text-xs font-medium rounded capitalize transition-colors ${
+                            teamAgentMode === mode
+                              ? 'bg-blue-600 text-white'
+                              : isDarkMode ? 'text-gray-300 hover:bg-gray-600' : 'text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {teamAgentMode === 'lenient' && 'Answers plainly and warmly, with no follow-up questions.'}
+                      {teamAgentMode === 'normal' && 'Answers, states conditions and exceptions, then checks understanding.'}
+                      {teamAgentMode === 'strict' && 'Quotes exact policy wording, lists every condition and deadline, and names required actions. Slower, because the model reasons before answering.'}
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             )}
