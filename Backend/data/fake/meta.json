@@ -1,0 +1,65 @@
+{
+  "anchor": "2026-10-03",
+  "topics": [
+    {
+      "topic": "RAG ingestion & chunking",
+      "source_type": "code",
+      "path": "Backend/app/rag/ingest.py",
+      "section": "chunk_code()"
+    },
+    {
+      "topic": "Vector search",
+      "source_type": "code",
+      "path": "Backend/app/rag/search.py",
+      "section": "search()"
+    },
+    {
+      "topic": "Chat API & citations",
+      "source_type": "code",
+      "path": "Backend/app/routers/chat.py",
+      "section": "POST /api/chat"
+    },
+    {
+      "topic": "LLM helper & think mode",
+      "source_type": "code",
+      "path": "Backend/app/core/llm.py",
+      "section": "chat_json()"
+    },
+    {
+      "topic": "Embeddings & prefixes",
+      "source_type": "doc",
+      "path": "CONTRACTS.md",
+      "section": "Env \u203a EMBED_MODEL"
+    },
+    {
+      "topic": "GB10 deployment",
+      "source_type": "doc",
+      "path": "SETUP-GB10.md",
+      "section": "10. openshell exec over SSH"
+    },
+    {
+      "topic": "Dev tunnel & env setup",
+      "source_type": "doc",
+      "path": "README.md",
+      "section": "Local development \u203a SSH tunnel"
+    },
+    {
+      "topic": "Event logging",
+      "source_type": "code",
+      "path": "Backend/app/core/events.py",
+      "section": "log_event()"
+    },
+    {
+      "topic": "Voice button (WAV only)",
+      "source_type": "code",
+      "path": "Frontend/components/voice/VoiceButton.tsx",
+      "section": "encodeWav()"
+    },
+    {
+      "topic": "Frontend routing",
+      "source_type": "code",
+      "path": "Frontend/app/layout.tsx",
+      "section": "RootLayout"
+    }
+  ]
+}
