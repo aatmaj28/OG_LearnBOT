@@ -1,0 +1,373 @@
+{
+  "emp_demo": {
+    "first_ticket_assigned": "2026-09-26",
+    "first_pr_merged": "2026-10-02",
+    "tickets": [
+      {
+        "key": "LB-329",
+        "title": "Add retries to chat_json",
+        "status": "done",
+        "created": "2026-09-26",
+        "resolved": "2026-10-02"
+      },
+      {
+        "key": "LB-804",
+        "title": "Return file line ranges in citations",
+        "status": "in_progress",
+        "created": "2026-10-01",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_001": {
+    "first_ticket_assigned": "2026-09-11",
+    "first_pr_merged": "2026-09-16",
+    "tickets": [
+      {
+        "key": "LB-218",
+        "title": "Add retries to chat_json",
+        "status": "done",
+        "created": "2026-09-11",
+        "resolved": "2026-09-16"
+      },
+      {
+        "key": "LB-164",
+        "title": "Return file line ranges in citations",
+        "status": "done",
+        "created": "2026-09-16",
+        "resolved": "2026-09-20"
+      },
+      {
+        "key": "LB-758",
+        "title": "Cache embeddings per file hash",
+        "status": "done",
+        "created": "2026-09-21",
+        "resolved": "2026-09-26"
+      },
+      {
+        "key": "LB-292",
+        "title": "Log chat latency in events",
+        "status": "done",
+        "created": "2026-09-26",
+        "resolved": "2026-10-02"
+      }
+    ]
+  },
+  "emp_002": {
+    "first_ticket_assigned": "2026-09-17",
+    "first_pr_merged": "2026-09-23",
+    "tickets": [
+      {
+        "key": "LB-142",
+        "title": "Citation chips open file at line",
+        "status": "done",
+        "created": "2026-09-17",
+        "resolved": "2026-09-23"
+      },
+      {
+        "key": "LB-104",
+        "title": "Loading state for chat",
+        "status": "done",
+        "created": "2026-09-22",
+        "resolved": "2026-09-29"
+      },
+      {
+        "key": "LB-209",
+        "title": "Dark mode for files page",
+        "status": "in_review",
+        "created": "2026-09-27",
+        "resolved": null
+      },
+      {
+        "key": "LB-512",
+        "title": "Keyboard shortcut for voice",
+        "status": "in_progress",
+        "created": "2026-10-02",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_003": {
+    "first_ticket_assigned": "2026-09-20",
+    "first_pr_merged": "2026-09-28",
+    "tickets": [
+      {
+        "key": "LB-862",
+        "title": "Smoke test /api/chat",
+        "status": "done",
+        "created": "2026-09-20",
+        "resolved": "2026-09-28"
+      },
+      {
+        "key": "LB-127",
+        "title": "Regression suite for learn flow",
+        "status": "done",
+        "created": "2026-09-25",
+        "resolved": "2026-10-02"
+      },
+      {
+        "key": "LB-913",
+        "title": "Voice WAV upload test",
+        "status": "in_progress",
+        "created": "2026-09-30",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_004": {
+    "first_ticket_assigned": "2026-09-14",
+    "first_pr_merged": "2026-09-24",
+    "tickets": [
+      {
+        "key": "LB-796",
+        "title": "Index meeting notes",
+        "status": "done",
+        "created": "2026-09-14",
+        "resolved": "2026-09-24"
+      },
+      {
+        "key": "LB-891",
+        "title": "Dedupe chunks across docs",
+        "status": "done",
+        "created": "2026-09-19",
+        "resolved": "2026-09-28"
+      },
+      {
+        "key": "LB-939",
+        "title": "Nightly re-index job",
+        "status": "in_review",
+        "created": "2026-09-24",
+        "resolved": null
+      },
+      {
+        "key": "LB-310",
+        "title": "Embedding drift check",
+        "status": "in_progress",
+        "created": "2026-09-29",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_005": {
+    "first_ticket_assigned": "2026-09-23",
+    "first_pr_merged": "2026-09-29",
+    "tickets": [
+      {
+        "key": "LB-133",
+        "title": "Add retries to chat_json",
+        "status": "done",
+        "created": "2026-09-23",
+        "resolved": "2026-09-29"
+      },
+      {
+        "key": "LB-287",
+        "title": "Return file line ranges in citations",
+        "status": "in_review",
+        "created": "2026-09-28",
+        "resolved": null
+      },
+      {
+        "key": "LB-786",
+        "title": "Cache embeddings per file hash",
+        "status": "in_progress",
+        "created": "2026-10-03",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_006": {
+    "first_ticket_assigned": "2026-09-08",
+    "first_pr_merged": "2026-09-14",
+    "tickets": [
+      {
+        "key": "LB-964",
+        "title": "Index meeting notes",
+        "status": "done",
+        "created": "2026-09-08",
+        "resolved": "2026-09-14"
+      },
+      {
+        "key": "LB-688",
+        "title": "Dedupe chunks across docs",
+        "status": "done",
+        "created": "2026-09-13",
+        "resolved": "2026-09-19"
+      },
+      {
+        "key": "LB-122",
+        "title": "Nightly re-index job",
+        "status": "done",
+        "created": "2026-09-18",
+        "resolved": "2026-09-23"
+      },
+      {
+        "key": "LB-114",
+        "title": "Embedding drift check",
+        "status": "done",
+        "created": "2026-09-23",
+        "resolved": "2026-09-29"
+      }
+    ]
+  },
+  "emp_007": {
+    "first_ticket_assigned": "2026-09-27",
+    "first_pr_merged": null,
+    "tickets": [
+      {
+        "key": "LB-669",
+        "title": "Citation chips open file at line",
+        "status": "in_review",
+        "created": "2026-09-27",
+        "resolved": null
+      },
+      {
+        "key": "LB-647",
+        "title": "Loading state for chat",
+        "status": "in_progress",
+        "created": "2026-10-02",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_008": {
+    "first_ticket_assigned": "2026-09-16",
+    "first_pr_merged": "2026-09-24",
+    "tickets": [
+      {
+        "key": "LB-487",
+        "title": "Smoke test /api/chat",
+        "status": "done",
+        "created": "2026-09-16",
+        "resolved": "2026-09-24"
+      },
+      {
+        "key": "LB-748",
+        "title": "Regression suite for learn flow",
+        "status": "done",
+        "created": "2026-09-21",
+        "resolved": "2026-09-29"
+      },
+      {
+        "key": "LB-177",
+        "title": "Voice WAV upload test",
+        "status": "in_review",
+        "created": "2026-09-26",
+        "resolved": null
+      },
+      {
+        "key": "LB-504",
+        "title": "Deploy health check script",
+        "status": "in_progress",
+        "created": "2026-10-01",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_009": {
+    "first_ticket_assigned": "2026-09-30",
+    "first_pr_merged": null,
+    "tickets": [
+      {
+        "key": "LB-765",
+        "title": "Add retries to chat_json",
+        "status": "in_progress",
+        "created": "2026-09-30",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_010": {
+    "first_ticket_assigned": "2026-09-05",
+    "first_pr_merged": "2026-09-10",
+    "tickets": [
+      {
+        "key": "LB-558",
+        "title": "Citation chips open file at line",
+        "status": "done",
+        "created": "2026-09-05",
+        "resolved": "2026-09-10"
+      },
+      {
+        "key": "LB-958",
+        "title": "Loading state for chat",
+        "status": "done",
+        "created": "2026-09-10",
+        "resolved": "2026-09-15"
+      },
+      {
+        "key": "LB-675",
+        "title": "Dark mode for files page",
+        "status": "done",
+        "created": "2026-09-15",
+        "resolved": "2026-09-19"
+      },
+      {
+        "key": "LB-202",
+        "title": "Keyboard shortcut for voice",
+        "status": "done",
+        "created": "2026-09-20",
+        "resolved": "2026-09-26"
+      }
+    ]
+  },
+  "emp_011": {
+    "first_ticket_assigned": "2026-09-24",
+    "first_pr_merged": "2026-10-02",
+    "tickets": [
+      {
+        "key": "LB-309",
+        "title": "Index meeting notes",
+        "status": "done",
+        "created": "2026-09-24",
+        "resolved": "2026-10-02"
+      },
+      {
+        "key": "LB-387",
+        "title": "Dedupe chunks across docs",
+        "status": "in_progress",
+        "created": "2026-09-29",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_012": {
+    "first_ticket_assigned": "2026-10-02",
+    "first_pr_merged": null,
+    "tickets": [
+      {
+        "key": "LB-216",
+        "title": "Smoke test /api/chat",
+        "status": "in_progress",
+        "created": "2026-10-02",
+        "resolved": null
+      }
+    ]
+  },
+  "emp_013": {
+    "first_ticket_assigned": "2026-09-21",
+    "first_pr_merged": "2026-09-28",
+    "tickets": [
+      {
+        "key": "LB-972",
+        "title": "Add retries to chat_json",
+        "status": "done",
+        "created": "2026-09-21",
+        "resolved": "2026-09-28"
+      },
+      {
+        "key": "LB-677",
+        "title": "Return file line ranges in citations",
+        "status": "done",
+        "created": "2026-09-26",
+        "resolved": "2026-10-03"
+      },
+      {
+        "key": "LB-138",
+        "title": "Cache embeddings per file hash",
+        "status": "in_progress",
+        "created": "2026-10-01",
+        "resolved": null
+      }
+    ]
+  }
+}

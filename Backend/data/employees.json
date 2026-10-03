@@ -1,0 +1,247 @@
+[
+  {
+    "id": "emp_demo",
+    "name": "Alex Rivera",
+    "role": "Backend Engineer",
+    "start_date": "2026-09-24",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "alex@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Chat API & citations",
+      "LLM helper & think mode",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  },
+  {
+    "id": "emp_001",
+    "name": "Priya Nair",
+    "role": "Backend Engineer",
+    "start_date": "2026-09-09",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "priya@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Chat API & citations",
+      "LLM helper & think mode",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  },
+  {
+    "id": "emp_002",
+    "name": "Marcus Chen",
+    "role": "Frontend Engineer",
+    "start_date": "2026-09-15",
+    "manager": "Rahul Menon",
+    "manager_type": "program",
+    "email": "marcus@learnbot.dev",
+    "learning_path": [
+      "Frontend routing",
+      "Voice button (WAV only)",
+      "Chat API & citations",
+      "Dev tunnel & env setup",
+      "Event logging"
+    ]
+  },
+  {
+    "id": "emp_003",
+    "name": "Sofia Alvarez",
+    "role": "QA Engineer",
+    "start_date": "2026-09-18",
+    "manager": "Rahul Menon",
+    "manager_type": "program",
+    "email": "sofia@learnbot.dev",
+    "learning_path": [
+      "Chat API & citations",
+      "Event logging",
+      "Dev tunnel & env setup",
+      "GB10 deployment",
+      "Frontend routing",
+      "Voice button (WAV only)"
+    ]
+  },
+  {
+    "id": "emp_004",
+    "name": "Jordan Lee",
+    "role": "Data Engineer",
+    "start_date": "2026-09-12",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "jordan@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  },
+  {
+    "id": "emp_005",
+    "name": "Aisha Bello",
+    "role": "Backend Engineer",
+    "start_date": "2026-09-21",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "aisha@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Chat API & citations",
+      "LLM helper & think mode",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  },
+  {
+    "id": "emp_006",
+    "name": "Ravi Kulkarni",
+    "role": "Data Engineer",
+    "start_date": "2026-09-06",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "ravi@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  },
+  {
+    "id": "emp_007",
+    "name": "Emma Schultz",
+    "role": "Frontend Engineer",
+    "start_date": "2026-09-25",
+    "manager": "Rahul Menon",
+    "manager_type": "program",
+    "email": "emma@learnbot.dev",
+    "learning_path": [
+      "Frontend routing",
+      "Voice button (WAV only)",
+      "Chat API & citations",
+      "Dev tunnel & env setup",
+      "Event logging"
+    ]
+  },
+  {
+    "id": "emp_008",
+    "name": "Daniel Okafor",
+    "role": "QA Engineer",
+    "start_date": "2026-09-14",
+    "manager": "Rahul Menon",
+    "manager_type": "program",
+    "email": "daniel@learnbot.dev",
+    "learning_path": [
+      "Chat API & citations",
+      "Event logging",
+      "Dev tunnel & env setup",
+      "GB10 deployment",
+      "Frontend routing",
+      "Voice button (WAV only)"
+    ]
+  },
+  {
+    "id": "emp_009",
+    "name": "Mei Tanaka",
+    "role": "Backend Engineer",
+    "start_date": "2026-09-28",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "mei@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Chat API & citations",
+      "LLM helper & think mode",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  },
+  {
+    "id": "emp_010",
+    "name": "Lucas Moreau",
+    "role": "Frontend Engineer",
+    "start_date": "2026-09-03",
+    "manager": "Rahul Menon",
+    "manager_type": "program",
+    "email": "lucas@learnbot.dev",
+    "learning_path": [
+      "Frontend routing",
+      "Voice button (WAV only)",
+      "Chat API & citations",
+      "Dev tunnel & env setup",
+      "Event logging"
+    ]
+  },
+  {
+    "id": "emp_011",
+    "name": "Fatima Zahra",
+    "role": "Data Engineer",
+    "start_date": "2026-09-22",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "fatima@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  },
+  {
+    "id": "emp_012",
+    "name": "Noah Patel",
+    "role": "QA Engineer",
+    "start_date": "2026-09-30",
+    "manager": "Rahul Menon",
+    "manager_type": "program",
+    "email": "noah@learnbot.dev",
+    "learning_path": [
+      "Chat API & citations",
+      "Event logging",
+      "Dev tunnel & env setup",
+      "GB10 deployment",
+      "Frontend routing",
+      "Voice button (WAV only)"
+    ]
+  },
+  {
+    "id": "emp_013",
+    "name": "Hannah Berg",
+    "role": "Backend Engineer",
+    "start_date": "2026-09-19",
+    "manager": "Dana Whitfield",
+    "manager_type": "delivery",
+    "email": "hannah@learnbot.dev",
+    "learning_path": [
+      "RAG ingestion & chunking",
+      "Vector search",
+      "Chat API & citations",
+      "LLM helper & think mode",
+      "Embeddings & prefixes",
+      "Event logging",
+      "GB10 deployment",
+      "Dev tunnel & env setup"
+    ]
+  }
+]
