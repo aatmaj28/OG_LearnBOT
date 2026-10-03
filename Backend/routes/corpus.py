@@ -8,6 +8,7 @@ import os
 import pathlib
 import json
 import threading
+from typing import Optional
 
 bp = Blueprint("corpus", __name__)
 
@@ -20,6 +21,65 @@ _indexing_semaphore = threading.Semaphore(3)
 def get_vector_store_path_by_folder(folder_name: str) -> str:
     """Gets vector store path by folder name"""
     return str(pathlib.Path('vector_stores') / folder_name)
+
+BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+def _store_dir(folder_name: str) -> pathlib.Path:
+    """Absolute path of a class's vector store folder (source_pdfs/, metadata.json, config.json)."""
+    return (BACKEND_ROOT / get_vector_store_path_by_folder(folder_name)).resolve()
+
+def _evict_cached_vector_store(store_dir: pathlib.Path) -> None:
+    """Drops the RAG service's in-memory index for this store so chat reloads it from Qdrant."""
+    # The RAG module is loaded via importlib in routes/chat.py and isn't in sys.modules
+    from routes import chat
+    rag = chat._rag_module
+    if rag is None:  # not loaded yet, so nothing is cached
+        return
+    norm_path = rag.normalize_vector_store_path(str(store_dir))
+    if rag.vector_stores.pop(norm_path, None) is not None:
+        print(f"[CORPUS] cleared cached vector store '{norm_path}'", flush=True)
+
+def _count_indexed_chunks(store_dir: pathlib.Path) -> Optional[int]:
+    """Number of chunks in the store's Qdrant collection, or None if Qdrant can't be reached."""
+    try:
+        from lib import indexing_service
+        collection_name = indexing_service.get_collection_name(str(store_dir))
+        qdrant_client = indexing_service.get_or_init_qdrant_client()
+        if not qdrant_client.collection_exists(collection_name):
+            return 0
+        return qdrant_client.count(collection_name, exact=True).count
+    except Exception as e:
+        print(f"[CORPUS] could not count Qdrant chunks for {store_dir}: {e}", flush=True)
+        return None
+
+def _remove_indexed_chunks(store_dir: pathlib.Path, source_file: Optional[str] = None) -> None:
+    """Removes indexed chunks from Qdrant and metadata.json: one file's, or all when source_file
+    is None. Uploaded files are left alone."""
+    from lib import indexing_service
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    collection_name = indexing_service.get_collection_name(str(store_dir))
+    qdrant_client = indexing_service.get_or_init_qdrant_client()
+    if qdrant_client.collection_exists(collection_name):
+        if source_file is None:
+            qdrant_client.delete_collection(collection_name)
+        else:
+            qdrant_client.delete(
+                collection_name=collection_name,
+                points_selector=Filter(must=[FieldCondition(key="source_file", match=MatchValue(value=source_file))]),
+                wait=True,
+            )
+
+    # Indexing skips files listed in metadata.json, so it has to match what's left in Qdrant
+    metadata_path = store_dir / "metadata.json"
+    if metadata_path.exists():
+        entries = [] if source_file is None else [
+            entry for entry in json.loads(metadata_path.read_text(encoding="utf-8"))
+            if entry.get("source_file") != source_file
+        ]
+        metadata_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+    _evict_cached_vector_store(store_dir)
 
 @bp.route("/upload", methods=["POST"])
 def upload():
@@ -45,8 +105,7 @@ def upload():
             current_folder = (base + folder_suffix) if is_syllabus else base
             db_service.update_class_vector_store_folder(class_id, current_folder, is_syllabus=is_syllabus)
         
-        store_path = get_vector_store_path_by_folder(current_folder)
-        pdf_dir = pathlib.Path(store_path) / "source_pdfs"
+        pdf_dir = _store_dir(current_folder) / "source_pdfs"
         pdf_dir.mkdir(parents=True, exist_ok=True)
         
         # Handle file uploads
@@ -166,14 +225,7 @@ def index():
                     print(f"[CORPUS] INDEX forceReindex: deleted metadata.json", flush=True)
                 # Clear cached vector store in RAG service so it reloads from Qdrant
                 try:
-                    import sys as _sys
-                    for mod_name, mod in list(_sys.modules.items()):
-                        if hasattr(mod, 'vector_stores') and hasattr(mod, 'normalize_vector_store_path'):
-                            norm_path = mod.normalize_vector_store_path(str(output_path_abs))
-                            if norm_path in mod.vector_stores:
-                                del mod.vector_stores[norm_path]
-                                print(f"[CORPUS] INDEX forceReindex: cleared cached vector store '{norm_path}' from {mod_name}", flush=True)
-                            break
+                    _evict_cached_vector_store(output_path_abs)
                 except Exception as cache_err:
                     print(f"[CORPUS] INDEX forceReindex: could not clear cache: {cache_err}", flush=True)
             except Exception as force_err:
@@ -264,6 +316,13 @@ def files():
             corpus_files = db_service.get_corpus_files_by_class(class_id, material_type)
             files = [f['fileName'] for f in corpus_files]
             total_chunks = sum(f.get('chunkCount', 0) or 0 for f in corpus_files)
+            # Prefer Qdrant's count: it includes chunks left behind by deleted files (which the
+            # UI then offers to clear) and falls back to the DB totals if Qdrant is unreachable
+            folder = cls.get('syllabusVectorStoreFolder' if material_type == "syllabus" else 'vectorStoreFolder')
+            if folder:
+                indexed_chunks = _count_indexed_chunks(_store_dir(folder))
+                if indexed_chunks is not None:
+                    total_chunks = indexed_chunks
             return jsonify({
                 "files": files,
                 "totalChunks": total_chunks,
@@ -289,14 +348,16 @@ def files():
                 vector_store_folder = (base + '_syllabus') if is_syllabus else base
                 db_service.update_class_vector_store_folder(class_id, vector_store_folder, is_syllabus=is_syllabus)
             
-            backend_root = pathlib.Path(__file__).resolve().parent.parent
-            base_path = (backend_root / get_vector_store_path_by_folder(vector_store_folder)).resolve()
+            base_path = _store_dir(vector_store_folder)
             pdf_dir = base_path / "source_pdfs"
             file_path = pdf_dir / filename
             
             # Security check
             if not str(file_path).startswith(str(pdf_dir)):
                 return jsonify({"error": "Invalid filename"}), 400
+            
+            # Delete the file's chunks first: if Qdrant fails, the file stays so the delete can be retried
+            _remove_indexed_chunks(base_path, source_file=filename)
             
             # Delete file
             if file_path.exists():
@@ -308,6 +369,35 @@ def files():
             return jsonify({"success": True})
     except Exception as error:
         print(f"[CORPUS] FILES ERROR: {error}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@bp.route("/chunks", methods=["DELETE"])
+def clear_chunks():
+    """Removes every indexed chunk for a class (Qdrant + metadata.json). Uploaded files are kept
+    and marked as not indexed, so they can be indexed again."""
+    try:
+        class_id = request.args.get("classId")
+        material_type = request.args.get("materialType", "class_material")
+        if not class_id:
+            return jsonify({"error": "Class ID is required"}), 400
+        
+        cls = db_service.get_class_by_id(class_id)
+        if not cls:
+            return jsonify({"error": "Class not found"}), 404
+        
+        folder = cls.get('syllabusVectorStoreFolder' if material_type == "syllabus" else 'vectorStoreFolder')
+        if folder:
+            _remove_indexed_chunks(_store_dir(folder))
+        db_service.reset_corpus_files_index(class_id, material_type)
+        
+        return jsonify({
+            "success": True,
+            "message": "All chunks cleared",
+            "pdfCount": len(db_service.get_corpus_files_by_class(class_id, material_type)),
+            "chunkCount": 0,
+        })
+    except Exception as error:
+        print(f"[CORPUS] CLEAR CHUNKS ERROR: {error}")
         return jsonify({"error": "Internal server error"}), 500
 
 @bp.route("/merge-all", methods=["POST", "GET"])

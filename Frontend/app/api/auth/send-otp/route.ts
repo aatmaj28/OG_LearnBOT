@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/db"
 import { getUserByEmail, getUserByNuid } from "@/lib/db-service"
 import nodemailer from "nodemailer"
+import { hashPassword } from "@/lib/password"
 
 // Generate 6-digit OTP
 function generateOTP(): string {
@@ -229,7 +230,7 @@ export async function POST(request: NextRequest) {
         `INSERT INTO pending_registrations 
          (email, password, name, role, nuid, degree, major, otp_code, otp_expires_at) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [email, password, name, role, nuid, degree, major, otp, expiresAt]
+        [email, await hashPassword(password), name, role, nuid, degree, major, otp, expiresAt]
       )
 
       console.log("[SEND-OTP] Pending registration created with OTP:", otp)

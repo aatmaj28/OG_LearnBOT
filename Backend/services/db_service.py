@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 from services.db import get_connection, return_connection
 from utils.masked_id import get_masked_id
 from utils.pii_masking import mask_user_data, MaskingContext
+from utils.passwords import hash_password
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta
@@ -294,7 +295,13 @@ def get_user_by_nuid(nuid: str, requesting_user_id: Optional[str] = None, reques
     return mask_user_data(user, context)
 
 def create_user(user_data: Dict) -> Dict:
-    """Creates a new user"""
+    """Creates a new user.
+
+    Pass the plaintext as 'password' (hashed here), or an existing bcrypt hash as
+    'password_hash' (e.g. carried over from pending_registrations). The returned
+    dict never includes either.
+    """
+    password_hash = user_data.get('password_hash') or hash_password(user_data['password'])
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -322,7 +329,7 @@ def create_user(user_data: Dict) -> Dict:
                 [
                     next_id,
                     user_data['email'],
-                    user_data['password'],
+                    password_hash,
                     user_data['name'],
                     user_data['role'],
                     nuid,
@@ -335,8 +342,9 @@ def create_user(user_data: Dict) -> Dict:
             row = cursor.fetchone()
             conn.commit()
             
+            user = {k: v for k, v in user_data.items() if k not in ('password', 'password_hash')}
             return {
-                **user_data,
+                **user,
                 'id': str(row[0]),
                 'createdAt': row[1]
             }
@@ -345,6 +353,21 @@ def create_user(user_data: Dict) -> Dict:
             raise
     except Exception as e:
         print(f'[DB] Error creating user: {e}')
+        raise
+    finally:
+        return_connection(conn)
+
+def update_user_password(user_id: str, password_hash: str) -> bool:
+    """Stores a new bcrypt password hash for a user"""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('UPDATE users SET password = %s WHERE id = %s', (password_hash, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error updating user password: {e}')
         raise
     finally:
         return_connection(conn)
@@ -419,7 +442,7 @@ def update_class_vector_store_folder(class_id: str, folder_name: str, is_syllabu
 def create_pending_registration(email: str, password: str, name: str, role: str, 
                                 nuid: Optional[str], degree: Optional[str], 
                                 major: Optional[str], otp_code: str, expires_at: datetime) -> bool:
-    """Creates a pending registration with OTP"""
+    """Creates a pending registration with OTP. The password is stored as a bcrypt hash."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -436,7 +459,7 @@ def create_pending_registration(email: str, password: str, name: str, role: str,
                 """INSERT INTO pending_registrations 
                    (email, password, name, role, nuid, degree, major, otp_code, otp_expires_at) 
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                [email, password, name, role, nuid, degree, major, otp_code, expires_at]
+                [email, hash_password(password), name, role, nuid, degree, major, otp_code, expires_at]
             )
             conn.commit()
             return True
@@ -1456,6 +1479,25 @@ def delete_all_corpus_files(class_id: str, material_type: str) -> int:
         return cursor.rowcount
     except Exception as e:
         print(f'[DB] Error deleting all corpus files: {e}')
+        raise
+    finally:
+        return_connection(conn)
+
+def reset_corpus_files_index(class_id: str, material_type: str) -> int:
+    """Marks a class's corpus files as not indexed (after its chunks were cleared)"""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE corpus_files SET is_indexed = false, chunk_count = 0, indexed_at = NULL
+               WHERE class_id = %s AND material_type = %s""",
+            (class_id, material_type)
+        )
+        conn.commit()
+        return cursor.rowcount
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB] Error resetting corpus file index state: {e}')
         raise
     finally:
         return_connection(conn)

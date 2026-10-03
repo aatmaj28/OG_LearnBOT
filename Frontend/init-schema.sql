@@ -254,10 +254,10 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at);
 
--- Insert sample data
+-- Insert sample data (demo logins: student123 / faculty123, stored as bcrypt hashes)
 INSERT INTO users (masked_id, email, password, name, role, nuid, degree, major) VALUES
-('STUDENT_MASKED_001', 'student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science'),
-('FACULTY_MASKED_001', 'faculty@northeastern.edu', 'faculty123', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL)
+('STUDENT_MASKED_001', 'student@northeastern.edu', '$2b$12$/EZsyX6G66P9xKJbOZta4uWr6K/ud2oXN8J0mn2bufEFnRQZBZvuK', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science'),
+('FACULTY_MASKED_001', 'faculty@northeastern.edu', '$2b$12$NesM.pVWiuon2jSzXb9HIeNk9i3I3pZRRtt.yfpK93HSqYgwDNdVK', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL)
 ON CONFLICT (email) DO NOTHING;
 
 -- Create a sample class (idempotent: ON CONFLICT DO NOTHING alone doesn't work because

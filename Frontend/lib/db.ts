@@ -1,5 +1,6 @@
 import { Pool } from 'pg'
 import { getMaskedId } from './masked-id-utils'
+import { hashPassword } from './password'
 
 const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
@@ -441,12 +442,13 @@ export const initializeDatabase = async () => {
     if (userCount.rows[0].count === '0') {
       // Insert users with masked_id included (using temporary IDs that will be replaced)
       // We'll insert with placeholder masked_id, then update with actual values
+      const [studentHash, facultyHash] = await Promise.all([hashPassword('student123'), hashPassword('faculty123')])
       await client.query(`
         INSERT INTO users (email, password, name, role, nuid, degree, major, masked_id) VALUES
-        ('student@northeastern.edu', 'student123', 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science', 'TEMP_1'),
-        ('faculty@northeastern.edu', 'faculty123', 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL, 'TEMP_2')
+        ('student@northeastern.edu', $1, 'John Doe', 'student', '12345678', 'Bachelor of Science', 'Computer Science', 'TEMP_1'),
+        ('faculty@northeastern.edu', $2, 'Dr. Sarah Williams', 'faculty', NULL, NULL, NULL, 'TEMP_2')
         ON CONFLICT (email) DO NOTHING
-      `)
+      `, [studentHash, facultyHash])
       
       // Update masked_id for newly inserted users with actual values
       const newUsers = await client.query('SELECT id FROM users WHERE masked_id LIKE \'TEMP_%\'')

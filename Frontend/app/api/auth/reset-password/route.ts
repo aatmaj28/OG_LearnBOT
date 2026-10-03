@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/db"
 import { ensureDatabaseInitialized } from "@/lib/init-db"
+import { hashPassword } from "@/lib/password"
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
       await client.query("BEGIN")
 
       await client.query("UPDATE users SET password = $1 WHERE id = $2", [
-        trimmedPassword,
+        await hashPassword(trimmedPassword),
         userId,
       ])
       await client.query("DELETE FROM password_reset_tokens WHERE token = $1", [

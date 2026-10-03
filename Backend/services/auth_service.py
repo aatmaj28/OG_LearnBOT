@@ -9,10 +9,11 @@ from datetime import datetime, timedelta
 import time
 import random
 import string
-from services.db_service import get_user_by_email_internal, get_user_by_id_internal
+from services.db_service import get_user_by_email_internal, get_user_by_id_internal, update_user_password
 from services.db_service import session_create as db_session_create
 from services.db_service import session_get as db_session_get
 from services.db_service import session_delete as db_session_delete
+from utils.passwords import hash_password, is_password_hash, verify_password
 
 class AuthSession:
     """Represents an authentication session"""
@@ -41,12 +42,20 @@ def login(email: str, password: str) -> Optional[dict]:
             return None
         
         print(f'[AUTH] User found, checking password...')
-        if user.get('password') == password:
-            print(f'[AUTH] Password matches! Authentication successful for: {email}')
-            return user
-        else:
+        stored = user.get('password')
+        if not verify_password(password, stored):
             print(f'[AUTH] Password mismatch for: {email}')
             return None
+
+        print(f'[AUTH] Password matches! Authentication successful for: {email}')
+        if not is_password_hash(stored):
+            # Legacy plaintext row: upgrade it to a bcrypt hash now that we know the password
+            try:
+                update_user_password(user['id'], hash_password(password))
+                print(f'[AUTH] Upgraded plaintext password to bcrypt hash for: {email}')
+            except Exception as e:
+                print(f'[AUTH] Could not upgrade password hash for {email}: {e}')
+        return user
         
     except Exception as e:
         import traceback

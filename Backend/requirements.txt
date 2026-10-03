@@ -10,6 +10,8 @@ psycopg2-binary==2.9.9
 
 # AI/ML Libraries
 sentence-transformers
+# nomic-embed-text-v1.5's remote model code calls get_extended_attention_mask, removed in transformers 5
+transformers>=4.41,<5
 pypdf
 docx2txt
 numpy

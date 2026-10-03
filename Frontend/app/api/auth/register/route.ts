@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Create user
     const newUser = await createUser({
       email,
-      password, // In production, hash this!
+      password,
       name,
       role,
       nuid: role === "student" ? nuid : undefined,

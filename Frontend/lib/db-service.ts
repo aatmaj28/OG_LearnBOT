@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg'
 import type { User, Class, ChatMessage, ChatSession, ChatAnalytics, StudentActivity, RAGConversation, Assignment, Resource, UserRole } from './types'
 import { maskUserData, type MaskingContext } from './pii-masking'
 import { getMaskedId } from './masked-id-utils'
+import { hashPassword } from './password'
 import crypto from 'crypto'
 
 const FACULTY_SESSION_KEY = 'app.current_user_id'
@@ -269,7 +270,13 @@ export const getUserByNuid = async (nuid: string, requestingUserId?: string, req
   return maskUserData(user, context)
 }
 
-export const createUser = async (user: Omit<User, 'id' | 'createdAt'>): Promise<User> => {
+// Pass the plaintext as `password` (hashed here), or an existing bcrypt hash as
+// `passwordHash` (e.g. carried over from pending_registrations).
+export const createUser = async (
+  user: Omit<User, 'id' | 'createdAt' | 'password'> & { password?: string; passwordHash?: string }
+): Promise<User> => {
+  const { password, passwordHash: existingHash, ...profile } = user
+  const passwordHash = existingHash ?? (await hashPassword(password ?? ''))
   const client = await pool.connect()
   try {
     // Start transaction
@@ -287,7 +294,7 @@ export const createUser = async (user: Omit<User, 'id' | 'createdAt'>): Promise<
       `INSERT INTO users (id, email, password, name, role, nuid, degree, major, masked_id) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
        RETURNING id, created_at`,
-      [nextId, user.email, user.password, user.name, user.role, user.nuid, user.degree, user.major, maskedId]
+      [nextId, profile.email, passwordHash, profile.name, profile.role, profile.nuid, profile.degree, profile.major, maskedId]
     )
     
     const row = result.rows[0]
@@ -297,7 +304,8 @@ export const createUser = async (user: Omit<User, 'id' | 'createdAt'>): Promise<
     await client.query('COMMIT')
     
     return {
-      ...user,
+      ...profile,
+      password: passwordHash,
       id: userId,
       createdAt: new Date(row.created_at)
     }

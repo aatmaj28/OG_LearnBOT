@@ -344,29 +344,13 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                         onClick={async () => {
                           if (!confirm(`Clear all ${indexedChunkCount} chunks? This will remove all indexed data but keep uploaded PDFs.`)) return
                           try {
-                            // Trigger clear-all by trying to delete a dummy file
-                            const res = await fetch(`/api/corpus/files?classId=${selectedClassId}&filename=__clear_all_chunks__.pdf&materialType=${materialType}`, {
-                              method: "DELETE"
-                            })
-                            const data = await res.json()
-                            if (res.ok && data.success) {
-                              toast.success(data.message || "All chunks cleared")
-                              // Update stats immediately from response
-                              if (data.pdfCount !== undefined) {
-                                setIndexedPdfCount(data.pdfCount)
-                              }
-                              if (data.chunkCount !== undefined) {
-                                setIndexedChunkCount(data.chunkCount)
-                              }
-                              await loadIndexStats()
-                            } else {
-                              const errorMsg = data.error || data.message || "Failed to clear chunks"
-                              toast.error(errorMsg)
-                              console.error("Clear chunks failed:", data)
-                            }
+                            const { corpusApi } = await import("@/lib/flask-api-client")
+                            const data = await corpusApi.clearChunks(selectedClassId, materialType)
+                            toast.success(data.message || "All chunks cleared")
+                            await loadIndexStats()
                           } catch (e) {
                             console.error("Clear chunks error", e)
-                            toast.error("Clear chunks error")
+                            toast.error(e instanceof Error ? e.message : "Failed to clear chunks")
                           }
                         }}
                       >

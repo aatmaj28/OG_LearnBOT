@@ -44,7 +44,8 @@ export async function POST(request: NextRequest) {
       major,
     })
 
-    return NextResponse.json({ user: newStudent })
+    const { password: _password, ...student } = newStudent
+    return NextResponse.json({ user: student })
   } catch (error) {
     console.error("[v0] Create student error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

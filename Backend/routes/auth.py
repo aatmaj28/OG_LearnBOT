@@ -131,7 +131,7 @@ def register():
         # Create user
         new_user = create_user({
             "email": email,
-            "password": password,  # In production, hash this!
+            "password": password,
             "name": name,
             "role": role,
             "nuid": nuid if role == "student" else None,
@@ -341,7 +341,7 @@ def verify_otp():
         # Create the actual user account
         new_user = create_user({
             "email": pending_reg['email'],
-            "password": pending_reg['password'],
+            "password_hash": pending_reg['password'],  # hashed when the OTP was sent
             "name": pending_reg['name'],
             "role": pending_reg['role'],
             "nuid": pending_reg.get('nuid'),

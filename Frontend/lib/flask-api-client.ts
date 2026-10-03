@@ -507,6 +507,14 @@ export const corpusApi = {
     })
   },
 
+  /** Removes every indexed chunk for the class; uploaded files are kept. */
+  clearChunks: async (classId: string, materialType: string = 'class_material') => {
+    return apiRequest<{ success: boolean; message?: string; pdfCount?: number; chunkCount?: number }>(
+      `/api/corpus/chunks?classId=${classId}&materialType=${materialType}`,
+      { method: 'DELETE' }
+    )
+  },
+
   mergeAll: async (classIds: string[], classNames: string[]) => {
     return apiRequest('/api/corpus/merge-all', {
       method: 'POST',

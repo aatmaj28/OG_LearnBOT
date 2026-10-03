@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       // Create the actual user account
       const newUser = await createUser({
         email: pendingReg.email,
-        password: pendingReg.password,
+        passwordHash: pendingReg.password, // hashed when the OTP was sent
         name: pendingReg.name,
         role: pendingReg.role,
         nuid: pendingReg.nuid,

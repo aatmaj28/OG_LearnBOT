@@ -5,6 +5,7 @@ import { getUserByEmailInternal } from "./db-service"
 import type { User } from "./types"
 import { getUserByEmail as getMockUserByEmail } from "./mock-db"
 import { enableDatabaseFallback, isDatabaseFallbackEnabled } from "./init-db"
+import { verifyPassword } from "./password"
 
 export interface AuthSession {
   user: User
@@ -41,7 +42,7 @@ export const login = async (email: string, password: string): Promise<User | nul
   if (!isDatabaseFallbackEnabled()) {
     try {
       const user = await getUserByEmailInternal(email, undefined)
-      if (user && user.password === password) {
+      if (user && (await verifyPassword(password, user.password))) {
         return user
       }
     } catch (error) {
@@ -55,7 +56,7 @@ export const login = async (email: string, password: string): Promise<User | nul
 
   // Fallback to mock data for offline development
   const mockUser = getMockUserByEmail(email)
-  if (mockUser && mockUser.password === password) {
+  if (mockUser && (await verifyPassword(password, mockUser.password))) {
     return mockUser
   }
   return null

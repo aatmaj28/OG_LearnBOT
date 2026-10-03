@@ -1,0 +1,20 @@
+{
+  "name": "og-learnbot",
+  "private": true,
+  "description": "LearnBOT monorepo: Next.js Frontend + Flask Backend",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "dev": "npm run infra:up && npm run dev:apps",
+    "dev:apps": "concurrently -n web,api,worker -c cyan,magenta,yellow npm:dev:web npm:dev:api npm:dev:worker",
+    "dev:web": "npm --prefix Frontend run dev",
+    "dev:api": "cd Backend && PYTHONUNBUFFERED=1 .venv/bin/python app.py",
+    "dev:worker": "cd Backend && PYTHONUNBUFFERED=1 .venv/bin/python worker.py",
+    "infra:up": "bash scripts/docker.sh compose up -d --wait",
+    "infra:down": "bash scripts/docker.sh compose down",
+    "infra:reset": "bash scripts/docker.sh compose down -v && npm run infra:up",
+    "infra:logs": "bash scripts/docker.sh compose logs -f"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
