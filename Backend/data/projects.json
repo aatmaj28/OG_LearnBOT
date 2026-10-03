@@ -8,14 +8,14 @@
     "members": [
       "emp_demo"
     ],
-    "last_sha": "f43794a8e126605e85ddd21d97332f028d485363",
+    "last_sha": "d2bf7c05d2103b34b4d4979d50196b7cdd3be325",
     "last_commit": {
-      "sha": "f43794a8e126605e85ddd21d97332f028d485363",
-      "message": "Surface team documents and settings; fix the model choice to the team",
+      "sha": "d2bf7c05d2103b34b4d4979d50196b7cdd3be325",
+      "message": "Cut voice latency and finish converting every prompt sent to the model",
       "author": "Vijwal Mahendrakar",
-      "date": "2026-10-03T16:29:24-04:00"
+      "date": "2026-10-03T16:38:47-04:00"
     },
-    "last_synced": "2026-10-03T20:34:49Z",
+    "last_synced": "2026-10-03T21:05:03Z",
     "file_count": 186,
     "chunk_count": 1280,
     "status": "ready",

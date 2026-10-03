@@ -39,6 +39,8 @@ def build(name, root, project_id=None, source_type=None):
     chunks, files = [], 0
     if os.path.isdir(root):
         for rel in ingest.walk(str(root)):
+            if source_type == "meeting" and not rel.endswith(".md"):
+                continue  # meetings: index the minutes, not the raw {id}.json records
             text = ingest.read_text(os.path.join(root, rel))
             if text and text.strip():
                 files += 1
