@@ -1,0 +1,10 @@
+sentence-transformers
+pypdf
+numpy
+requests
+llama-index
+llama-index-vector-stores-qdrant
+llama-index-readers-file
+einops
+qdrant-client
+
