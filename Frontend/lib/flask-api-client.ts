@@ -409,6 +409,8 @@ export const chatApi = {
     sessionId: string
     message: string
     classId?: string
+    /** Narrow retrieval to a single uploaded document. Omit to search all of them. */
+    sourceFile?: string
     chatType?: string
     preferredModel?: string
     stream?: boolean
@@ -422,6 +424,7 @@ export const chatApi = {
       formData.append('userId', data.userId)
       formData.append('sessionId', data.sessionId)
       if (data.classId) formData.append('classId', data.classId)
+      if (data.sourceFile) formData.append('sourceFile', data.sourceFile)
       if (data.chatType) formData.append('chatType', data.chatType)
       if (data.preferredModel) formData.append('preferredModel', data.preferredModel)
       if (data.stream) formData.append('stream', 'true')

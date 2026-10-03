@@ -2,10 +2,25 @@
 Students endpoint
 Migrated from app/api/students/route.ts
 """
+import os
+import re
+
 from flask import Blueprint, request, jsonify
 from services import db_service
 
 bp = Blueprint("students", __name__)
+
+# Company email policy. Set COMPANY_EMAIL_DOMAIN (e.g. "acme.com") to restrict employees to a
+# single domain; leave it unset to accept any well-formed work email.
+COMPANY_EMAIL_DOMAIN = os.getenv("COMPANY_EMAIL_DOMAIN", "").strip().lstrip("@").lower()
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def is_valid_work_email(email: str) -> bool:
+    value = (email or "").strip().lower()
+    if not EMAIL_PATTERN.match(value):
+        return False
+    return value.endswith(f"@{COMPANY_EMAIL_DOMAIN}") if COMPANY_EMAIL_DOMAIN else True
 
 @bp.route("", methods=["POST"])
 def create_student():
@@ -25,9 +40,13 @@ def create_student():
         if not name or not email:
             return jsonify({"error": "Name and email are required"}), 400
         
-        # Validate Northeastern email domain
-        if not email.endswith('@northeastern.edu'):
-            return jsonify({"error": "Only Northeastern University email addresses are accepted (@northeastern.edu)"}), 400
+        if not is_valid_work_email(email):
+            message = (
+                f"Only @{COMPANY_EMAIL_DOMAIN} email addresses are accepted"
+                if COMPANY_EMAIL_DOMAIN
+                else "A valid work email address is required"
+            )
+            return jsonify({"error": message}), 400
         
         # Generate default password if not provided
         student_password = password or f"student{int(__import__('time').time() * 1000)}"

@@ -16,10 +16,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { GraduationCap, Users, Bot, Brain, Target, Zap, Eye, EyeOff } from "lucide-react"
+import { Users, User, Bot, Brain, ShieldCheck, Zap, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
-import Image from "next/image"
 import { authApi } from "@/lib/flask-api-client"
+
+// UI labels are Manager / Employee; the backend still uses "faculty" / "student" role values.
+const ROLES = [
+  { value: "student", label: "Employee", icon: User },
+  { value: "faculty", label: "Manager", icon: Users },
+] as const
+
+function normalizeRole(value: string | null): "student" | "faculty" {
+  return value === "faculty" || value === "manager" ? "faculty" : "student"
+}
 
 function LoginPageFallback() {
   return (
@@ -47,8 +56,7 @@ function LoginContent() {
 
   // Read role from URL params client-side only to avoid hydration errors
   useEffect(() => {
-    const urlRole = searchParams.get("role") || "student"
-    setRole(urlRole)
+    setRole(normalizeRole(searchParams.get("role")))
   }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -60,7 +68,9 @@ function LoginContent() {
 
     try {
       // Use Flask API client instead of Next.js route
-      const data = await authApi.login(email, password, role)
+      // Role is deliberately not sent: the account's own role decides the redirect below,
+      // so a wrong toggle can't block sign-in.
+      const data = await authApi.login(email, password)
       console.log("[v0] FRONTEND: Login response data:", data)
 
       // Store session
@@ -87,10 +97,13 @@ function LoginContent() {
     } catch (err) {
       console.error("[v0] FRONTEND: Login error:", err)
       const message = err instanceof Error ? err.message : "An error occurred. Please try again."
+      const otherRole = role === "faculty" ? "Employee" : "Manager"
       setError(
         message.includes("Cannot connect") || message === "Failed to fetch"
-          ? "Cannot connect to the login server. Make sure the Flask backend (LearnBOT-Server repo) is running on port 5000."
-          : message
+          ? "Cannot connect to the login server. Make sure the backend is running on port 5050."
+          : message === "Invalid role"
+            ? `This account isn't a ${role === "faculty" ? "Manager" : "Employee"} account. Switch to ${otherRole} above and try again.`
+            : message
       )
       setLoading(false)
     }
@@ -135,16 +148,8 @@ function LoginContent() {
           <div>
             {/* Logo */}
             <div className="flex items-center gap-3 mb-4">
-              <div className="relative w-16 h-16">
-                <Image
-                  src="/learnbot-logo.png"
-                  alt="LearnBot Logo"
-                  width={48}
-                  height={48}
-                  className="object-contain"
-                  priority
-                  sizes="90px"
-                />
+              <div className="w-14 h-14 rounded-xl bg-white/15 flex items-center justify-center">
+                <Bot className="h-8 w-8 text-white" />
               </div>
               <span className="text-3xl font-bold text-white">LearnBot</span>
             </div>
@@ -153,17 +158,17 @@ function LoginContent() {
 
             {/* Title */}
             <h1 className="text-5xl font-bold text-white mb-3">
-              DMSB AI
+              AI Onboarding
             </h1>
             <h2 className="text-3xl font-medium text-blue-100 mb-4">
-              Strategic Hub
+              Assistant
             </h2>
             {/* Separator Line */}
             <div className="w-16 h-0.5 bg-white mb-6"></div>
 
             {/* Description */}
             <p className="text-lg text-blue-50 leading-relaxed">
-              Empowering Northeastern's D'Amore-McKim School of Business with cutting-edge AI solutions and strategic insights.
+              Get new hires productive faster. Personalised learning paths, instant answers from your company documents, and clear progress for managers.
             </p>
           </div>
 
@@ -177,15 +182,15 @@ function LoginContent() {
             </div>
             <div className="flex flex-col items-center gap-3">
               <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center">
-                <Target className="h-8 w-8 text-white" />
+                <ShieldCheck className="h-8 w-8 text-white" />
               </div>
-              <span className="text-white text-sm font-medium">Strategic</span>
+              <span className="text-white text-sm font-medium">Private &amp; Secure</span>
             </div>
             <div className="flex flex-col items-center gap-3">
               <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center">
                 <Zap className="h-8 w-8 text-white" />
               </div>
-              <span className="text-white text-sm font-medium">Innovative</span>
+              <span className="text-white text-sm font-medium">Fast Ramp-up</span>
             </div>
           </div>
         </div>
@@ -198,8 +203,29 @@ function LoginContent() {
             {/* Blue Separator Line */}
             <div className="w-16 h-0.5 bg-blue-600 mb-3"></div>
             <p className="text-gray-600 mb-6">
-              Enter your credentials to access your account
+              Sign in as a {role === "faculty" ? "manager" : "employee"} to continue
             </p>
+
+            {/* Role toggle */}
+            <div className="grid grid-cols-2 gap-1 p-1 mb-5 bg-gray-100 rounded-xl" role="tablist" aria-label="Sign in as">
+              {ROLES.map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={role === value}
+                  onClick={() => setRole(value)}
+                  className={`flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-semibold transition-all ${
+                    role === value
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
 
             {/* Login Form */}
             <form onSubmit={handleLogin} className="space-y-4">
@@ -214,7 +240,7 @@ function LoginContent() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="your.email@northeastern.edu"
+                  placeholder="you@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -290,7 +316,7 @@ function LoginContent() {
                       <Input
                         id="forgot-email"
                         type="email"
-                        placeholder="yourname@northeastern.edu"
+                        placeholder="you@company.com"
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
                         required

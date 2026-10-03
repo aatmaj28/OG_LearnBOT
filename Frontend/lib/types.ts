@@ -3,7 +3,23 @@
 export type UserRole = "student" | "faculty"
 
 // LLM Backend Types
-export type ModelBackend = 'claude' | 'remote-blackwell'
+export type ModelBackend = 'local-nemotron' | 'local-qwen' | 'local-nano'
+
+// The only model backends the UI may offer. Both are served locally (offline).
+export const MODEL_BACKENDS: ModelBackend[] = ['local-nemotron', 'local-qwen', 'local-nano']
+
+export const DEFAULT_MODEL_BACKEND: ModelBackend = 'local-nemotron'
+
+/**
+ * Coerce any value (e.g. a stale persisted preference such as 'claude' or
+ * 'remote-blackwell') into a currently-supported backend so a Select never
+ * renders blank.
+ */
+export function normalizeModelBackend(value: unknown): ModelBackend {
+  return MODEL_BACKENDS.includes(value as ModelBackend)
+    ? (value as ModelBackend)
+    : DEFAULT_MODEL_BACKEND
+}
 
 export interface ModelResponseMetadata {
   modelUsed: ModelBackend

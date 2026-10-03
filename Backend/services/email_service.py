@@ -46,7 +46,7 @@ def send_verification_email(email: str, otp: str, name: str) -> dict:
 ║ If you didn't request this verification, please ignore      ║
 ║ this email.                                                  ║
 ║                                                              ║
-║ © 2026 LearnBOT Portal - Northeastern University            ║
+║ © 2026 LearnBot                                              ║
 ╚══════════════════════════════════════════════════════════════╝
         """)
         print('⚠️  Gmail credentials not configured. Email logged to console only.')
@@ -83,7 +83,7 @@ def send_verification_email(email: str, otp: str, name: str) -> dict:
       <p>Email Verification</p>
     </div>
     <p>Hello <strong>{name}</strong>,</p>
-    <p>Welcome to <strong>LearnBOT Portal</strong> at Northeastern University!</p>
+    <p>Welcome to <strong>LearnBot</strong>!</p>
     <p>Please use the verification code below to complete your registration:</p>
     <div class="otp-box">
       <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">Your verification code is:</p>
@@ -94,15 +94,15 @@ def send_verification_email(email: str, otp: str, name: str) -> dict:
       <p style="margin: 0;"><strong>⚠️ Security Note:</strong> If you didn't request this verification, please ignore this email. Never share this code with anyone.</p>
     </div>
     <div class="footer">
-      <p>© 2026 LearnBOT Portal - Northeastern University</p>
+      <p>© 2026 LearnBot</p>
       <p>This is an automated message, please do not reply to this email.</p>
     </div>
   </div>
 </body>
 </html>
         """
-        
-        text_content = f"""Welcome to LearnBOT Portal!
+
+        text_content = f"""Welcome to LearnBot!
 
 Hello {name},
 
@@ -112,7 +112,7 @@ This code expires in 10 minutes.
 
 If you didn't request this verification, please ignore this email.
 
-© 2026 LearnBOT Portal - Northeastern University
+© 2026 LearnBot
         """
         
         part1 = MIMEText(text_content, 'plain')
@@ -135,7 +135,7 @@ If you didn't request this verification, please ignore this email.
 
 def send_invitation_email(email: str, class_name: str, faculty_name: str, registration_url: str) -> dict:
     """
-    Sends a styled invitation email to join a class.
+    Sends a styled invitation email to join a sector.
     
     Returns:
         dict with 'success' key
@@ -174,18 +174,18 @@ def send_invitation_email(email: str, class_name: str, faculty_name: str, regist
       <p style="margin: 0; color: #666; font-size: 14px;">Registration Required</p>
     </div>
     <p>Hello,</p>
-    <p><strong>{faculty_name}</strong> has invited you to join the class <strong>{class_name}</strong> at Northeastern University!</p>
-    <p>To access your class materials, please register your account below:</p>
+    <p>Your manager <strong>{faculty_name}</strong> has invited you to join the sector <strong>{class_name}</strong> on LearnBot!</p>
+    <p>To access your sector materials, please register your account below:</p>
     <div style="text-align: center;">
       <a href="{registration_url}" class="button">Register Now</a>
     </div>
     <p>Or paste this link into your browser:<br>
     <a href="{registration_url}" style="word-break: break-all; color: #2563eb;">{registration_url}</a></p>
     <div class="warning">
-      <p style="margin: 0;"><strong>Important:</strong> Please use your Northeastern University email address (<strong>{email}</strong>) when registering so you are automatically enrolled.</p>
+      <p style="margin: 0;"><strong>Important:</strong> Please use this same email address (<strong>{email}</strong>) when you register so you are added to the sector automatically.</p>
     </div>
     <div class="footer">
-      <p>© 2026 LearnBOT Portal - Northeastern University</p>
+      <p>© 2026 LearnBot</p>
       <p>This is an automated message, please do not reply to this email.</p>
     </div>
   </div>
@@ -193,18 +193,18 @@ def send_invitation_email(email: str, class_name: str, faculty_name: str, regist
 </html>
         """
         
-        text_content = f"""Welcome to LearnBOT Portal!
+        text_content = f"""Welcome to LearnBot!
 
 Hello,
 
-{faculty_name} has invited you to join the class {class_name} at Northeastern University!
+Your manager {faculty_name} has invited you to join the sector {class_name} on LearnBot!
 
-To access your class materials, please register your account below:
+To access your sector materials, please register your account below:
 {registration_url}
 
-Important: Please use your Northeastern University email address ({email}) when registering so you are automatically enrolled.
+Important: Please use this same email address ({email}) when you register so you are added to the sector automatically.
 
-© 2026 LearnBOT Portal - Northeastern University
+© 2026 LearnBot
         """
         
         part1 = MIMEText(text_content, 'plain')

@@ -214,7 +214,7 @@ def ai_response():
             session_id = request.form.get("sessionId")
             class_id = request.form.get("classId")
             chat_type = request.form.get("chatType", "assignments")
-            preferred_model = request.form.get("preferredModel", "remote-a6000")
+            preferred_model = request.form.get("preferredModel", "local-nemotron")
             stream_param = request.form.get("stream", "true")  # Default to "true" string
             stream = stream_param.lower() == "true" if stream_param else True  # Default to True
             deep_thinking = request.form.get("deepThinking") == "true"
@@ -229,7 +229,7 @@ def ai_response():
             session_id = data.get("sessionId")
             class_id = data.get("classId")
             chat_type = data.get("chatType", "assignments")
-            preferred_model = data.get("preferredModel", "remote-a6000")
+            preferred_model = data.get("preferredModel", "local-nemotron")
             stream = data.get("stream", True)  # Default to streaming for better UX
             deep_thinking = data.get("deepThinking", False)
             flow_type = data.get("flowType", "teach")  # "teach" (pedagogical) or "informative" (direct Q&A)

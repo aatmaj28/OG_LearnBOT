@@ -2,6 +2,21 @@ import { type NextRequest, NextResponse } from "next/server"
 import { createUser, getUserByEmail, getUserByNuid, getUserByEmailInternal, getUserByNuidInternal } from "@/lib/db-service"
 import { ensureDatabaseInitialized } from "@/lib/init-db"
 
+// Company email policy. Set COMPANY_EMAIL_DOMAIN (e.g. "acme.com") to restrict employees to a
+// single domain; leave it unset to accept any well-formed work email.
+const COMPANY_EMAIL_DOMAIN = (process.env.COMPANY_EMAIL_DOMAIN || "").trim().replace(/^@/, "").toLowerCase()
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const isValidWorkEmail = (email: string) => {
+  const value = (email || "").trim().toLowerCase()
+  if (!EMAIL_PATTERN.test(value)) return false
+  return COMPANY_EMAIL_DOMAIN ? value.endsWith(`@${COMPANY_EMAIL_DOMAIN}`) : true
+}
+
+const WORK_EMAIL_ERROR = COMPANY_EMAIL_DOMAIN
+  ? `Only @${COMPANY_EMAIL_DOMAIN} email addresses are accepted`
+  : "A valid work email address is required"
+
 export async function POST(request: NextRequest) {
   try {
     await ensureDatabaseInitialized()
@@ -12,9 +27,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Name and email are required" }, { status: 400 })
     }
 
-    // Validate Northeastern email domain
-    if (!email.endsWith('@northeastern.edu')) {
-      return NextResponse.json({ error: "Only Northeastern University email addresses are accepted (@northeastern.edu)" }, { status: 400 })
+    if (!isValidWorkEmail(email)) {
+      return NextResponse.json({ error: WORK_EMAIL_ERROR }, { status: 400 })
     }
 
     // Generate a default password if not provided

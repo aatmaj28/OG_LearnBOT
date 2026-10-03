@@ -16,6 +16,7 @@ import {
   getClassesByStudent
 } from './db-service'
 import type { RAGConversation, ModelBackend } from './types'
+import { DEFAULT_MODEL_BACKEND } from './types'
 import { VectorStoreManager } from './vector-store-manager'
 import { generateLLMResponse, type LLMConfig } from './llm-service'
 
@@ -153,38 +154,19 @@ const getPostCheckpointInstructions = (taMode: TAMode = 'normal'): string => {
 }
 
 /**
- * Determine if model fallback is needed due to image attachments
- * Claude API supports images, but Blackwell and A6000 do not
- */
-const shouldFallbackToClaudeForImages = (
-  attachments: File[],
-  preferredModel: ModelBackend
-): boolean => {
-  if (!attachments || attachments.length === 0) {
-    return false
-  }
-  
-  // Check if any attachment is an image
-  const hasImages = attachments.some(file => file.type.startsWith('image/'))
-  
-  // If images are present and model is not Claude, need to fallback
-  if (hasImages && preferredModel !== 'claude') {
-    return true
-  }
-  
-  return false
-}
-
-/**
- * Get the effective model to use, considering attachment requirements
+ * Get the effective model to use.
+ *
+ * This used to divert image attachments to the Claude API, the only vision-capable backend.
+ * The app now runs fully offline on two local text-only models, so there is nothing to divert
+ * to: the user's chosen model is always used, and images are handled by the existing
+ * non-image path rather than silently routing off-box.
  */
 const getEffectiveModel = (
   attachments: File[],
   preferredModel: ModelBackend
 ): ModelBackend => {
-  if (shouldFallbackToClaudeForImages(attachments, preferredModel)) {
-    console.log(`[RAG] Image attachment detected with ${preferredModel} - falling back to Claude API for image support`)
-    return 'claude'
+  if (attachments?.some(file => file.type.startsWith('image/'))) {
+    console.log(`[RAG] Image attachment present; ${preferredModel} is text-only, continuing without vision`)
   }
   return preferredModel
 }
@@ -1145,8 +1127,7 @@ export class RAGService extends EventEmitter {
         }
       }
       
-      // Determine effective model (fallback to Claude if images are attached and model doesn't support them)
-      const effectiveModel = getEffectiveModel(attachments, preferredModel || 'claude')
+      const effectiveModel = getEffectiveModel(attachments, preferredModel || DEFAULT_MODEL_BACKEND)
       
       const systemPrompt = isSyllabus ? getSyllabusSystemPrompt() : getSystemPrompt(classId, checkpointState, taMode, deepThinking, attachments)
       let fullResponse = ''
@@ -3751,8 +3732,7 @@ if __name__ == "__main__":
           }
         }
         
-        // Determine effective model (fallback to Claude if images are attached and model doesn't support them)
-        const effectiveModel = getEffectiveModel(attachments, preferredModel || 'claude')
+        const effectiveModel = getEffectiveModel(attachments, preferredModel || DEFAULT_MODEL_BACKEND)
         
         const systemPromptContent = isSyllabus 
           ? getSyllabusSystemPrompt()
@@ -3973,7 +3953,7 @@ CRITICAL FORMATTING REMINDER BEFORE YOU RESPOND:
 Response:`
 
       const llmConfig: LLMConfig = {
-        preferredBackend: preferredModel || 'claude',  // Default to Claude for best quality
+        preferredBackend: preferredModel || DEFAULT_MODEL_BACKEND,
         systemPrompt: systemPrompt,
         temperature: 0.2,
         maxTokens: 1000

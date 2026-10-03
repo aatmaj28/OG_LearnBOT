@@ -8,9 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { GraduationCap, Users, Brain, Target, Zap, Eye, EyeOff } from "lucide-react"
+import { User, Users, Bot, Brain, ShieldCheck, Zap, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
-import Image from "next/image"
 
 function RegisterPageFallback() {
   return (
@@ -114,7 +113,7 @@ function RegisterContent() {
     }
 
     if (role === "student" && !nuid) {
-      setError("NUID is required for students")
+      setError("Employee ID is required")
       return
     }
 
@@ -230,6 +229,9 @@ function RegisterContent() {
     }
   }
 
+  // UI label only; the backend role values stay "student" / "faculty".
+  const roleLabel = role === "faculty" ? "Manager" : "Employee"
+
   const handleGoToLogin = () => {
     router.push(role === "faculty" ? "/login?role=faculty" : "/login?role=student")
   }
@@ -242,14 +244,9 @@ function RegisterContent() {
           <div>
             {/* Logo */}
             <div className="flex items-center gap-3 mb-4">
-              <Image
-                src="/learnbot-logo.png"
-                alt="LearnBot Logo"
-                width={48}
-                height={48}
-                className="object-contain"
-                priority
-              />
+              <div className="w-14 h-14 rounded-xl bg-white/15 flex items-center justify-center">
+                <Bot className="h-8 w-8 text-white" />
+              </div>
               <span className="text-3xl font-bold text-white">LearnBot</span>
             </div>
             {/* Separator Line */}
@@ -257,17 +254,17 @@ function RegisterContent() {
 
             {/* Title */}
             <h1 className="text-5xl font-bold text-white mb-3">
-              DMSB AI
+              AI Onboarding
             </h1>
             <h2 className="text-3xl font-medium text-blue-100 mb-4">
-              Strategic Hub
+              Assistant
             </h2>
             {/* Separator Line */}
             <div className="w-16 h-0.5 bg-white mb-6"></div>
 
             {/* Description */}
             <p className="text-lg text-blue-50 leading-relaxed">
-              Empowering Northeastern's D'Amore-McKim School of Business with cutting-edge AI solutions and strategic insights.
+              Get new hires productive faster. Personalised learning paths, instant answers from your company documents, and clear progress for managers.
             </p>
           </div>
 
@@ -281,15 +278,15 @@ function RegisterContent() {
             </div>
             <div className="flex flex-col items-center gap-3">
               <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center">
-                <Target className="h-8 w-8 text-white" />
+                <ShieldCheck className="h-8 w-8 text-white" />
               </div>
-              <span className="text-white text-sm font-medium">Strategic</span>
+              <span className="text-white text-sm font-medium">Private &amp; Secure</span>
             </div>
             <div className="flex flex-col items-center gap-3">
               <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center">
                 <Zap className="h-8 w-8 text-white" />
               </div>
-              <span className="text-white text-sm font-medium">Innovative</span>
+              <span className="text-white text-sm font-medium">Fast Ramp-up</span>
             </div>
           </div>
         </div>
@@ -305,19 +302,19 @@ function RegisterContent() {
                 {/* Blue Separator Line */}
                 <div className="w-16 h-0.5 bg-blue-600 mb-3"></div>
                 <p className="text-gray-600 mb-6">
-                  Sign up to access your {role} portal
+                  Sign up to access your {roleLabel.toLowerCase()} portal
                 </p>
 
                 {/* Role Indicator */}
                 <div className="mb-4 flex items-center gap-2">
                   <div className={`p-2 rounded-lg ${role === "student" ? "bg-blue-100" : "bg-indigo-100"}`}>
                     {role === "student" ? (
-                      <GraduationCap className={`h-5 w-5 text-blue-600`} />
+                      <User className={`h-5 w-5 text-blue-600`} />
                     ) : (
                       <Users className={`h-5 w-5 text-indigo-600`} />
                     )}
                   </div>
-                  <span className="text-sm font-medium text-gray-700 capitalize">{role} Registration</span>
+                  <span className="text-sm font-medium text-gray-700">{roleLabel} Registration</span>
                 </div>
               </>
             )}
@@ -345,10 +342,10 @@ function RegisterContent() {
                   <h2 className="text-3xl font-bold text-gray-900 mb-2">Account Created Successfully!</h2>
                   <div className="w-16 h-0.5 bg-green-600 mb-4 mx-auto"></div>
                   <p className="text-gray-600 mb-2">
-                    Welcome to LearnBOT Portal!
+                    Welcome to LearnBot!
                   </p>
                   <p className="text-sm text-gray-500">
-                    Hello <span className="font-medium">{name}</span>! Your {role} account has been verified and is ready to use.
+                    Hello <span className="font-medium">{name}</span>! Your {roleLabel.toLowerCase()} account has been verified and is ready to use.
                   </p>
                 </div>
               </>
@@ -381,7 +378,7 @@ function RegisterContent() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="your.email@northeastern.edu"
+                  placeholder="you@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -391,12 +388,13 @@ function RegisterContent() {
 
               {role === "student" && (
                 <>
+                  {/* UI label "Employee ID" -> backend field is still `nuid` (unchanged). */}
                   <div className="space-y-2">
-                    <Label htmlFor="nuid" className="text-gray-900 font-medium">NUID</Label>
+                    <Label htmlFor="nuid" className="text-gray-900 font-medium">Employee ID</Label>
                     <Input
                       id="nuid"
                       type="text"
-                      placeholder="12345678"
+                      placeholder="E-1042"
                       value={nuid}
                       onChange={(e) => setNuid(e.target.value)}
                       required
@@ -404,24 +402,26 @@ function RegisterContent() {
                     />
                   </div>
 
+                  {/* UI label "Job Title" -> backend field is still `degree` (unchanged). */}
                   <div className="space-y-2">
-                    <Label htmlFor="degree" className="text-gray-900 font-medium">Degree</Label>
+                    <Label htmlFor="degree" className="text-gray-900 font-medium">Job Title</Label>
                     <Input
                       id="degree"
                       type="text"
-                      placeholder="Bachelor of Science"
+                      placeholder="Software Engineer"
                       value={degree}
                       onChange={(e) => setDegree(e.target.value)}
                       className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"
                     />
                   </div>
 
+                  {/* UI label "Department" -> backend field is still `major` (unchanged). */}
                   <div className="space-y-2">
-                    <Label htmlFor="major" className="text-gray-900 font-medium">Major</Label>
+                    <Label htmlFor="major" className="text-gray-900 font-medium">Department</Label>
                     <Input
                       id="major"
                       type="text"
-                      placeholder="Computer Science"
+                      placeholder="Engineering"
                       value={major}
                       onChange={(e) => setMajor(e.target.value)}
                       className="h-12 bg-gray-100 border-0 focus:bg-white focus:ring-2 focus:ring-blue-600 rounded-lg"

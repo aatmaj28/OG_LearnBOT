@@ -3,12 +3,14 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MessageSquare, Send, Plus, Bot, BookOpen, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Paperclip, File, Image as ImageIcon, Brain, X } from "lucide-react"
+import { MessageSquare, Send, Plus, Bot, BookOpen, FileText, Trash2, Zap, Calendar, Download, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Paperclip, File, Image as ImageIcon, Brain, X } from "lucide-react"
 import type { RAGConversation, Class, ModelBackend, ChatAttachment } from "@/lib/types"
+import { normalizeModelBackend } from "@/lib/types"
 import { getConversationCardTitle } from "@/lib/utils"
 import { ChatMessage } from "@/components/chat-message"
 import { speechToText } from "@/lib/speech-to-text"
@@ -19,20 +21,36 @@ import { toast } from "sonner"
 
 type ChatType = "class_material" | "syllabus"
 
+// A document the HR team uploaded, tagged with the sector it belongs to.
+type CorpusDocument = { classId: string; className: string; fileName: string }
+
+// Encoding for the document picker. A selection is stored as "<classId>::<fileName>" so one
+// Select carries both; an empty fileName means "every document in that sector".
+// The sector id is always a real class id, because the backend resolves the Qdrant collection
+// from it and would otherwise fail on a non-numeric value.
+const DOC_SEPARATOR = "::"
+const encodeDocValue = (classId: string, fileName: string) => `${classId}${DOC_SEPARATOR}${fileName}`
+
 interface FacultyChatTabProps {
   isDarkMode: boolean
 }
 
 export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
+  const router = useRouter()
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [chatType, setChatType] = useState<ChatType>("class_material")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-blackwell")
+  const [preferredModel, setPreferredModel] = useState<ModelBackend>("local-nemotron")
   const [taMode, setTaMode] = useState<'lenient' | 'normal' | 'strict'>('normal')
   const [classes, setClasses] = useState<Class[]>([])
+  // Every uploaded document across all sectors, so a chat can be scoped to one of them.
+  const [documents, setDocuments] = useState<CorpusDocument[]>([])
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
+  // "" means the whole corpus; otherwise the file the chat is scoped to.
+  const [selectedDocument, setSelectedDocument] = useState<string>("")
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
   }>({ isAvailable: false })
@@ -116,9 +134,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
 
   // Check if selected class has PDFs uploaded
   const checkCorpusPdfs = async () => {
-    if (!selectedClassId || selectedClassId === 'entire-corpus') {
-      // Entire corpus always allows chat (it's a merged corpus)
-      setHasCorpusPdfs(true)
+    if (!selectedClassId) {
+      setHasCorpusPdfs(null)
       return
     }
 
@@ -136,6 +153,55 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       setIsCheckingCorpus(false)
     }
   }
+
+  // Build the document list from every sector's corpus so the picker can offer them all.
+  useEffect(() => {
+    let cancelled = false
+
+    const loadDocuments = async () => {
+      if (classes.length === 0) {
+        setDocuments([])
+        return
+      }
+
+      setIsLoadingDocuments(true)
+      try {
+        const { corpusApi } = await import("@/lib/flask-api-client")
+        const perClass = await Promise.all(
+          classes.map(async (classItem) => {
+            try {
+              const data = await corpusApi.getFiles(classItem.id, chatType) as { files?: string[] }
+              return (data.files ?? []).map((fileName) => ({
+                classId: classItem.id,
+                className: classItem.name,
+                fileName,
+              }))
+            } catch {
+              // One sector failing shouldn't blank out the whole picker.
+              return [] as CorpusDocument[]
+            }
+          })
+        )
+        if (!cancelled) setDocuments(perClass.flat())
+      } finally {
+        if (!cancelled) setIsLoadingDocuments(false)
+      }
+    }
+
+    loadDocuments()
+    return () => { cancelled = true }
+  }, [classes, chatType])
+
+  // A document picked under one chat type may not exist under the other.
+  useEffect(() => {
+    if (!selectedDocument) return
+    const stillExists = documents.some(
+      (doc) => doc.classId === selectedClassId && doc.fileName === selectedDocument
+    )
+    if (!isLoadingDocuments && !stillExists) {
+      setSelectedDocument("")
+    }
+  }, [documents, isLoadingDocuments, selectedDocument, selectedClassId])
 
   // Reload conversations and clear current conversation when chat type changes
   useEffect(() => {
@@ -297,7 +363,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       const { classesApi } = await import("@/lib/flask-api-client")
       const data = await classesApi.getClasses(userId)
       setClasses(data.classes || [])
-      // Auto-select first class if available
+      // Default to the first sector, all of its documents; the picker narrows from there.
       if (data.classes && data.classes.length > 0) {
         setSelectedClassId(data.classes[0].id)
       }
@@ -980,11 +1046,8 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
 
-      // If Deep Thinking Mode is enabled, add a 3-second artificial delay *before* sending the request
-      if (deepThinking) {
-        console.log("[v0] 🧠 Deep Thinking Mode active: delaying request by 3000ms")
-        await new Promise(resolve => setTimeout(resolve, 3000))
-      }
+      // Deep Thinking is no longer an artificial delay: the flag is sent to the backend, which
+      // turns on the model's real reasoning pass for this message.
 
       // Prepare FormData if we have attachments, otherwise use JSON
       let requestBody: FormData | string
@@ -997,6 +1060,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
         formData.append('userId', userId)
         formData.append('sessionId', currentConversation.id)
         if (selectedClassId) formData.append('classId', selectedClassId)
+        if (selectedDocument) formData.append('sourceFile', selectedDocument)
         formData.append('chatType', chatType)
         formData.append('preferredModel', preferredModel)
         formData.append('stream', 'true')
@@ -1016,6 +1080,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
           userId,
           sessionId: currentConversation.id,
           classId: selectedClassId,
+          sourceFile: selectedDocument || undefined,
           chatType: chatType,
           preferredModel: preferredModel,
           stream: true,
@@ -1385,12 +1450,10 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     }
 
     // Get class name
-    const className = selectedClassId === 'entire-corpus'
-      ? 'Entire Corpus'
-      : classes.find(c => c.id === selectedClassId)?.name || 'Unknown Class'
+    const className = classes.find(c => c.id === selectedClassId)?.name || 'Unknown sector'
 
     // Format chat type
-    const chatTypeFormatted = chatType === 'class_material' ? 'Class Material' : 'Syllabus/Schedule'
+    const chatTypeFormatted = chatType === 'class_material' ? 'Training Material' : 'Policies & Schedule'
 
     // Format date and time
     const startDate = new Date(currentConversation.createdAt)
@@ -1408,8 +1471,9 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     // Build the export content
     let exportContent = `LearnBOT Chat Export\n`
     exportContent += `${'='.repeat(80)}\n\n`
-    exportContent += `Faculty: ${userName}\n`
-    exportContent += `Class: ${className}\n`
+    exportContent += `Manager: ${userName}\n`
+    exportContent += `Sector: ${className}\n`
+    exportContent += `Document: ${selectedDocument || 'All documents in sector'}\n`
     exportContent += `Chat Type: ${chatTypeFormatted}\n`
     exportContent += `Date Started: ${formattedDate}\n`
     exportContent += `Time Started: ${formattedTime}\n`
@@ -1419,7 +1483,7 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
     // Add messages
     if (currentConversation.messageHistory && currentConversation.messageHistory.length > 0) {
       currentConversation.messageHistory.forEach((message, index) => {
-        const role = message.role === 'user' ? '[USER]' : '[AI TA]'
+        const role = message.role === 'user' ? '[USER]' : '[AI AGENT]'
         let timestampDisplay = '--:--'
         try {
           const date = new Date(message.timestamp as any)
@@ -1527,31 +1591,29 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 <Zap className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
                 Select Model
               </label>
-              <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
+              <Select value={normalizeModelBackend(preferredModel)} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
                 <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
                   <SelectValue placeholder="Choose a model..." />
                 </SelectTrigger>
                 <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                  <SelectItem value="claude" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                    🧠 Claude (Opus 4.6)
+                  <SelectItem value="local-nemotron" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    ⚡ Nemotron 3.5 Lightning (30B)
                   </SelectItem>
-                  <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                    ⚡ Gemma (Blackwell)
+                  <SelectItem value="local-qwen" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    🧠 Qwen3.6 (35B-A3B)
+                  </SelectItem>
+                  <SelectItem value="local-nano" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                    🍃 Nemotron 3 Nano (4B)
                   </SelectItem>
                 </SelectContent>
               </Select>
-              {preferredModel === 'claude' && (
-                <p className={`text-xs mt-1.5 leading-snug ${isDarkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
-                  ⚠️ Heads up: Claude (Opus 4.6) sends your messages to Anthropic&apos;s cloud for processing. If you&apos;d rather keep everything on our local infrastructure, switch to Gemma (Blackwell).
-                </p>
-              )}
             </div>
 
             {/* TA Mode Selection */}
             <div className="space-y-2">
               <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
                 <Bot className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-                TA Mode
+                Agent Mode
               </label>
               <div className={`flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
                 <button
@@ -1637,38 +1699,61 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 {taMode === 'lenient' && 'More forgiving - accepts partial understanding'}
                 {taMode === 'normal' && 'Balanced - standard checkpoint requirements'}
                 {taMode === 'strict' && 'Very strict - requires complete, precise understanding'}
+                {' '}Applies to every employee you onboard.
               </p>
             </div>
 
-            {/* Class Selection */}
+            {/* Document Selection */}
             <div className="space-y-2">
               <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-                <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-                Select Class
+                <FileText className={`h-4 w-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                Select Document
               </label>
-              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+              <Select
+                value={encodeDocValue(selectedClassId, selectedDocument)}
+                onValueChange={(value) => {
+                  const splitAt = value.indexOf(DOC_SEPARATOR)
+                  setSelectedClassId(value.slice(0, splitAt))
+                  setSelectedDocument(value.slice(splitAt + DOC_SEPARATOR.length))
+                }}
+              >
                 <SelectTrigger className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}>
-                  <SelectValue placeholder="Choose a class..." />
+                  <SelectValue placeholder="Choose a document..." />
                 </SelectTrigger>
                 <SelectContent className={isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : ''}>
-                  {/* Entire Corpus Option */}
-                  <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                    <div className="flex items-center gap-2">
-                      <span className={`font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
-                    </div>
-                  </SelectItem>
-                  {classes.length > 0 && (
-                    <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Individual Classes
-                    </div>
-                  )}
-                  {classes.map((classItem) => (
-                    <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
-                      {classItem.name}
-                    </SelectItem>
-                  ))}
+                  {classes.map((classItem) => {
+                    const sectorDocs = documents.filter((doc) => doc.classId === classItem.id)
+                    return (
+                      <div key={classItem.id}>
+                        <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                          {classItem.name}
+                        </div>
+                        <SelectItem value={encodeDocValue(classItem.id, "")} className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
+                          <span className={`font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 All documents</span>
+                        </SelectItem>
+                        {sectorDocs.map((doc) => (
+                          <SelectItem
+                            key={encodeDocValue(doc.classId, doc.fileName)}
+                            value={encodeDocValue(doc.classId, doc.fileName)}
+                            className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}
+                          >
+                            {doc.fileName}
+                          </SelectItem>
+                        ))}
+                      </div>
+                    )
+                  })}
                 </SelectContent>
               </Select>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {isLoadingDocuments
+                  ? 'Loading documents...'
+                  : documents.length === 0
+                    ? 'No documents uploaded yet. Add them in the Documents tab.'
+                    : selectedDocument
+                      ? `Answering from ${selectedDocument}`
+                      : `Answering from all documents in ${classes.find(c => c.id === selectedClassId)?.name || 'this sector'}`}
+              </p>
             </div>
 
             {/* Chat Type Selection */}
@@ -1684,13 +1769,13 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                   <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                     <div className="flex items-center gap-2">
                       <BookOpen className="h-4 w-4" />
-                      <span>Class Material</span>
+                      <span>Training Material</span>
                     </div>
                   </SelectItem>
                   <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4" />
-                      <span>Syllabus/Schedule</span>
+                      <span>Policies &amp; Schedule</span>
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -1712,14 +1797,14 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
             <div className="space-y-2 pr-2">
               {!selectedClassId ? (
                 <div className="text-center py-8">
-                  <BookOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-sm text-muted-foreground mb-2">Select a class to view conversations</p>
-                  <p className="text-xs text-muted-foreground">Choose a class from the dropdown above to see its chat history</p>
+                  <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-sm text-muted-foreground mb-2">Select a document to view conversations</p>
+                  <p className="text-xs text-muted-foreground">Choose a document from the dropdown above to see its chat history</p>
                 </div>
               ) : !conversations || conversations.length === 0 ? (
                 <div className="text-center py-8">
                   <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-sm text-muted-foreground mb-2">No conversations yet for this class</p>
+                  <p className="text-sm text-muted-foreground mb-2">No conversations yet</p>
                   <p className="text-xs text-muted-foreground">Start a new conversation to begin chatting</p>
                 </div>
               ) : (
@@ -1788,23 +1873,23 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                 <p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                   Checking corpus...
                 </p>
-              ) : hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? (
+              ) : hasCorpusPdfs === false && selectedClassId ? (
                 <>
                   <p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    No PDFs have been uploaded for this class yet. Please upload and index course materials before you can start chatting.
+                    No documents have been uploaded for this sector yet. Please upload and index documents before you can start chatting.
                   </p>
                   <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-yellow-900/20 border border-yellow-700/50' : 'bg-yellow-50 border border-yellow-200'}`}>
                     <p className={`text-sm ${isDarkMode ? 'text-yellow-300' : 'text-yellow-800'}`}>
-                      📚 Chat is disabled until course materials (PDFs) are uploaded and indexed. Go to Corpus Management to upload PDFs.
+                      📚 Chat is disabled until documents are uploaded and indexed. Go to the Documents tab to upload them.
                     </p>
                   </div>
                 </>
               ) : (
                 <>
                   <p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {selectedClassId
-                      ? `Use the AI assistant to help with ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}`
-                      : "Select a class to start chatting with the AI assistant"
+                    {selectedDocument
+                      ? `Ask the assistant about ${selectedDocument}`
+                      : "Ask the assistant anything from your uploaded documents"
                     }
                   </p>
                   <Button size="lg" onClick={createNewConversation} disabled={!selectedClassId || hasCorpusPdfs === false}>
@@ -2059,14 +2144,14 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     onClick={toggleDeepThinking}
                     disabled={loading || chatType === 'syllabus' || hasCorpusPdfs === false}
                     className={`h-8 w-8 ${chatType === 'syllabus' ? 'opacity-50 cursor-not-allowed' : ''} ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                    title={chatType === 'syllabus' ? 'Deep thinking is only for Class Material chat' : 'Deep thinking mode'}
+                    title={chatType === 'syllabus' ? 'Deep thinking is only for Training Material chat' : 'Deep thinking mode'}
                   >
                     <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
                   </Button>
 
                   <Textarea
                     ref={textareaRef}
-                    placeholder={hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? "No PDFs uploaded for this class..." : "Message LearnBOT..."}
+                    placeholder={hasCorpusPdfs === false && selectedClassId ? "No documents uploaded yet..." : "Message LearnBot..."}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyPress}
@@ -2075,22 +2160,18 @@ export function FacultyChatTab({ isDarkMode }: FacultyChatTabProps) {
                     rows={1}
                   />
 
-                  {isVoiceSupported && (
-                    <div className="flex items-center gap-2">
-                      {isRecording && <VoiceWave isActive={isRecording} className={isDarkMode ? "text-red-400" : "text-red-500"} />}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={isRecording ? stopVoiceInput : startVoiceInput}
-                        disabled={loading || hasCorpusPdfs === false}
-                        className={`h-8 w-8 ${isRecording ? 'text-red-500' : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                        title={isRecording ? "Stop recording" : "Start voice input"}
-                      >
-                        {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  )}
+                  {/* Opens the full-screen voice view instead of dictating into this box. */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => router.push("/voice")}
+                    className={`h-8 w-8 ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                    title="Talk to the assistant"
+                    aria-label="Talk to the assistant"
+                  >
+                    <Mic className="h-4 w-4" />
+                  </Button>
 
                   <Button
                     onClick={sendMessage}

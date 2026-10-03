@@ -21,6 +21,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import type { Class, User } from "@/lib/types"
 
+// Company email policy. Set NEXT_PUBLIC_COMPANY_EMAIL_DOMAIN (e.g. "acme.com") to restrict
+// employees to a single domain; leave it unset to accept any well-formed work email.
+const COMPANY_EMAIL_DOMAIN = (process.env.NEXT_PUBLIC_COMPANY_EMAIL_DOMAIN || "").trim().replace(/^@/, "").toLowerCase()
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const isValidWorkEmail = (email: string) => {
+  const value = email.trim().toLowerCase()
+  if (!EMAIL_PATTERN.test(value)) return false
+  return COMPANY_EMAIL_DOMAIN ? value.endsWith(`@${COMPANY_EMAIL_DOMAIN}`) : true
+}
+
+const WORK_EMAIL_HINT = COMPANY_EMAIL_DOMAIN
+  ? `Only @${COMPANY_EMAIL_DOMAIN} addresses are supported.`
+  : "Please enter a valid work email address."
+
 interface BulkUploadResult {
   success: string[]
   alreadyEnrolled: string[]
@@ -151,10 +166,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       setNewClassDescription("")
       setShowCreateDialog(false)
       await loadClasses()
-      toast.success('Class created successfully!')
+      toast.success('Sector created successfully!')
     } catch (error: any) {
       console.error("[v0] Failed to create class:", error)
-      toast.error(error?.message || 'Failed to create class')
+      toast.error(error?.message || 'Failed to create sector')
     }
   }
 
@@ -182,13 +197,12 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
   const createAndAddStudent = async () => {
     if (!selectedClass || !newStudent.email) {
-      toast.error('Please enter a student email address')
+      toast.error('Please enter an employee email address')
       return
     }
 
-    // Validate Northeastern email domain
-    if (!newStudent.email.endsWith('@northeastern.edu')) {
-      toast.error('Please enter a valid Northeastern University email address (must end with @northeastern.edu)')
+    if (!isValidWorkEmail(newStudent.email)) {
+      toast.error(WORK_EMAIL_HINT)
       return
     }
 
@@ -205,8 +219,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       )
 
       if (isEnrolled) {
-        toast.warning('Student already enrolled', {
-          description: 'This student is already enrolled in this class.'
+        toast.warning('Employee already added', {
+          description: 'This employee is already assigned to this sector.'
         })
         return
       }
@@ -245,8 +259,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       // Show success message
       if (response.enrolled) {
-        toast.success('Student added successfully!', {
-          description: "Student was found and added to the class."
+        toast.success('Employee added successfully!', {
+          description: "Employee was found and added to the sector."
         })
       } else {
         toast.success('Invitation sent!', {
@@ -255,7 +269,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       }
     } catch (error) {
       console.error("[v0] Failed to add student:", error)
-      toast.error('Failed to add student', {
+      toast.error('Failed to add employee', {
         description: 'An unexpected error occurred. Please try again.'
       })
     }
@@ -290,7 +304,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         const email = parts.find(p => p.includes('@'))
 
         if (email) {
-          if (email.includes('@northeastern.edu')) {
+          if (isValidWorkEmail(email)) {
             emails.push(email.toLowerCase())
           } else {
             invalidDomainEmails.push(email.toLowerCase())
@@ -300,7 +314,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       if (emails.length === 0) {
         toast.error('No valid emails found in CSV', {
-          description: 'Please ensure the file contains Northeastern email addresses.'
+          description: 'Please ensure the file contains valid company email addresses.'
         })
         setIsProcessingBulk(false)
         return
@@ -362,11 +376,11 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
 
       // Show summary toast
       if (result.success.length > 0) {
-        toast.success(`Successfully added ${result.success.length} student(s)`)
+        toast.success(`Successfully added ${result.success.length} employee(s)`)
       }
       if (result.notRegistered.length > 0) {
-        toast.success(`Invitation sent to ${result.notRegistered.length} student(s)`, {
-          description: 'These students need to register first. Sent them an invite.'
+        toast.success(`Invitation sent to ${result.notRegistered.length} employee(s)`, {
+          description: 'These employees need to register first. Sent them an invite.'
         })
       }
     } catch (error) {
@@ -418,12 +432,12 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       setShowRemoveStudentDialog(false)
       setStudentToRemove(null)
 
-      toast.success('Student removed successfully', {
+      toast.success('Employee removed successfully', {
         description: `${studentName} has been removed from ${className}.`
       })
     } catch (error) {
       console.error("[v0] Failed to remove student:", error)
-      toast.error('Failed to remove student', {
+      toast.error('Failed to remove employee', {
         description: 'An unexpected error occurred. Please try again.'
       })
     }
@@ -439,10 +453,10 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       setDeleteConfirmationText("")
       setSelectedClass(null)
       await loadClasses()
-      toast.success('Class deleted successfully')
+      toast.success('Sector deleted successfully')
     } catch (error: any) {
       console.error("[v0] Failed to delete class:", error)
-      toast.error('Failed to delete class', {
+      toast.error('Failed to delete sector', {
         description: error?.message || 'An unexpected error occurred. Please try again.'
       })
     }
@@ -615,7 +629,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       setPreviewResourceError(null)
     } catch (error: any) {
       console.error("[v0] Failed to load resource for preview:", error)
-      const errorMessage = error?.message || "Failed to load resource for preview"
+      const errorMessage = error?.message || "Failed to load reference material for preview"
       setPreviewResourceError(errorMessage)
       toast.error(errorMessage)
     }
@@ -694,7 +708,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       const result = await classesApi.createAssignment(formData)
 
       if (result.success) {
-        toast.success("Assignment added successfully")
+        toast.success("Task added successfully")
         setShowAddAssignmentDialog(false)
         setNewAssignment({ name: "", dueDate: "", canvasLink: "" })
         setAssignmentPdfFile(null)
@@ -703,11 +717,11 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
         }
         await loadAssignments()
       } else {
-        toast.error(result.error || "Failed to add assignment")
+        toast.error(result.error || "Failed to add task")
       }
     } catch (error) {
       console.error("[v0] Failed to add assignment:", error)
-      toast.error("Failed to add assignment")
+      toast.error("Failed to add task")
     } finally {
       setIsSubmittingAssignment(false)
     }
@@ -716,7 +730,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
   const deleteAssignment = async (assignmentId: string) => {
     if (!selectedClass) return
 
-    if (!confirm("Are you sure you want to delete this assignment? This action cannot be undone.")) {
+    if (!confirm("Are you sure you want to delete this task? This action cannot be undone.")) {
       return
     }
 
@@ -729,11 +743,11 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
     try {
       const { classesApi } = await import("@/lib/flask-api-client")
       await classesApi.deleteAssignment(selectedClass.id, assignmentId, userId)
-      toast.success("Assignment deleted successfully")
+      toast.success("Task deleted successfully")
       await loadAssignments()
     } catch (error: any) {
       console.error("[v0] Failed to delete assignment:", error)
-      toast.error(error?.message || "Failed to delete assignment")
+      toast.error(error?.message || "Failed to delete task")
     }
   }
 
@@ -746,25 +760,25 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
       {/* Classes List */}
       <div className={`w-96 border-r shadow-sm p-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Classes</h2>
+          <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>My Sectors</h2>
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
                 <Plus className="h-4 w-4 mr-1" />
-                New Class
+                New Sector
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New Class</DialogTitle>
-                <DialogDescription>Add a new class to manage your students</DialogDescription>
+                <DialogTitle>Create New Sector</DialogTitle>
+                <DialogDescription>Add a new sector to manage your employees</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="className">Class Name</Label>
+                  <Label htmlFor="className">Sector Name</Label>
                   <Input
                     id="className"
-                    placeholder="e.g., Introduction to Computer Science"
+                    placeholder="e.g., Engineering, Sales, Marketing"
                     value={newClassName}
                     onChange={(e) => setNewClassName(e.target.value)}
                   />
@@ -773,14 +787,14 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                   <Label htmlFor="classDescription">Description</Label>
                   <Textarea
                     id="classDescription"
-                    placeholder="Brief description of the class"
+                    placeholder="Brief description of the sector"
                     value={newClassDescription}
                     onChange={(e) => setNewClassDescription(e.target.value)}
                     rows={3}
                   />
                 </div>
                 <Button onClick={createClass} className="w-full">
-                  Create Class
+                  Create Sector
                 </Button>
               </div>
             </DialogContent>
@@ -791,7 +805,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
           <div className="space-y-2">
             {classes.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No classes yet. Create one to get started!
+                No sectors yet. Create one to get started!
               </p>
             ) : (
               classes.map((classItem) => (
@@ -805,7 +819,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                   <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{classItem.description}</p>
                   <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
                     <Users className="h-3 w-3" />
-                    <span>{classItem.studentIds.length} students</span>
+                    <span>{classItem.studentIds.length} employees</span>
                   </div>
                 </Card>
               ))
@@ -822,8 +836,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
               <div className={`p-4 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center shadow-lg ${isDarkMode ? 'bg-gradient-to-br from-blue-900 to-indigo-900' : 'bg-gradient-to-br from-blue-100 to-indigo-100'}`}>
                 <Users className={`h-10 w-10 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
               </div>
-              <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Select a Class</h2>
-              <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Choose a class from the list to view and manage students</p>
+              <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Select a Sector</h2>
+              <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Choose a sector from the list to view and manage employees</p>
             </div>
           </div>
         ) : (
@@ -838,23 +852,23 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                   <DialogTrigger asChild>
                     <Button variant="destructive" size="sm">
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete Class
+                      Delete Sector
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-md">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
                         <AlertTriangle className="h-5 w-5 text-destructive" />
-                        Delete Class
+                        Delete Sector
                       </DialogTitle>
                       <DialogDescription>
-                        This action cannot be undone. This will permanently delete the class and remove all associated data.
+                        This action cannot be undone. This will permanently delete the sector and remove all associated data.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
                         <p className="text-sm font-medium text-destructive mb-2">
-                          Type the class name exactly to confirm deletion:
+                          Type the sector name exactly to confirm deletion:
                         </p>
                         <p className="text-sm font-mono bg-background p-2 rounded border">
                           {selectedClass.name}
@@ -884,7 +898,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                           onClick={deleteClass}
                           disabled={deleteConfirmationText !== selectedClass.name}
                         >
-                          Delete Class
+                          Delete Sector
                         </Button>
                       </div>
                     </div>
@@ -902,19 +916,19 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                     <SelectItem value="students" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                       <div className="flex items-center gap-2">
                         <Users className="h-4 w-4" />
-                        <span>Manage Students</span>
+                        <span>Manage Employees</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="assignments" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4" />
-                        <span>Assignments</span>
+                        <span>Onboarding Tasks</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="resources" className={isDarkMode ? 'focus:bg-gray-700 focus:text-gray-100' : ''}>
                       <div className="flex items-center gap-2">
                         <FolderOpen className="h-4 w-4" />
-                        <span>Resources</span>
+                        <span>Reference Material</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -926,14 +940,14 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
             <Dialog open={showRemoveStudentDialog} onOpenChange={setShowRemoveStudentDialog}>
               <DialogContent className="max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Remove Student from Class</DialogTitle>
+                  <DialogTitle>Remove Employee from Sector</DialogTitle>
                   <DialogDescription>
                     Are you sure you want to remove {studentToRemove?.name} from {selectedClass?.name}?
                   </DialogDescription>
                 </DialogHeader>
                 <div className="py-4">
                   <p className="text-sm text-muted-foreground">
-                    This action will remove the student from this class. They will no longer have access to class materials or chat sessions.
+                    This action will remove the employee from this sector. They will no longer have access to training materials or chat sessions.
                   </p>
                 </div>
                 <div className="flex justify-end space-x-2">
@@ -950,7 +964,7 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                     variant="destructive"
                     onClick={removeStudentFromClass}
                   >
-                    Remove Student
+                    Remove Employee
                   </Button>
                 </div>
               </DialogContent>
@@ -962,14 +976,14 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>Students</CardTitle>
-                      <CardDescription>{selectedClass.studentIds.length} students enrolled</CardDescription>
+                      <CardTitle>Employees</CardTitle>
+                      <CardDescription>{selectedClass.studentIds.length} employees assigned</CardDescription>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="relative">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
-                          placeholder="Search students..."
+                          placeholder="Search employees..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-8 w-[250px] border-gray-400 dark:border-gray-600 focus-visible:ring-indigo-500"
@@ -980,33 +994,33 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                         <DialogTrigger asChild>
                           <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50">
                             <UserPlus className="h-4 w-4 mr-2" />
-                            Add Student
+                            Add Employee
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="max-w-md">
                           <DialogHeader>
-                            <DialogTitle>Add Student to Class</DialogTitle>
+                            <DialogTitle>Add Employee to Sector</DialogTitle>
                             <DialogDescription>
-                              Enter the registered student's email address. The student must have already registered an account.
+                              Enter the registered employee's email address. The employee must have already registered an account.
                             </DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <Label htmlFor="student-email">Student's Northeastern Email *</Label>
+                              <Label htmlFor="student-email">Employee's Work Email *</Label>
                               <Input
                                 id="student-email"
                                 type="email"
-                                placeholder="student@northeastern.edu"
+                                placeholder="you@company.com"
                                 value={newStudent.email}
                                 onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
-                                className={newStudent.email && !newStudent.email.endsWith('@northeastern.edu') ? 'border-red-500' : ''}
+                                className={newStudent.email && !isValidWorkEmail(newStudent.email) ? 'border-red-500' : ''}
                                 autoFocus
                               />
-                              {newStudent.email && !newStudent.email.endsWith('@northeastern.edu') && (
-                                <p className="text-sm text-red-500">Email must end with @northeastern.edu</p>
+                              {newStudent.email && !isValidWorkEmail(newStudent.email) && (
+                                <p className="text-sm text-red-500">{WORK_EMAIL_HINT}</p>
                               )}
                               <p className="text-xs text-muted-foreground">
-                                Note: Student must register first before they can be added to a class.
+                                Note: Employee must register first before they can be added to a sector.
                               </p>
                             </div>
                             <div className="flex justify-end space-x-2 pt-4">
@@ -1025,8 +1039,8 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                               >
                                 Cancel
                               </Button>
-                              <Button onClick={createAndAddStudent} disabled={!newStudent.email || !newStudent.email.endsWith('@northeastern.edu')}>
-                                Add Student
+                              <Button onClick={createAndAddStudent} disabled={!newStudent.email || !isValidWorkEmail(newStudent.email)}>
+                                Add Employee
                               </Button>
                             </div>
                           </div>
@@ -1049,9 +1063,9 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                         </DialogTrigger>
                         <DialogContent className="max-w-2xl">
                           <DialogHeader>
-                            <DialogTitle>Bulk Upload Students from CSV</DialogTitle>
+                            <DialogTitle>Bulk Upload Employees from CSV</DialogTitle>
                             <DialogDescription>
-                              Upload a CSV file containing student email addresses. Only registered students will be added.
+                              Upload a CSV file containing employee email addresses. Only registered employees will be added.
                             </DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4">
@@ -1086,17 +1100,17 @@ export function ClassManagementTab({ isDarkMode = false }: ClassManagementTabPro
                                   <p className="text-sm font-medium">CSV Format Example:</p>
                                   <pre className="text-xs bg-background p-2 rounded border">
                                     {`email
-john.doe@northeastern.edu
-sarah.smith@northeastern.edu
-mike.johnson@northeastern.edu`}
+john.doe@company.com
+sarah.smith@company.com
+mike.johnson@company.com`}
                                   </pre>
                                   <p className="text-xs text-muted-foreground mt-2">
                                     Or just a simple list without header:
                                   </p>
                                   <pre className="text-xs bg-background p-2 rounded border">
-                                    {`john.doe@northeastern.edu
-sarah.smith@northeastern.edu
-mike.johnson@northeastern.edu`}
+                                    {`john.doe@company.com
+sarah.smith@company.com
+mike.johnson@company.com`}
                                   </pre>
                                 </div>
                               </>
@@ -1129,7 +1143,7 @@ mike.johnson@northeastern.edu`}
                                   <div className="space-y-2">
                                     <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
                                       <AlertTriangle className="h-5 w-5" />
-                                      <h4 className="font-medium">Already Enrolled ({bulkUploadResult.alreadyEnrolled.length})</h4>
+                                      <h4 className="font-medium">Already Added ({bulkUploadResult.alreadyEnrolled.length})</h4>
                                     </div>
                                     <ScrollArea className="h-32 rounded border p-2 bg-blue-50 dark:bg-blue-950/20">
                                       <div className="space-y-1">
@@ -1156,7 +1170,7 @@ mike.johnson@northeastern.edu`}
                                     </ScrollArea>
                                     <div className="space-y-2">
                                       <p className="text-xs text-muted-foreground">
-                                        These students need to register on LearnBOT. They have been emailed an invitation automatically.
+                                        These employees need to register on LearnBOT. They have been emailed an invitation automatically.
                                       </p>
                                     </div>
                                   </div>
@@ -1176,7 +1190,7 @@ mike.johnson@northeastern.edu`}
                                       </div>
                                     </ScrollArea>
                                     <p className="text-xs text-muted-foreground">
-                                      Only @northeastern.edu emails are supported.
+                                      Only company email addresses are supported.
                                     </p>
                                   </div>
                                 )}
@@ -1215,7 +1229,7 @@ mike.johnson@northeastern.edu`}
                     if (classStudents.length === 0 && (!selectedClass.pendingEmails || selectedClass.pendingEmails.length === 0)) {
                       return (
                         <p className="text-sm text-muted-foreground text-center py-8">
-                          No students enrolled or invited yet. Add students to get started!
+                          No employees assigned or invited yet. Add employees to get started!
                         </p>
                       )
                     }
@@ -1223,7 +1237,7 @@ mike.johnson@northeastern.edu`}
                     if (filteredEnrolled.length === 0 && filteredPending.length === 0) {
                       return (
                         <p className="text-sm text-muted-foreground text-center py-8">
-                          No students match your search query.
+                          No employees match your search query.
                         </p>
                       )
                     }
@@ -1233,7 +1247,7 @@ mike.johnson@northeastern.edu`}
                         {/* Enrolled Students */}
                         {filteredEnrolled.length > 0 && (
                           <div>
-                            <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Enrolled Students</h4>
+                            <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Assigned Employees</h4>
                             <div className="space-y-2">
                               {filteredEnrolled.map((student) => (
                                 <div
@@ -1247,7 +1261,7 @@ mike.johnson@northeastern.edu`}
                                       <div className="flex flex-wrap gap-2 mt-1">
                                         {student.nuid && (
                                           <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                                            NUID: {student.nuid}
+                                            Employee ID: {student.nuid}
                                           </span>
                                         )}
                                         {student.degree && (
@@ -1359,31 +1373,31 @@ mike.johnson@northeastern.edu`}
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>Assignments</CardTitle>
-                      <CardDescription>Manage assignments for {selectedClass.name}</CardDescription>
+                      <CardTitle>Onboarding Tasks</CardTitle>
+                      <CardDescription>Manage onboarding tasks for {selectedClass.name}</CardDescription>
                     </div>
                     <Dialog open={showAddAssignmentDialog} onOpenChange={setShowAddAssignmentDialog}>
                       <DialogTrigger asChild>
                         <Button size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
                           <Plus className="h-4 w-4 mr-2" />
-                          Add Assignment
+                          Add Task
                         </Button>
                       </DialogTrigger>
                       <DialogContent className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''}>
                         <DialogHeader>
-                          <DialogTitle className={isDarkMode ? 'text-gray-100' : ''}>Add New Assignment</DialogTitle>
+                          <DialogTitle className={isDarkMode ? 'text-gray-100' : ''}>Add New Task</DialogTitle>
                           <DialogDescription className={isDarkMode ? 'text-gray-400' : ''}>
-                            Create a new assignment with details and PDF
+                            Create a new onboarding task with details and PDF
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
                           <div className="space-y-2">
                             <Label htmlFor="assignment-name" className={isDarkMode ? 'text-gray-300' : ''}>
-                              Assignment Name *
+                              Task Name *
                             </Label>
                             <Input
                               id="assignment-name"
-                              placeholder="e.g., Homework 1, Midterm Project"
+                              placeholder="e.g., Onboarding Task 1, Compliance Training"
                               value={newAssignment.name}
                               onChange={(e) => setNewAssignment({ ...newAssignment, name: e.target.value })}
                               className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}
@@ -1391,7 +1405,7 @@ mike.johnson@northeastern.edu`}
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="assignment-pdf" className={isDarkMode ? 'text-gray-300' : ''}>
-                              Assignment PDF *
+                              Task PDF *
                             </Label>
                             <input
                               ref={assignmentPdfInputRef}
@@ -1442,12 +1456,12 @@ mike.johnson@northeastern.edu`}
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="assignment-canvas-link" className={isDarkMode ? 'text-gray-300' : ''}>
-                              Canvas Assignment Link (Optional)
+                              External Task Link (Optional)
                             </Label>
                             <Input
                               id="assignment-canvas-link"
                               type="url"
-                              placeholder="https://canvas.northeastern.edu/..."
+                              placeholder="https://intranet.company.com/..."
                               value={newAssignment.canvasLink}
                               onChange={(e) => setNewAssignment({ ...newAssignment, canvasLink: e.target.value })}
                               className={isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : ''}
@@ -1494,8 +1508,8 @@ mike.johnson@northeastern.edu`}
                     <div className="flex items-center justify-center py-12">
                       <div className="text-center">
                         <FileText className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                        <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>No assignments yet</p>
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>Click "Add Assignment" to create your first assignment</p>
+                        <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>No tasks yet</p>
+                        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>Click "Add Task" to create your first onboarding task</p>
                       </div>
                     </div>
                   ) : (
@@ -1515,7 +1529,7 @@ mike.johnson@northeastern.edu`}
                                 size="icon"
                                 onClick={() => deleteAssignment(assignment.id)}
                                 className={`h-6 w-6 flex-shrink-0 ${isDarkMode ? 'hover:bg-red-900/50 text-red-400 hover:text-red-300' : 'hover:bg-red-100 text-red-600 hover:text-red-700'}`}
-                                title="Delete assignment"
+                                title="Delete task"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1555,7 +1569,7 @@ mike.johnson@northeastern.edu`}
                                     toast.success("Download started")
                                   } catch (error) {
                                     console.error("[v0] Failed to download assignment:", error)
-                                    toast.error("Failed to download assignment")
+                                    toast.error("Failed to download task")
                                   }
                                 }}
                                 className={`w-full ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600' : ''}`}
@@ -1573,7 +1587,7 @@ mike.johnson@northeastern.edu`}
                                   className={`w-full ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600' : ''}`}
                                 >
                                   <ExternalLink className="h-4 w-4 mr-2" />
-                                  Open in Canvas
+                                  Open Link
                                 </Button>
                               )}
                             </div>
@@ -1591,8 +1605,8 @@ mike.johnson@northeastern.edu`}
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>Resources</CardTitle>
-                      <CardDescription>Manage resources for {selectedClass.name}</CardDescription>
+                      <CardTitle>Reference Material</CardTitle>
+                      <CardDescription>Manage reference material for {selectedClass.name}</CardDescription>
                     </div>
                     <div>
                       <input
@@ -1621,8 +1635,8 @@ mike.johnson@northeastern.edu`}
                     <div className="flex items-center justify-center py-12">
                       <div className="text-center">
                         <FolderOpen className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                        <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>No resources yet</p>
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>Upload files to share with students</p>
+                        <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>No reference material yet</p>
+                        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>Upload files to share with employees</p>
                       </div>
                     </div>
                   ) : (

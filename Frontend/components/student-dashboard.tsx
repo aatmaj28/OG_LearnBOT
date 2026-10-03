@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { LogoutButton } from "@/components/logout-button"
-import { MessageSquare, BookOpen, Sun, Moon } from "lucide-react"
+import { MessageSquare, BookOpen, Sun, Moon, Bot } from "lucide-react"
 import { StudentChatInterface } from "@/components/student-chat-interface"
 import { StudentClassesTab } from "@/components/student-classes-tab"
 
@@ -49,9 +49,11 @@ export function StudentDashboard() {
       <header className={`border-b shadow-sm ${isDarkMode ? "bg-gray-800/90 border-gray-700" : "bg-white/80"} backdrop-blur-sm`}>
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
-            <img src="/learnbot-logo.png" alt="LearnBOT Logo" className="h-12 w-12 object-contain" />
+            <div className={`h-12 w-12 rounded-xl flex items-center justify-center shrink-0 ${isDarkMode ? "bg-white/10" : "bg-gradient-to-br from-blue-600 to-indigo-700"}`}>
+              <Bot className="h-7 w-7 text-white" />
+            </div>
             <div>
-              <h1 className={`font-semibold ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>Student Portal</h1>
+              <h1 className={`font-semibold ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>Employee Portal</h1>
               <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}>Welcome, {userName}</p>
             </div>
           </div>
@@ -90,7 +92,7 @@ export function StudentDashboard() {
                 className={`gap-2 ${isDarkMode ? "data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" : "data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"}`}
               >
                 <BookOpen className="h-4 w-4" />
-                Classes
+                Sectors
               </TabsTrigger>
             </TabsList>
           </div>

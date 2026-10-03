@@ -60,7 +60,7 @@ export function FacultyDashboard() {
               <Users className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Faculty Portal</h1>
+              <h1 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Manager Portal</h1>
               <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Welcome, {userName}</p>
             </div>
           </div>
@@ -95,15 +95,15 @@ export function FacultyDashboard() {
               </TabsTrigger>
               <TabsTrigger value="classes" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
                 <BookOpen className="h-4 w-4" />
-                Classes
+                Sectors
               </TabsTrigger>
               <TabsTrigger value="corpus" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
                 <Database className="h-4 w-4" />
-                Corpus
+                Documents
               </TabsTrigger>
               <TabsTrigger value="students" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
                 <Users className="h-4 w-4" />
-                Students
+                Employees
               </TabsTrigger>
               <TabsTrigger value="analytics" className={`gap-2 ${isDarkMode ? 'data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300' : 'data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700'}`}>
                 <BarChart3 className="h-4 w-4" />

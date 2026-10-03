@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || request.headers.get('origin') || 'http://localhost:3000'
     const registrationUrl = `${baseUrl}/register`
 
-    // Send email to each student
+    // Send email to each employee
     const results = {
       success: [] as string[],
       failed: [] as string[],
@@ -103,9 +103,9 @@ export async function POST(request: NextRequest) {
               <div class="content">
                 <p>Hello,</p>
                 
-                <p>${facultyName ? `Professor ${facultyName}` : 'Your faculty'} attempted to add you to the class <span class="class-name">${className}</span> on LearnBOT, but your account was not found in our system.</p>
-                
-                <p><strong>To gain access to the class, you need to register on LearnBOT first.</strong></p>
+                <p>${facultyName ? `Your manager ${facultyName}` : 'Your manager'} attempted to add you to the sector <span class="class-name">${className}</span> on LearnBOT, but your account was not found in our system.</p>
+
+                <p><strong>To gain access to the sector, you need to register on LearnBOT first.</strong></p>
                 
                 <p>Click the button below to register:</p>
                 
@@ -118,11 +118,11 @@ export async function POST(request: NextRequest) {
                   ${registrationUrl}
                 </p>
                 
-                <p><strong>Important:</strong> Please use your Northeastern University email address (${email}) when registering.</p>
-                
-                <p>Once you complete your registration, your faculty will be able to add you to the class.</p>
-                
-                <p>If you have any questions or need assistance, please contact your faculty member.</p>
+                <p><strong>Important:</strong> Please use this same email address (${email}) when you register so you are added to the sector automatically.</p>
+
+                <p>Once you complete your registration, your manager will be able to add you to the sector.</p>
+
+                <p>If you have any questions or need assistance, please contact your manager.</p>
                 
                 <p>Best regards,<br>The LearnBOT Team</p>
               </div>
@@ -136,18 +136,18 @@ export async function POST(request: NextRequest) {
           text: `
 Hello,
 
-${facultyName ? `Professor ${facultyName}` : 'Your faculty'} attempted to add you to the class "${className}" on LearnBOT, but your account was not found in our system.
+${facultyName ? `Your manager ${facultyName}` : 'Your manager'} attempted to add you to the sector "${className}" on LearnBOT, but your account was not found in our system.
 
-To gain access to the class, you need to register on LearnBOT first.
+To gain access to the sector, you need to register on LearnBOT first.
 
 Please visit the following link to register:
 ${registrationUrl}
 
-Important: Please use your Northeastern University email address (${email}) when registering.
+Important: Please use this same email address (${email}) when you register so you are added to the sector automatically.
 
-Once you complete your registration, your faculty will be able to add you to the class.
+Once you complete your registration, your manager will be able to add you to the sector.
 
-If you have any questions or need assistance, please contact your faculty member.
+If you have any questions or need assistance, please contact your manager.
 
 Best regards,
 The LearnBOT Team

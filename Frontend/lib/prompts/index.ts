@@ -1,12 +1,14 @@
 /**
- * TA Mode Prompt System
+ * Answer Mode Prompt System
  * 
- * This module exports prompt functions for different TA modes:
- * - Lenient: More forgiving, accepts partial understanding
- * - Normal: Standard behavior (balanced)
- * - Strict: Very strict checkpoint requirements
+ * This module exports prompt functions for the three answer modes:
+ * - Lenient: Answers plainly and warmly, no quizzing
+ * - Normal: Answers, states conditions and exceptions, then one short check-for-understanding
+ * - Strict: Answers, quotes the exact policy wording, states every condition, exception and
+ *   deadline, and names what the employee must do and by when
  * 
- * Deep Thinking Mode can be combined with any TA mode to enable extended reasoning.
+ * All three answer only from the company documents and always cite the source file.
+ * Deep Thinking Mode can be combined with any mode to make answers more thorough (not longer).
  */
 
 export type TAMode = 'lenient' | 'normal' | 'strict'
@@ -19,7 +21,7 @@ export { getAttachmentHandlingInstructions, getNoAttachmentInstructions } from '
 export * from './guardrails'
 
 /**
- * Get prompts based on TA mode
+ * Get prompts based on answer mode
  */
 export function getPromptsByMode(mode: TAMode) {
   switch (mode) {
@@ -36,7 +38,7 @@ export function getPromptsByMode(mode: TAMode) {
 
 /**
  * Enhance a system prompt with Deep Thinking Mode instructions
- * This combines the base TA mode prompt with deep thinking enhancements
+ * This combines the base answer-mode prompt with deep thinking enhancements
  */
 export function enhancePromptWithDeepThinking(
   basePrompt: string,

@@ -1,91 +1,19 @@
-// Stream generators for different model backends
+// LLM service — FULLY OFFLINE.
+//
+// Both supported models are served locally by Ollama's OpenAI-compatible API
+// (reached over an SSH tunnel). There are no cloud providers and no remote
+// vLLM servers: if a model fails we fall back to the *other local model* only.
+//
+// NOTE: both models are REASONING models. Their OpenAI-compatible responses put
+// the chain-of-thought in a `reasoning` field and the user-facing answer in
+// `content`. We only ever read/emit `content`.
 
-// vLLM stream generator
-async function* streamVLLM(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>) {
-  const modelConfig = MODEL_CONFIGS['remote-blackwell']
-  
-  try {
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: prompt }
-    ]
+import type { ModelBackend } from './types'
+import { MODEL_BACKENDS, DEFAULT_MODEL_BACKEND } from './types'
 
-    const response = await fetch(modelConfig.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: modelConfig.model,
-        messages: messages,
-        temperature: config?.temperature || 0.7,
-        max_tokens: config?.maxTokens || 2048,
-        stream: true
-      }),
-      signal: AbortSignal.timeout(120000)
-    })
-
-    if (!response.ok) {
-      yield { 
-        content: '', 
-        done: true, 
-        error: `vLLM error: ${response.status}`, 
-        modelUsed: REMOTE_BLACKWELL_BACKEND
-      }
-      return
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      yield { 
-        content: '', 
-        done: true, 
-        error: 'No response stream', 
-        modelUsed: REMOTE_BLACKWELL_BACKEND
-      }
-      return
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      
-      if (done) {
-        yield { content: '', done: true, modelUsed: REMOTE_BLACKWELL_BACKEND }
-        break
-      }
-
-      buffer += decoder.decode(value, { stream: true })
-      
-      // Process complete lines from the buffer
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || '' // Keep incomplete line in buffer
-
-      for (const line of lines) {
-        if (line.trim()) {
-          const parsed = JSON.parse(line)
-          const text = parsed.choices?.[0]?.delta?.content || ''
-          if (text) {
-            yield { content: text, done: false, modelUsed: REMOTE_BLACKWELL_BACKEND }
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('vLLM stream error:', error)
-    yield { 
-      content: '', 
-      done: true, 
-      error: String(error), 
-      modelUsed: REMOTE_BLACKWELL_BACKEND
-    }
-  }
-}
-// Supports Claude API and Remote Blackwell (vLLM)
-
-export type ModelBackend = 'claude' | 'remote-blackwell'
+// Re-export the canonical type so existing `import { type ModelBackend } from './llm-service'`
+// call sites keep working. The single source of truth is ./types.
+export type { ModelBackend } from './types'
 
 export interface ModelInfo {
   name: string
@@ -97,30 +25,50 @@ export interface ModelInfo {
   tunnelCommand: string
 }
 
+/** Ollama's OpenAI-compatible chat endpoint, exposed locally by the SSH tunnel. */
+const LOCAL_LLM_URL =
+  process.env.LOCAL_LLM_URL || 'http://localhost:21434/v1/chat/completions'
+
+/** Reasoning models spend a large part of their budget on `reasoning` tokens. */
+const DEFAULT_MAX_TOKENS = Number(process.env.LOCAL_MAX_TOKENS) || 4000
+
+/** Tunnel that must be up for the local endpoint to answer. */
+const TUNNEL_COMMAND = 'ssh -N -L 21434:127.0.0.1:11434 <user>@<host>'
+
+const REQUEST_TIMEOUT_MS = 300000 // 5 minutes — reasoning models are slow
+
 export const MODEL_CONFIGS: Record<ModelBackend, ModelInfo> = {
-  'claude': {
-    name: "Claude",
-    type: "claude",
-    endpoint: "https://api.anthropic.com/v1/messages",
-    model: "claude-haiku-4-5-20251001",
-    description: "Anthropic Claude - Fast, instruction-tuned endpoint",
-    requiresTunnel: false,
-    tunnelCommand: ""
-  },
-  'remote-blackwell': {
-    name: "Gemma (Blackwell)",
-    type: "vllm",
-    endpoint: "http://129.10.224.226:8000/v1/chat/completions",
-    model: "google/gemma-3-12b-it",
-    description: "vLLM on NVIDIA RTX 6000 Blackwell (96GB VRAM)",
+  'local-nemotron': {
+    name: "Nemotron 3.5 Lightning (30B)",
+    type: "ollama",
+    endpoint: LOCAL_LLM_URL,
+    model: "nemotron-3.5-lightning:30b",
+    description:
+      "NVIDIA Nemotron 3.5 Lightning 30B — local reasoning model served by Ollama over an SSH tunnel (offline).",
     requiresTunnel: true,
-    tunnelCommand: "ssh -L 8001:localhost:8000 ra_aatmaj@129.10.224.226"
+    tunnelCommand: TUNNEL_COMMAND
+  },
+  'local-qwen': {
+    name: "Qwen3.6 (35B-A3B)",
+    type: "ollama",
+    endpoint: LOCAL_LLM_URL,
+    model: "qwen3.6:35b-a3b",
+    description:
+      "Qwen3.6 35B-A3B (MoE) — local reasoning model served by Ollama over an SSH tunnel (offline).",
+    requiresTunnel: true,
+    tunnelCommand: TUNNEL_COMMAND
+  },
+  'local-nano': {
+    name: "Nemotron 3 Nano (4B)",
+    type: "ollama",
+    endpoint: LOCAL_LLM_URL,
+    model: "nemotron-3-nano:4b",
+    description:
+      "NVIDIA Nemotron 3 Nano 4B — small, fastest local model served by Ollama over an SSH tunnel (offline).",
+    requiresTunnel: true,
+    tunnelCommand: TUNNEL_COMMAND
   }
 }
-
-const CLAUDE_MODEL_ID = process.env.CLAUDE_MODEL_ID || MODEL_CONFIGS['claude'].model
-const CLAUDE_BACKEND: ModelBackend = 'claude'
-const REMOTE_BLACKWELL_BACKEND: ModelBackend = 'remote-blackwell'
 
 export interface LLMResponse {
   response: string
@@ -146,171 +94,117 @@ export interface LLMConfig {
   stream?: boolean
 }
 
-// Claude API call
-async function callClaude(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
-  const startTime = Date.now()
-  
-  try {
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    
-    if (!apiKey || apiKey.includes('your-anthropic-api-key')) {
-      throw new Error('Anthropic API key not configured')
-    }
+// ============================================================================
+// HELPERS
+// ============================================================================
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL_ID,
-        max_tokens: config?.maxTokens ?? 1024,
-        system: systemPrompt,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-        temperature: config?.temperature ?? 0.7
-      })
-    })
-
-    const endTime = Date.now()
-
-    if (!response.ok) {
-      const errorData = await response.text()
-      throw new Error(`Claude API error: ${response.status} - ${errorData}`)
-    }
-
-    const data = await response.json()
-    const responseText = data.content?.[0]?.text || ''
-
-    return {
-      response: responseText,
-      modelUsed: CLAUDE_BACKEND,
-      timeTaken: endTime - startTime,
-      success: true
-    }
-  } catch (error) {
-    const endTime = Date.now()
-    console.error('Claude API error:', error)
-    return {
-      response: '',
-      modelUsed: CLAUDE_BACKEND,
-      timeTaken: endTime - startTime,
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    }
-  }
+/** Coerce anything (including a stale 'claude' preference) to a real backend. */
+function resolveBackend(value: unknown): ModelBackend {
+  return MODEL_BACKENDS.includes(value as ModelBackend)
+    ? (value as ModelBackend)
+    : DEFAULT_MODEL_BACKEND
 }
 
-// Remote Ollama API call (via SSH tunnel)
-async function callRemoteOllama(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
-  const startTime = Date.now()
-  
-  try {
-    const remoteUrl = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
-    const remoteModel = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
-
-    const fullPrompt = `${systemPrompt}\n\n${prompt}`
-
-    const response = await fetch(remoteUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: remoteModel,
-        prompt: fullPrompt,
-        stream: false,
-        options: {
-          temperature: config?.temperature ?? 0.2,
-          top_p: 0.95,
-          top_k: 40
-        }
-      }),
-      signal: AbortSignal.timeout(120000) // 2 minute timeout
-    })
-
-    const endTime = Date.now()
-
-    if (!response.ok) {
-      const errorData = await response.text()
-      throw new Error(`Remote Ollama error: ${response.status} - ${errorData}`)
-    }
-
-    const data = await response.json()
-    const responseText = data.response || ''
-
-    return {
-      response: responseText,
-      modelUsed: REMOTE_BLACKWELL_BACKEND,
-      timeTaken: endTime - startTime,
-      success: true,
-      modelInfo: MODEL_CONFIGS['remote-blackwell']
-    }
-  } catch (error) {
-    const endTime = Date.now()
-    console.error('Remote Ollama error:', error)
-    return {
-      response: '',
-      modelUsed: REMOTE_BLACKWELL_BACKEND,
-      timeTaken: endTime - startTime,
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    }
-  }
+/** Next local model to try — the only permitted fallback. Never a cloud service. */
+function fallbackBackend(backend: ModelBackend): ModelBackend {
+  const order = MODEL_BACKENDS.filter((b) => b !== backend)
+  return order[0] ?? DEFAULT_MODEL_BACKEND
 }
 
-// vLLM API call for Blackwell
-async function callVLLM(prompt: string, systemPrompt: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
-  const startTime = Date.now()
-  const modelConfig = MODEL_CONFIGS['remote-blackwell']
-  
-  try {
-    const messages = [
+/**
+ * Reasoning models burn tokens on the hidden `reasoning` field before they emit
+ * any `content`, so a small caller-supplied budget yields an empty answer.
+ * We therefore treat the configured budget as a FLOOR, not a ceiling.
+ */
+function resolveMaxTokens(requested?: number): number {
+  return Math.max(DEFAULT_MAX_TOKENS, requested ?? 0)
+}
+
+function buildRequestBody(
+  backend: ModelBackend,
+  prompt: string,
+  systemPrompt: string,
+  config: Partial<LLMConfig> | undefined,
+  stream: boolean
+) {
+  return JSON.stringify({
+    model: MODEL_CONFIGS[backend].model,
+    messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: prompt }
-    ]
+    ],
+    temperature: config?.temperature ?? 0.7,
+    max_tokens: resolveMaxTokens(config?.maxTokens),
+    stream
+  })
+}
 
+// ============================================================================
+// NON-STREAMING
+// ============================================================================
+
+/**
+ * Call one local model (non-streaming).
+ *
+ * Reasoning handling: we read ONLY `choices[0].message.content`. The model's
+ * chain-of-thought lives in `choices[0].message.reasoning` and is discarded.
+ * If the whole token budget went to reasoning, `content` comes back as "" —
+ * that is a FAILURE, not an answer, so we surface a clear error instead of
+ * returning an empty string to the caller.
+ */
+async function callLocalModel(
+  backend: ModelBackend,
+  prompt: string,
+  systemPrompt: string,
+  config?: Partial<LLMConfig>
+): Promise<LLMResponse> {
+  const startTime = Date.now()
+  const modelConfig = MODEL_CONFIGS[backend]
+
+  try {
     const response = await fetch(modelConfig.endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: modelConfig.model,
-        messages: messages,
-        temperature: config?.temperature || 0.7,
-        max_tokens: config?.maxTokens || 2048,
-        stream: false
-      }),
-      signal: AbortSignal.timeout(120000) // 2 minute timeout
+      headers: { 'Content-Type': 'application/json' },
+      body: buildRequestBody(backend, prompt, systemPrompt, config, false),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     })
 
     if (!response.ok) {
       const errorData = await response.text()
-      console.error(`[LLM Service] Blackwell vLLM error ${response.status}:`, errorData)
-      console.error(`[LLM Service] Request URL: ${modelConfig.endpoint}`)
-      console.error(`[LLM Service] Request body:`, JSON.stringify({ model: modelConfig.model, messages: messages.slice(0, 1) }, null, 2))
-      throw new Error(`vLLM error: ${response.status} - ${errorData}`)
+      throw new Error(
+        `Local model error (${modelConfig.model}): ${response.status} - ${errorData}`
+      )
     }
 
     const data = await response.json()
-    const responseText = data.choices[0]?.message?.content || ''
+    const message = data?.choices?.[0]?.message
+    // Only `content` is the real answer; `message.reasoning` is chain-of-thought.
+    const responseText: string = typeof message?.content === 'string' ? message.content : ''
+
+    if (!responseText.trim()) {
+      const finishReason = data?.choices?.[0]?.finish_reason ?? 'unknown'
+      const reasoningLength =
+        typeof message?.reasoning === 'string' ? message.reasoning.length : 0
+      throw new Error(
+        `Local model ${modelConfig.model} returned empty content ` +
+          `(finish_reason=${finishReason}, reasoning chars=${reasoningLength}). ` +
+          `The token budget was likely spent on reasoning — raise LOCAL_MAX_TOKENS ` +
+          `(currently ${resolveMaxTokens(config?.maxTokens)}).`
+      )
+    }
 
     return {
       response: responseText,
-      modelUsed: REMOTE_BLACKWELL_BACKEND,
+      modelUsed: backend,
       timeTaken: Date.now() - startTime,
       success: true,
       modelInfo: modelConfig
     }
   } catch (error) {
-    console.error('vLLM error:', error)
+    console.error(`[LLM Service] ${backend} error:`, error)
     return {
       response: '',
-      modelUsed: REMOTE_BLACKWELL_BACKEND,
+      modelUsed: backend,
       timeTaken: Date.now() - startTime,
       success: false,
       error: error instanceof Error ? error.message : String(error),
@@ -320,124 +214,98 @@ async function callVLLM(prompt: string, systemPrompt: string, config?: Partial<L
 }
 
 /**
- * Generate LLM response with fallback mechanism
- * 
+ * Generate an LLM response with local-only fallback.
+ *
  * Priority:
- * 1. Try preferred backend
- * 2. If fails, try the remaining remote backends (Claude ⇄ Remote Ollama ⇄ Blackwell)
- * 3. Surface a helpful error if all fail
- * 
- * @param prompt - The user's prompt/question
- * @param config - Configuration including preferred backend and system prompt
- * @returns LLMResponse with response text, model used, and timing
+ * 1. Try the preferred local backend.
+ * 2. If it fails (or returns empty content), try the OTHER local model.
+ * 3. Surface a helpful error if both fail. Never falls back to a cloud service.
+ *
+ * `modelUsed` always names the backend that actually produced the text.
  */
 export async function generateLLMResponse(
   prompt: string,
   config: LLMConfig
 ): Promise<LLMResponse> {
-  console.log(`[LLM Service] Attempting with preferred backend: ${config.preferredBackend}`)
+  const primary = resolveBackend(config.preferredBackend)
+  const secondary = fallbackBackend(primary)
 
-  // Try preferred backend first
-  let result: LLMResponse = { response: '', modelUsed: config.preferredBackend, timeTaken: 0, success: false, error: '' }
-  
-  if (config.preferredBackend === 'claude') {
-    result = await callClaude(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ Claude succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ Claude failed: ${result.error}`)
-    
-    // Fallback to Blackwell
-    console.log('[LLM Service] Falling back to Blackwell...')
-    result = await callVLLM(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ Blackwell succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
-    
-  } else if (config.preferredBackend === 'remote-blackwell') {
-    result = await callVLLM(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ Blackwell succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ Blackwell failed: ${result.error}`)
-    
-    // Fallback to Claude
-    console.log('[LLM Service] Falling back to Claude...')
-    result = await callClaude(prompt, config.systemPrompt, config)
-    if (result.success) {
-      console.log(`[LLM Service] ✅ Claude succeeded in ${result.timeTaken}ms`)
-      return result
-    }
-    console.log(`[LLM Service] ❌ Claude failed: ${result.error}`)
+  console.log(`[LLM Service] Attempting with preferred backend: ${primary}`)
+
+  let result = await callLocalModel(primary, prompt, config.systemPrompt, config)
+  if (result.success) {
+    console.log(`[LLM Service] ✅ ${primary} succeeded in ${result.timeTaken}ms`)
+    return result
   }
+  console.log(`[LLM Service] ❌ ${primary} failed: ${result.error}`)
 
-  // All backends failed
+  console.log(`[LLM Service] Falling back to ${secondary}...`)
+  const fallbackResult = await callLocalModel(secondary, prompt, config.systemPrompt, config)
+  if (fallbackResult.success) {
+    console.log(`[LLM Service] ✅ ${secondary} succeeded in ${fallbackResult.timeTaken}ms`)
+    return fallbackResult
+  }
+  console.log(`[LLM Service] ❌ ${secondary} failed: ${fallbackResult.error}`)
+
   return {
-    response: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key or Blackwell tunnel active).",
-    modelUsed: config.preferredBackend,
-    timeTaken: result?.timeTaken || 0,
+    response:
+      "I'm unable to generate a response at this time. Both local models are unavailable — " +
+      `check that the Ollama SSH tunnel is up (\`${TUNNEL_COMMAND}\`) and that ${LOCAL_LLM_URL} is reachable.`,
+    modelUsed: primary,
+    timeTaken: result.timeTaken + fallbackResult.timeTaken,
     success: false,
-    error: 'All backends failed'
+    error: `All local backends failed. ${primary}: ${result.error} | ${secondary}: ${fallbackResult.error}`,
+    modelInfo: MODEL_CONFIGS[primary]
   }
 }
 
 // ============================================================================
-// STREAMING FUNCTIONS
+// STREAMING
 // ============================================================================
 
 /**
- * Stream response from Claude API with SSE
+ * Stream one local model over SSE.
+ *
+ * Reasoning handling: deltas arrive as `{delta: {content: "", reasoning: "..."}}`
+ * FIRST and only later as `{delta: {content: "..."}}`. We yield ONLY `content`
+ * and never leak `reasoning` to the caller. A stream that ends having produced
+ * no content is reported as an error so the caller can fall back.
  */
-async function* streamClaude(
+async function* streamLocalModel(
+  backend: ModelBackend,
   prompt: string,
   systemPrompt: string,
   config?: Partial<LLMConfig>
 ): AsyncGenerator<LLMStreamChunk> {
-  try {
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    
-    if (!apiKey || apiKey.includes('your-anthropic-api-key')) {
-      yield { content: '', done: true, error: 'Anthropic API key not configured', modelUsed: CLAUDE_BACKEND }
-      return
-    }
+  const modelConfig = MODEL_CONFIGS[backend]
+  let emittedContent = false
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+  try {
+    const response = await fetch(modelConfig.endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL_ID,
-        max_tokens: config?.maxTokens ?? 1024,
-        system: systemPrompt,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-        temperature: config?.temperature ?? 0.7,
-        stream: true
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: buildRequestBody(backend, prompt, systemPrompt, config, true),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     })
 
     if (!response.ok) {
       const errorData = await response.text()
-      yield { content: '', done: true, error: `Claude error: ${response.status}`, modelUsed: CLAUDE_BACKEND }
+      yield {
+        content: '',
+        done: true,
+        error: `Local model error (${modelConfig.model}): ${response.status} - ${errorData}`,
+        modelUsed: backend
+      }
       return
     }
 
     const reader = response.body?.getReader()
-    const decoder = new TextDecoder()
-
     if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: CLAUDE_BACKEND }
+      yield { content: '', done: true, error: 'No response stream', modelUsed: backend }
       return
     }
 
+    const decoder = new TextDecoder()
     let buffer = ''
 
     while (true) {
@@ -446,184 +314,121 @@ async function* streamClaude(
 
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
+      buffer = lines.pop() || '' // keep the incomplete line
 
-      for (const line of lines) {
-        if (line.trim() && line.startsWith('data: ')) {
-          const data = line.slice(6).trim()
-          if (data === '[DONE]') {
-            yield { content: '', done: true, modelUsed: CLAUDE_BACKEND }
-            return
-          }
+      for (const rawLine of lines) {
+        const line = rawLine.trim()
+        if (!line || !line.startsWith('data:')) continue
 
-          try {
-            const parsed = JSON.parse(data)
-            if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
-              const content = parsed.delta.text || ''
-              if (content) {
-              yield { content, done: false, modelUsed: CLAUDE_BACKEND }
-              }
-            } else if (parsed.type === 'message_stop') {
-              yield { content: '', done: true, modelUsed: CLAUDE_BACKEND }
-              return
-            }
-          } catch (e) {
-            // Skip invalid JSON
-          }
+        const data = line.slice(5).trim()
+        if (data === '[DONE]') {
+          if (!emittedContent) break
+          yield { content: '', done: true, modelUsed: backend }
+          return
         }
-      }
-    }
 
-    yield { content: '', done: true, modelUsed: CLAUDE_BACKEND }
-  } catch (error) {
-    console.error('Claude streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: CLAUDE_BACKEND }
-  }
-}
-
-/**
- * Stream response from Remote Ollama
- */
-async function* streamRemoteOllama(
-  prompt: string,
-  systemPrompt: string,
-  config?: Partial<LLMConfig>
-): AsyncGenerator<LLMStreamChunk> {
-  try {
-    const remoteUrl = process.env.REMOTE_OLLAMA_URL || 'http://localhost:5001/api/generate'
-    const remoteModel = process.env.REMOTE_OLLAMA_MODEL || 'gemma3:27b'
-    const fullPrompt = `${systemPrompt}\n\n${prompt}`
-
-    const response = await fetch(remoteUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: remoteModel,
-        prompt: fullPrompt,
-        stream: true,
-        options: {
-          temperature: config?.temperature ?? 0.2,
-          top_p: 0.95,
-          top_k: 40
-        }
-      })
-    })
-
-    if (!response.ok) {
-      yield { content: '', done: true, error: `Remote A6000 error: ${response.status}`, modelUsed: REMOTE_BLACKWELL_BACKEND }
-      return
-    }
-
-    const reader = response.body?.getReader()
-    const decoder = new TextDecoder()
-
-    if (!reader) {
-      yield { content: '', done: true, error: 'No response stream', modelUsed: REMOTE_BLACKWELL_BACKEND }
-      return
-    }
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      const chunk = decoder.decode(value)
-      const lines = chunk.split('\n').filter(line => line.trim() !== '')
-
-      for (const line of lines) {
         try {
-          const parsed = JSON.parse(line)
-          if (parsed.response) {
-            yield { content: parsed.response, done: false, modelUsed: REMOTE_BLACKWELL_BACKEND }
+          const parsed = JSON.parse(data)
+          const delta = parsed?.choices?.[0]?.delta
+          // `delta.reasoning` is chain-of-thought — deliberately ignored.
+          const content = typeof delta?.content === 'string' ? delta.content : ''
+          if (content) {
+            emittedContent = true
+            yield { content, done: false, modelUsed: backend }
           }
-          if (parsed.done) {
-            yield { content: '', done: true, modelUsed: REMOTE_BLACKWELL_BACKEND }
-            return
-          }
-        } catch (e) {
-          // Skip invalid JSON
+        } catch {
+          // Skip malformed SSE payloads
         }
       }
     }
 
-    yield { content: '', done: true, modelUsed: REMOTE_BLACKWELL_BACKEND }
+    if (!emittedContent) {
+      yield {
+        content: '',
+        done: true,
+        error:
+          `Local model ${modelConfig.model} streamed only reasoning and no content. ` +
+          `Raise LOCAL_MAX_TOKENS (currently ${resolveMaxTokens(config?.maxTokens)}).`,
+        modelUsed: backend
+      }
+      return
+    }
+
+    yield { content: '', done: true, modelUsed: backend }
   } catch (error) {
-    console.error('Remote A6000 streaming error:', error)
-    yield { content: '', done: true, error: String(error), modelUsed: REMOTE_BLACKWELL_BACKEND }
+    console.error(`[LLM Service] ${backend} streaming error:`, error)
+    yield {
+      content: '',
+      done: true,
+      error: error instanceof Error ? error.message : String(error),
+      modelUsed: backend
+    }
   }
 }
 
 /**
- * Generate streaming LLM response with fallback
+ * Generate a streaming LLM response, falling back to the other LOCAL model.
+ * Fallback only happens before any content has been emitted, so the caller
+ * never sees two interleaved answers.
  */
 export async function* generateLLMStreamingResponse(
   prompt: string,
   config: LLMConfig
 ): AsyncGenerator<LLMStreamChunk> {
-  console.log(`[LLM Service] Streaming with preferred backend: ${config.preferredBackend}`)
+  const primary = resolveBackend(config.preferredBackend)
+  const secondary = fallbackBackend(primary)
+
+  console.log(`[LLM Service] Streaming with preferred backend: ${primary}`)
 
   let hasSuccess = false
 
-  // Try preferred backend first
-  if (config.preferredBackend === 'claude') {
-    for await (const chunk of streamClaude(prompt, config.systemPrompt, config)) {
+  for await (const chunk of streamLocalModel(primary, prompt, config.systemPrompt, config)) {
+    if (chunk.error) {
+      console.log(`[LLM Service] ❌ ${primary} streaming failed: ${chunk.error}`)
+      if (hasSuccess) {
+        // Already streamed part of an answer — surface the error, don't restart.
+        yield chunk
+        return
+      }
+      break
+    }
+    if (chunk.content) hasSuccess = true
+    yield chunk
+    if (chunk.done) return
+  }
+
+  if (!hasSuccess) {
+    console.log(`[LLM Service] Falling back to ${secondary}...`)
+    for await (const chunk of streamLocalModel(secondary, prompt, config.systemPrompt, config)) {
       if (chunk.error) {
-        console.log(`[LLM Service] ❌ Claude streaming failed: ${chunk.error}`)
+        console.log(`[LLM Service] ❌ ${secondary} streaming failed: ${chunk.error}`)
+        if (hasSuccess) {
+          yield chunk
+          return
+        }
         break
       }
-      hasSuccess = true
+      if (chunk.content) hasSuccess = true
       yield chunk
       if (chunk.done) return
-    }
-
-    if (!hasSuccess) {
-      console.log('[LLM Service] Falling back to Blackwell...')
-      for await (const chunk of streamVLLM(prompt, config.systemPrompt, config)) {
-        if (chunk.error) {
-          console.log(`[LLM Service] ❌ Blackwell streaming failed: ${chunk.error}`)
-          break
-        }
-        hasSuccess = true
-        yield chunk
-        if (chunk.done) return
-      }
-    }
-  } else if (config.preferredBackend === 'remote-blackwell') {
-    for await (const chunk of streamVLLM(prompt, config.systemPrompt, config)) {
-      if (chunk.error) {
-        console.log(`[LLM Service] ❌ Blackwell streaming failed: ${chunk.error}`)
-        break
-      }
-      hasSuccess = true
-      yield chunk
-      if (chunk.done) return
-    }
-
-    if (!hasSuccess) {
-      console.log('[LLM Service] Falling back to Claude...')
-      for await (const chunk of streamClaude(prompt, config.systemPrompt, config)) {
-        if (chunk.error) {
-          console.log(`[LLM Service] ❌ Claude streaming failed: ${chunk.error}`)
-          break
-        }
-        hasSuccess = true
-        yield chunk
-        if (chunk.done) return
-      }
     }
   }
 
-  // If all failed
   if (!hasSuccess) {
     yield {
-      content: "I'm unable to generate a response at this time. Please check that at least one LLM backend is available (Claude API key or Blackwell tunnel).",
+      content:
+        "I'm unable to generate a response at this time. Both local models are unavailable — " +
+        `check that the Ollama SSH tunnel is up (\`${TUNNEL_COMMAND}\`) and that ${LOCAL_LLM_URL} is reachable.`,
       done: true,
-      error: 'All backends failed',
-      modelUsed: config.preferredBackend
+      error: 'All local backends failed',
+      modelUsed: primary
     }
   }
 }
+
+// ============================================================================
+// UTILITIES
+// ============================================================================
 
 /**
  * Get friendly display name for model backend
@@ -643,4 +448,3 @@ export function formatTimeTaken(ms: number): string {
     return `${(ms / 1000).toFixed(2)}s`
   }
 }
-

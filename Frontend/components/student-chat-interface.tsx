@@ -2,6 +2,7 @@
 "use client"
 
 import type React from "react"
+import { useRouter } from "next/navigation"
 
 import { useState, useEffect, useRef } from "react"
 import { flushSync } from "react-dom"
@@ -17,12 +18,23 @@ import { VoiceWave } from "@/components/voice-wave"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import type { RAGConversation, Class, ModelBackend, Assignment, Resource, ChatAttachment } from "@/lib/types"
+import { normalizeModelBackend } from "@/lib/types"
 import { getConversationCardTitle } from "@/lib/utils"
 import { speechToText } from "@/lib/speech-to-text"
 import { voiceLogger } from "@/lib/voice-logger"
 import { DeepThinkingAnimation } from "@/components/deep-thinking-animation"
 
 type ChatType = "class_material" | "syllabus"
+
+// A document uploaded for one of the employee's sectors.
+type CorpusDocument = { classId: string; className: string; fileName: string }
+
+// Encoding for the document picker. A selection is stored as "<classId>::<fileName>" so one
+// Select carries both; an empty fileName means "every document in that sector".
+// The sector id is always a real class id, because the backend resolves the Qdrant collection
+// from it and would otherwise fail on a non-numeric value.
+const DOC_SEPARATOR = "::"
+const encodeDocValue = (classId: string, fileName: string) => `${classId}${DOC_SEPARATOR}${fileName}`
 
 // Helper function to extract a meaningful short title (2-4 words) from the first user message
 const getShortTitle = (conversation: RAGConversation): string => {
@@ -234,6 +246,7 @@ interface StudentChatInterfaceProps {
 }
 
 export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minimal', isDarkMode: isDarkModeProp }: StudentChatInterfaceProps = {}) {
+  const router = useRouter()
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
   const [input, setInput] = useState("")
@@ -241,8 +254,13 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   const [userName, setUserName] = useState("")
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [chatType, setChatType] = useState<ChatType>("class_material")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("remote-blackwell")
+  const [preferredModel, setPreferredModel] = useState<ModelBackend>("local-nemotron")
   const [classes, setClasses] = useState<Class[]>([])
+  // Every document across the sectors this employee belongs to.
+  const [documents, setDocuments] = useState<CorpusDocument[]>([])
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
+  // "" means all documents; otherwise the file the chat is scoped to.
+  const [selectedDocument, setSelectedDocument] = useState<string>("")
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
   }>({ isAvailable: false })
@@ -377,15 +395,62 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     return () => clearInterval(statusInterval)
   }, [])
 
-  // Auto-select first class if selectedClassId is empty but classes exist
+  // Default to the employee's first sector once sectors are known.
   useEffect(() => {
     if (!selectedClassId && classes.length > 0) {
-      const firstClassId = classes[0].id
-      setSelectedClassId(firstClassId)
-      console.log("[v0] Auto-selected first class on classes load:", firstClassId)
+      setSelectedClassId(classes[0].id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classes]) // Only depend on classes, not selectedClassId to avoid loops
+
+  // Build the document list from every sector the employee belongs to.
+  useEffect(() => {
+    let cancelled = false
+
+    const loadDocuments = async () => {
+      if (classes.length === 0) {
+        setDocuments([])
+        return
+      }
+
+      setIsLoadingDocuments(true)
+      try {
+        const { corpusApi } = await import("@/lib/flask-api-client")
+        const perSector = await Promise.all(
+          classes.map(async (classItem) => {
+            try {
+              const data = await corpusApi.getFiles(classItem.id, chatType) as { files?: string[] }
+              return (data.files ?? []).map((fileName) => ({
+                classId: classItem.id,
+                className: classItem.name,
+                fileName,
+              }))
+            } catch {
+              // One sector failing shouldn't blank out the whole picker.
+              return [] as CorpusDocument[]
+            }
+          })
+        )
+        if (!cancelled) setDocuments(perSector.flat())
+      } finally {
+        if (!cancelled) setIsLoadingDocuments(false)
+      }
+    }
+
+    loadDocuments()
+    return () => { cancelled = true }
+  }, [classes, chatType])
+
+  // A document picked under one chat type may not exist under the other.
+  useEffect(() => {
+    if (!selectedDocument) return
+    const stillExists = documents.some(
+      (doc) => doc.classId === selectedClassId && doc.fileName === selectedDocument
+    )
+    if (!isLoadingDocuments && !stillExists) {
+      setSelectedDocument("")
+    }
+  }, [documents, isLoadingDocuments, selectedDocument, selectedClassId])
 
   useEffect(() => {
     if (selectedClassId) {
@@ -398,7 +463,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
 
   // Check if selected class has PDFs uploaded (use Flask API so chat box enables in production)
   const checkCorpusPdfs = async () => {
-    if (!selectedClassId || selectedClassId === 'entire-corpus') {
+    if (!selectedClassId) {
       setHasCorpusPdfs(true)
       return
     }
@@ -870,17 +935,16 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     const userId = localStorage.getItem("userId")
     if (!userId) return
 
-    // If no class is selected but classes exist, auto-select the first one
+    // Fall back to all documents if nothing is selected yet
     let classIdToUse = selectedClassId
     if (!classIdToUse && classes.length > 0) {
       classIdToUse = classes[0].id
       setSelectedClassId(classIdToUse)
-      console.log("[v0] Auto-selected first class:", classIdToUse)
     }
 
     if (!classIdToUse) {
-      console.error("[v0] No class selected and no classes available")
-      alert("Please select a class first, or wait for classes to load.")
+      console.error("[v0] No sector available for this employee")
+      alert("You are not assigned to a sector yet. Ask your manager to add you to one.")
       return
     }
 
@@ -1314,11 +1378,8 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       // Capture timestamp BEFORE sending request - this will be used for the assistant message
       const assistantMessageTimestamp = new Date()
 
-      // If Deep Thinking Mode is enabled, add a 3-second artificial delay *before* sending the request
-      if (deepThinking) {
-        console.log("[v0] 🧠 Deep Thinking Mode active: delaying request by 3000ms")
-        await new Promise(resolve => setTimeout(resolve, 3000))
-      }
+      // Deep Thinking is no longer an artificial delay: the flag is sent to the backend, which
+      // turns on the model's real reasoning pass for this message.
 
       // Send message with streaming enabled
       const controller = new AbortController()
@@ -1335,6 +1396,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
         formData.append('userId', userId)
         formData.append('sessionId', currentConversation.id)
         if (selectedClassId) formData.append('classId', selectedClassId)
+        if (selectedDocument) formData.append('sourceFile', selectedDocument)
         formData.append('chatType', chatType)
         formData.append('preferredModel', preferredModel)
         formData.append('stream', 'true')
@@ -1354,6 +1416,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           userId,
           sessionId: currentConversation.id,
           classId: selectedClassId,
+          sourceFile: selectedDocument || undefined,
           chatType: chatType,
           preferredModel: preferredModel,
           stream: true,
@@ -1393,6 +1456,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
           sessionId: currentConversation.id,
           message: userMessage,
           classId: selectedClassId,
+          sourceFile: selectedDocument || undefined,
           chatType,
           preferredModel,
           stream: false,
@@ -1940,12 +2004,10 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     }
 
     // Get class name
-    const className = selectedClassId === 'entire-corpus'
-      ? 'Entire Corpus'
-      : classes.find(c => c.id === selectedClassId)?.name || 'Unknown Class'
+    const className = classes.find(c => c.id === selectedClassId)?.name || 'Unknown sector'
 
     // Format chat type
-    const chatTypeFormatted = chatType === 'class_material' ? 'Class Material' : 'Syllabus/Schedule'
+    const chatTypeFormatted = chatType === 'class_material' ? 'Training Material' : 'Policies & Schedule'
 
     // Format date and time
     const startDate = new Date(currentConversation.createdAt)
@@ -1963,8 +2025,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     // Build the export content
     let exportContent = `LearnBOT Chat Export\n`
     exportContent += `${'='.repeat(80)}\n\n`
-    exportContent += `Student: ${userName}\n`
-    exportContent += `Class: ${className}\n`
+    exportContent += `Employee: ${userName}\n`
+    exportContent += `Sector: ${className}\n`
+    exportContent += `Document: ${selectedDocument || 'All documents in sector'}\n`
     exportContent += `Chat Type: ${chatTypeFormatted}\n`
     exportContent += `Date Started: ${formattedDate}\n`
     exportContent += `Time Started: ${formattedTime}\n`
@@ -1974,7 +2037,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
     // Add messages
     if (currentConversation.messageHistory && currentConversation.messageHistory.length > 0) {
       currentConversation.messageHistory.forEach((message, index) => {
-        const role = message.role === 'user' ? '[USER]' : '[AI TA]'
+        const role = message.role === 'user' ? '[USER]' : '[AI AGENT]'
         let timestampDisplay = '--:--'
         try {
           const date = new Date(message.timestamp as any)
@@ -2032,11 +2095,9 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
         <header className={`border-b shadow-sm ${isDarkMode ? 'bg-gray-800/90 border-gray-700' : 'bg-white/80'} backdrop-blur-sm`}>
           <div className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
-              <img
-                src="/learnbot-logo.png"
-                alt="LearnBOT Logo"
-                className="h-12 w-12 object-contain"
-              />
+              <div className={`h-12 w-12 rounded-xl flex items-center justify-center shrink-0 ${isDarkMode ? 'bg-white/10' : 'bg-gradient-to-br from-blue-600 to-indigo-700'}`}>
+                <Bot className="h-7 w-7 text-white" />
+              </div>
               <div>
                 <h1 className={`font-semibold text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>LearnBOT</h1>
                 <p className={`text-sm ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`}>Welcome, {userName}</p>
@@ -2116,45 +2177,73 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                       <Zap className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
                       Select Model
                     </label>
-                    <Select value={preferredModel} onValueChange={(v) => setPreferredModel(v as ModelBackend)}>
+                    <Select value={normalizeModelBackend(preferredModel)} onValueChange={(v) => setPreferredModel(v as ModelBackend)}>
                       <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                        <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          🧠 Claude (Opus 4.6)
+                        <SelectItem value="local-nemotron" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          ⚡ Nemotron 3.5 Lightning (30B)
                         </SelectItem>
-                        <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          ⚡ Gemma (Blackwell)
+                        <SelectItem value="local-qwen" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          🧠 Qwen3.6 (35B-A3B)
+                        </SelectItem>
+                        <SelectItem value="local-nano" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                          🍃 Nemotron 3 Nano (4B)
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    {preferredModel === 'claude' && (
-                      <p className={`text-xs mt-1.5 leading-snug ${isDarkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
-                        ⚠️ Claude (Opus 4.6) sends your messages to Anthropic&apos;s cloud for processing. For a fully local experience, switch to Gemma (Blackwell).
-                      </p>
-                    )}
                   </div>
                   <div className="space-y-2">
                     <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
-                      <BookOpen className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
-                      Select Class
+                      <FileText className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
+                      Select Document
                     </label>
-                    <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                    <Select
+                      value={encodeDocValue(selectedClassId, selectedDocument)}
+                      onValueChange={(value) => {
+                        const splitAt = value.indexOf(DOC_SEPARATOR)
+                        setSelectedClassId(value.slice(0, splitAt))
+                        setSelectedDocument(value.slice(splitAt + DOC_SEPARATOR.length))
+                      }}
+                    >
                       <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
-                        <SelectValue placeholder="Select class..." />
+                        <SelectValue placeholder="Select document..." />
                       </SelectTrigger>
                       <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                        <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
-                        </SelectItem>
-                        {classes.map((c) => (
-                          <SelectItem key={c.id} value={c.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                            <span className="text-sm">{c.name}</span>
-                          </SelectItem>
-                        ))}
+                        {classes.map((classItem) => {
+                          const sectorDocs = documents.filter((doc) => doc.classId === classItem.id)
+                          return (
+                            <div key={classItem.id}>
+                              <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-white/50' : 'text-gray-600'}`}>
+                                {classItem.name}
+                              </div>
+                              <SelectItem value={encodeDocValue(classItem.id, "")} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                                <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 All documents</span>
+                              </SelectItem>
+                              {sectorDocs.map((doc) => (
+                                <SelectItem
+                                  key={encodeDocValue(doc.classId, doc.fileName)}
+                                  value={encodeDocValue(doc.classId, doc.fileName)}
+                                  className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}
+                                >
+                                  <span className="text-sm">{doc.fileName}</span>
+                                </SelectItem>
+                              ))}
+                            </div>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
+                    <p className={`text-xs ${isDarkMode ? 'text-white/50' : 'text-gray-500'}`}>
+                      {isLoadingDocuments
+                        ? 'Loading documents...'
+                        : documents.length === 0
+                          ? 'No documents available yet.'
+                          : selectedDocument
+                            ? `Answering from ${selectedDocument}`
+                            : `Answering from all ${documents.length} document${documents.length === 1 ? '' : 's'}`}
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>Chat Type</label>
@@ -2166,13 +2255,13 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
                           <div className="flex items-center gap-2">
                             <BookOpen className="h-3 w-3" />
-                            <span className="text-sm">Class Material</span>
+                            <span className="text-sm">Training Material</span>
                           </div>
                         </SelectItem>
                         <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
                           <div className="flex items-center gap-2">
                             <Calendar className="h-3 w-3" />
-                            <span className="text-sm">Syllabus</span>
+                            <span className="text-sm">Policies</span>
                           </div>
                         </SelectItem>
                       </SelectContent>
@@ -2202,7 +2291,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                     {!selectedClassId ? (
                       <div className="text-center py-8 px-4">
                         <MessageSquare className={`mx-auto h-8 w-8 mb-2 ${isDarkMode ? 'text-white/20' : 'text-gray-400'}`} />
-                        <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Select a class to start</p>
+                        <p className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-gray-500'}`}>Select a document to start</p>
                       </div>
                     ) : !conversations || conversations.length === 0 ? (
                       <div className="text-center py-8 px-4">
@@ -2268,43 +2357,56 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
               {sidebarLayout !== 'full' && (
                 <>
                   {/* Model Selector */}
-                  <Select value={preferredModel} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-                    <SelectTrigger className={`h-8 w-[180px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                  <Select value={normalizeModelBackend(preferredModel)} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
+                    <SelectTrigger className={`h-8 w-[210px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                      <SelectItem value="claude" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">🧠 Claude (Opus 4.6)</span>
+                      <SelectItem value="local-nemotron" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">⚡ Nemotron 3.5 Lightning (30B)</span>
                       </SelectItem>
-                      <SelectItem value="remote-blackwell" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">⚡ Gemma (Blackwell)</span>
+                      <SelectItem value="local-qwen" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">🧠 Qwen3.6 (35B-A3B)</span>
+                      </SelectItem>
+                      <SelectItem value="local-nano" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                        <span className="text-sm">🍃 Nemotron 3 Nano (4B)</span>
                       </SelectItem>
                     </SelectContent>
                   </Select>
                   <Select
-                    value={selectedClassId}
+                    value={encodeDocValue(selectedClassId, selectedDocument)}
                     onValueChange={(value) => {
-                      if (value || classes.length === 0) setSelectedClassId(value)
-                      else if (classes.length > 0 && !value) setSelectedClassId(selectedClassId || classes[0].id)
+                      const splitAt = value.indexOf(DOC_SEPARATOR)
+                      setSelectedClassId(value.slice(0, splitAt))
+                      setSelectedDocument(value.slice(splitAt + DOC_SEPARATOR.length))
                     }}
                   >
                     <SelectTrigger className={`h-8 w-[200px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
-                      <SelectValue placeholder="Select class..." />
+                      <SelectValue placeholder="Select document..." />
                     </SelectTrigger>
                     <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                      <SelectItem value="entire-corpus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 Entire Corpus</span>
-                      </SelectItem>
-                      {classes.length > 0 && (
-                        <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                          Individual Classes
-                        </div>
-                      )}
-                      {classes.map((classItem) => (
-                        <SelectItem key={classItem.id} value={classItem.id} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          <span className="text-sm">{classItem.name}</span>
-                        </SelectItem>
-                      ))}
+                      {classes.map((classItem) => {
+                        const sectorDocs = documents.filter((doc) => doc.classId === classItem.id)
+                        return (
+                          <div key={classItem.id}>
+                            <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-white/50' : 'text-gray-600'}`}>
+                              {classItem.name}
+                            </div>
+                            <SelectItem value={encodeDocValue(classItem.id, "")} className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
+                              <span className={`text-sm font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>📚 All documents</span>
+                            </SelectItem>
+                            {sectorDocs.map((doc) => (
+                              <SelectItem
+                                key={encodeDocValue(doc.classId, doc.fileName)}
+                                value={encodeDocValue(doc.classId, doc.fileName)}
+                                className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}
+                              >
+                                <span className="text-sm">{doc.fileName}</span>
+                              </SelectItem>
+                            ))}
+                          </div>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                   <Select value={chatType} onValueChange={(val) => { setChatType(val as ChatType); if (val === 'syllabus') { setDeepThinking(false); setAttachments([]); setAttachmentPreviews([]); } }}>
@@ -2315,13 +2417,13 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                       <SelectItem value="class_material" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
                         <div className="flex items-center gap-2">
                           <BookOpen className="h-3 w-3" />
-                          <span className="text-sm">Class Material</span>
+                          <span className="text-sm">Training Material</span>
                         </div>
                       </SelectItem>
                       <SelectItem value="syllabus" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
                         <div className="flex items-center gap-2">
                           <Calendar className="h-3 w-3" />
-                          <span className="text-sm">Syllabus</span>
+                          <span className="text-sm">Policies</span>
                         </div>
                       </SelectItem>
                     </SelectContent>
@@ -2343,12 +2445,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             )}
           </div>
 
-          {sidebarLayout !== 'full' && preferredModel === 'claude' && (
-            <div className={`px-4 py-1.5 text-xs border-b ${isDarkMode ? 'bg-amber-900/20 border-white/10 text-amber-300/90' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
-              ⚠️ Claude sends data to Anthropic&apos;s cloud. Switch to Gemma (Blackwell) for local processing.
-            </div>
-          )}
-
           {/* Chat Content */}
           <>
 
@@ -2363,7 +2459,7 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                     <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
                       Checking corpus...
                     </p>
-                  ) : hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? (
+                  ) : hasCorpusPdfs === false && selectedClassId ? (
                     <>
                       <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
                         No PDFs have been uploaded for this class yet. Please ask your faculty to upload course materials before you can start chatting.
@@ -2377,11 +2473,11 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                   ) : (
                     <>
                       <p className={`mb-6 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
-                        {selectedClassId === 'entire-corpus'
-                          ? "Ask me anything across ALL DMSB courses! I'm your universal teaching assistant for the entire business school curriculum."
+                        {selectedDocument
+                          ? `Ask me anything about ${selectedDocument}.`
                           : selectedClassId
-                            ? `Ask me anything about ${classes.find(c => c.id === selectedClassId)?.name || 'this class'}. I'm here to help you learn!`
-                            : "Select a class or the Entire Corpus to start chatting with the AI assistant"
+                            ? `Ask me anything about ${classes.find(c => c.id === selectedClassId)?.name || 'your sector'}. I'm here to help you get up to speed.`
+                            : "Pick a document to start chatting with the assistant"
                         }
                       </p>
                       <Button
@@ -2645,15 +2741,15 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                         variant="ghost"
                         size="icon"
                         onClick={toggleDeepThinking}
-                        disabled={loading || chatType === 'syllabus' || (hasCorpusPdfs === false && selectedClassId !== 'entire-corpus')}
+                        disabled={loading || chatType === 'syllabus' || (hasCorpusPdfs === false)}
                         className={`h-8 w-8 ${chatType === 'syllabus' ? 'opacity-50 cursor-not-allowed' : ''} ${deepThinking ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700') : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                        title={chatType === 'syllabus' ? 'Deep thinking is only for Class Material chat' : (hasCorpusPdfs === false && selectedClassId !== 'entire-corpus' ? "Deep thinking mode requires course materials" : "Deep thinking mode")}
+                        title={chatType === 'syllabus' ? 'Deep thinking is only for Training Material chat' : (hasCorpusPdfs === false ? "Deep thinking mode requires uploaded documents" : "Deep thinking mode")}
                       >
                         <Brain className={`h-4 w-4 ${deepThinking ? 'text-purple-500' : ''}`} />
                       </Button>
 
                       <Input
-                        placeholder={hasCorpusPdfs === false && selectedClassId && selectedClassId !== 'entire-corpus' ? "No PDFs uploaded for this class..." : "Message LearnBOT..."}
+                        placeholder={hasCorpusPdfs === false && selectedClassId ? "No documents uploaded yet..." : "Message LearnBOT..."}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyPress={handleKeyPress}
@@ -2662,23 +2758,18 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                           }`}
                       />
 
-                      {/* Voice Input Button */}
-                      {isVoiceSupported && (
-                        <div className="flex items-center gap-2">
-                          {isRecording && <VoiceWave isActive={isRecording} className={isDarkMode ? "text-red-400" : "text-red-500"} />}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={isRecording ? stopVoiceInput : startVoiceInput}
-                            disabled={loading || hasCorpusPdfs === false}
-                            className={`h-8 w-8 ${isRecording ? 'text-red-500' : isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                            title={isRecording ? "Stop recording" : "Start voice input"}
-                          >
-                            {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      )}
+                      {/* Opens the full-screen voice view instead of dictating into this box. */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push("/voice")}
+                        className={`h-8 w-8 ${isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                        title="Talk to the assistant"
+                        aria-label="Talk to the assistant"
+                      >
+                        <Mic className="h-4 w-4" />
+                      </Button>
 
                       <Button
                         onClick={sendMessage}

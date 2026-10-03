@@ -104,7 +104,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
       toast.success("Download started")
     } catch (error) {
       console.error("[Student] Failed to download assignment:", error)
-      toast.error("Failed to download assignment")
+      toast.error("Failed to download task")
     }
   }
 
@@ -119,7 +119,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
   const openResourcePreview = async (index: number) => {
     if (!selectedClass || !resources[index]) return
     if (resources[index].fileExists === false) {
-      toast.error("This file is missing from the server. Please contact your instructor.")
+      toast.error("This file is missing from the server. Please contact your manager.")
       return
     }
     setPreviewResourceIndex(index)
@@ -161,14 +161,14 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
 
   return (
     <div className="h-full flex">
-      {/* Left: My Classes */}
+      {/* Left: My Sectors */}
       <div className={`w-96 border-r shadow-sm p-4 flex-shrink-0 ${isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white"}`}>
-        <h2 className={`font-semibold mb-4 ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>My Classes</h2>
+        <h2 className={`font-semibold mb-4 ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>My Sectors</h2>
         <ScrollArea className="h-[calc(100vh-180px)]">
           <div className="space-y-2">
             {classes.length === 0 ? (
               <p className={`text-sm text-center py-8 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-                You are not enrolled in any classes yet.
+                You are not assigned to any sectors yet.
               </p>
             ) : (
               classes.map((classItem) => (
@@ -193,7 +193,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                   </p>
                   <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
                     <Users className="h-3 w-3" />
-                    <span>Class</span>
+                    <span>Sector</span>
                   </div>
                 </Card>
               ))
@@ -202,7 +202,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
         </ScrollArea>
       </div>
 
-      {/* Right: Class detail - Assignments & Resources */}
+      {/* Right: Sector detail - Onboarding Tasks & Reference Material */}
       <div className="flex-1 p-6 overflow-auto">
         {!selectedClass ? (
           <div className="h-full flex items-center justify-center">
@@ -215,10 +215,10 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                 <FolderOpen className={`h-10 w-10 ${isDarkMode ? "text-blue-400" : "text-blue-600"}`} />
               </div>
               <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? "text-gray-100" : "text-gray-900"}`}>
-                Select a Class
+                Select a Sector
               </h2>
               <p className={isDarkMode ? "text-gray-400" : "text-gray-600"}>
-                Choose a class from the list to view assignments and resources
+                Choose a sector from the list to view onboarding tasks and reference material
               </p>
             </div>
           </div>
@@ -244,13 +244,13 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                     <SelectItem value="assignments" className={isDarkMode ? "focus:bg-gray-700 focus:text-gray-100" : ""}>
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4" />
-                        <span>Assignments</span>
+                        <span>Onboarding Tasks</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="resources" className={isDarkMode ? "focus:bg-gray-700 focus:text-gray-100" : ""}>
                       <div className="flex items-center gap-2">
                         <FolderOpen className="h-4 w-4" />
-                        <span>Resources</span>
+                        <span>Reference Material</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -261,9 +261,9 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
             {activeView === "assignments" && (
               <Card className={isDarkMode ? "bg-gray-800 border-gray-700" : ""}>
                 <CardHeader>
-                  <CardTitle className={isDarkMode ? "text-gray-100" : ""}>Assignments</CardTitle>
+                  <CardTitle className={isDarkMode ? "text-gray-100" : ""}>Onboarding Tasks</CardTitle>
                   <CardDescription className={isDarkMode ? "text-gray-400" : ""}>
-                    View and download assignments for {selectedClass.name}
+                    View and download onboarding tasks for {selectedClass.name}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -271,7 +271,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                     <div className="flex flex-col items-center justify-center py-12">
                       <FileText className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? "text-gray-500" : "text-gray-400"}`} />
                       <p className={`text-sm font-medium mb-2 ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}>
-                        No assignments yet
+                        No tasks yet
                       </p>
                     </div>
                   ) : (
@@ -295,7 +295,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                               {assignment.fileExists === false && (
                                 <div className="flex items-center gap-2 mb-1 p-2 rounded bg-amber-500/10 border border-amber-500/30">
                                   <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                                  <span className="text-xs text-amber-500">File unavailable — contact instructor</span>
+                                  <span className="text-xs text-amber-500">File unavailable — contact manager</span>
                                 </div>
                               )}
                               <Button
@@ -316,7 +316,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                                   className={isDarkMode ? "bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600" : ""}
                                 >
                                   <ExternalLink className="h-4 w-4 mr-2" />
-                                  Open in Canvas
+                                  Open Link
                                 </Button>
                               )}
                             </div>
@@ -332,9 +332,9 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
             {activeView === "resources" && (
               <Card className={isDarkMode ? "bg-gray-800 border-gray-700" : ""}>
                 <CardHeader>
-                  <CardTitle className={isDarkMode ? "text-gray-100" : ""}>Resources</CardTitle>
+                  <CardTitle className={isDarkMode ? "text-gray-100" : ""}>Reference Material</CardTitle>
                   <CardDescription className={isDarkMode ? "text-gray-400" : ""}>
-                    View and download resources for {selectedClass.name}
+                    View and download reference material for {selectedClass.name}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -342,7 +342,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                     <div className="flex flex-col items-center justify-center py-12">
                       <FolderOpen className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? "text-gray-500" : "text-gray-400"}`} />
                       <p className={`text-sm font-medium mb-2 ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}>
-                        No resources yet
+                        No reference material yet
                       </p>
                     </div>
                   ) : (
@@ -371,7 +371,7 @@ export function StudentClassesTab({ isDarkMode = false }: StudentClassesTabProps
                               </p>
                               <p className={`text-xs ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}>
                                 {resource.fileExists === false ? (
-                                  <span className="text-amber-500">File unavailable — contact instructor</span>
+                                  <span className="text-amber-500">File unavailable — contact manager</span>
                                 ) : (
                                   <>{formatFileSize(resource.size)} • {new Date(resource.uploadedAt).toLocaleDateString()}</>
                                 )}

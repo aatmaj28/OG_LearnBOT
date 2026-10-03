@@ -4,12 +4,11 @@ import type React from "react"
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Eye, EyeOff } from "lucide-react"
+import { Bot, Eye, EyeOff } from "lucide-react"
 
 function ResetPasswordContent() {
   const router = useRouter()
@@ -108,13 +107,9 @@ function ResetPasswordContent() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50/30 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
         <div className="flex justify-center mb-6">
-          <Image
-            src="/learnbot-logo.png"
-            alt="LearnBot"
-            width={48}
-            height={48}
-            className="object-contain"
-          />
+          <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+            <Bot className="h-8 w-8 text-white" />
+          </div>
         </div>
         <h1 className="text-2xl font-bold text-gray-900 mb-1">Set a new password</h1>
         <p className="text-gray-600 text-sm mb-6">Choose a strong password for your account.</p>

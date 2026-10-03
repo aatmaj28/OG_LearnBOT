@@ -33,7 +33,11 @@ interface AnalyticsData {
   studentEngagement: { name: string; sessions: number; minutes: number }[]
 }
 
-export function AnalyticsTab() {
+interface AnalyticsTabProps {
+  isDarkMode?: boolean
+}
+
+export function AnalyticsTab({ isDarkMode = false }: AnalyticsTabProps) {
   const [classes, setClasses] = useState<Class[]>([])
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
@@ -133,18 +137,23 @@ export function AnalyticsTab() {
     info: "#06b6d4",       // Cyan
   }
 
+  // Chart chrome colors follow the dashboard theme
+  const GRID_STROKE = isDarkMode ? "#374151" : "#e5e7eb"
+  const AXIS_STROKE = isDarkMode ? "#4b5563" : "#d1d5db"
+  const TICK_FILL = isDarkMode ? "#9ca3af" : "#6b7280"
+
   return (
     <div className="h-full flex flex-col p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2">Analytics Dashboard</h2>
-        <p className="text-muted-foreground">Comprehensive insights into student engagement and learning patterns</p>
+        <h2 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Onboarding Analytics</h2>
+        <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>How new hires in this sector are using the assistant, and what they keep asking about</p>
       </div>
 
       {classes.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
-            <p className="text-muted-foreground mb-2">No classes found</p>
-            <p className="text-sm text-muted-foreground">Create a class to view class analytics</p>
+            <p className="text-muted-foreground mb-2">No sectors found</p>
+            <p className="text-sm text-muted-foreground">Create a sector to view its onboarding analytics</p>
           </div>
         </div>
       ) : !analytics ? (
@@ -158,8 +167,8 @@ export function AnalyticsTab() {
         <>
           <div className="mb-6 flex flex-row items-center justify-between gap-4">
             <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger className="w-[300px] border-gray-300">
-                <SelectValue placeholder="Select a class" />
+              <SelectTrigger className={`w-[300px] ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+                <SelectValue placeholder="Select a sector" />
               </SelectTrigger>
               <SelectContent>
                 {classes.map((classItem) => (
@@ -185,36 +194,36 @@ export function AnalyticsTab() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Card className="border-l-4 border-l-blue-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Students</CardTitle>
+                <CardTitle className="text-sm font-medium">Employees Onboarding</CardTitle>
                 <BookOpen className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-blue-600">{analytics.totalStudents}</div>
-                <p className="text-xs text-muted-foreground mt-1">Active learners</p>
+                <p className="text-xs text-muted-foreground mt-1">New hires in this sector</p>
               </CardContent>
             </Card>
 
             <Card className="border-l-4 border-l-green-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Chat Time</CardTitle>
+                <CardTitle className="text-sm font-medium">Time with Assistant</CardTitle>
                 <Clock className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">{analytics.totalChatTime} min</div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {Math.round(analytics.totalChatTime / 60)} hours of learning
+                  {Math.round(analytics.totalChatTime / 60)} hours of self-serve onboarding
                 </p>
               </CardContent>
             </Card>
 
             <Card className="border-l-4 border-l-purple-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Sessions</CardTitle>
+                <CardTitle className="text-sm font-medium">Onboarding Conversations</CardTitle>
                 <MessageSquare className="h-4 w-4 text-purple-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-purple-600">{analytics.totalSessions}</div>
-                <p className="text-xs text-muted-foreground mt-1">Conversations started</p>
+                <p className="text-xs text-muted-foreground mt-1">Questions brought to the assistant</p>
               </CardContent>
             </Card>
 
@@ -225,7 +234,7 @@ export function AnalyticsTab() {
                   : 'border-l-yellow-500'
               }`}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Average Sentiment</CardTitle>
+                <CardTitle className="text-sm font-medium">Overall Sentiment</CardTitle>
                 <TrendingUp className={`h-4 w-4 ${analytics.averageSentiment > 0.3
                     ? 'text-green-500'
                     : analytics.averageSentiment < -0.3
@@ -248,7 +257,7 @@ export function AnalyticsTab() {
                       ? "Negative"
                       : "Neutral"}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">Overall class mood</p>
+                <p className="text-xs text-muted-foreground mt-1">How new hires sound when they ask</p>
               </CardContent>
             </Card>
           </div>
@@ -258,14 +267,14 @@ export function AnalyticsTab() {
             {/* Sentiment Distribution */}
             <Card>
               <CardHeader>
-                <CardTitle>Sentiment Distribution</CardTitle>
-                <CardDescription>Overall emotional tone of student interactions</CardDescription>
+                <CardTitle>Sentiment Breakdown</CardTitle>
+                <CardDescription>Tone of employee conversations with the assistant</CardDescription>
               </CardHeader>
               <CardContent>
                 <ChartContainer
                   config={{
                     count: {
-                      label: "Sessions",
+                      label: "Conversations",
                       color: "hsl(var(--chart-1))",
                     },
                   }}
@@ -299,15 +308,15 @@ export function AnalyticsTab() {
             {/* Topic Distribution */}
             <Card>
               <CardHeader>
-                <CardTitle>Popular Topics</CardTitle>
-                <CardDescription>Most discussed subjects in conversations</CardDescription>
+                <CardTitle>Common Questions</CardTitle>
+                <CardDescription>Topics new hires ask about most</CardDescription>
               </CardHeader>
               <CardContent>
                 {analytics.topicDistribution && analytics.topicDistribution.length > 0 ? (
                   <ChartContainer
                     config={{
                       count: {
-                        label: "Mentions",
+                        label: "Times asked",
                         color: CHART_COLORS.accent,
                       },
                     }}
@@ -315,22 +324,22 @@ export function AnalyticsTab() {
                   >
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={analytics.topicDistribution} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
                         <XAxis
                           dataKey="topic"
-                          tick={{ fontSize: 12, fill: '#6b7280' }}
-                          axisLine={{ stroke: '#d1d5db' }}
+                          tick={{ fontSize: 12, fill: TICK_FILL }}
+                          axisLine={{ stroke: AXIS_STROKE }}
                           angle={-45}
                           textAnchor="end"
                           height={80}
                         />
                         <YAxis
-                          tick={{ fontSize: 12, fill: '#6b7280' }}
-                          axisLine={{ stroke: '#d1d5db' }}
+                          tick={{ fontSize: 12, fill: TICK_FILL }}
+                          axisLine={{ stroke: AXIS_STROKE }}
                         />
                         <ChartTooltip
                           content={<ChartTooltipContent
-                            formatter={(value) => [`${value} mentions`, '']}
+                            formatter={(value) => [`asked ${value} time${value === 1 ? '' : 's'}`, '']}
                           />}
                         />
                         <Bar
@@ -345,8 +354,8 @@ export function AnalyticsTab() {
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
                     <div className="text-center">
                       <BookOpen className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">No topics extracted yet</p>
-                      <p className="text-xs mt-1">Topics will appear after students have conversations</p>
+                      <p className="text-sm">No topics yet</p>
+                      <p className="text-xs mt-1">Topics appear once employees start asking questions</p>
                     </div>
                   </div>
                 )}
@@ -359,14 +368,14 @@ export function AnalyticsTab() {
             {/* Activity Over Time */}
             <Card>
               <CardHeader>
-                <CardTitle>Activity Over Time</CardTitle>
-                <CardDescription>Daily student engagement (last 7 days)</CardDescription>
+                <CardTitle>Onboarding Activity</CardTitle>
+                <CardDescription>Daily employee activity (last 7 days)</CardDescription>
               </CardHeader>
               <CardContent>
                 <ChartContainer
                   config={{
                     sessions: {
-                      label: "Sessions",
+                      label: "Conversations",
                       color: CHART_COLORS.primary,
                     },
                     minutes: {
@@ -378,15 +387,15 @@ export function AnalyticsTab() {
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={analytics.activityOverTime} margin={{ top: 50, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
                       <XAxis
                         dataKey="date"
-                        tick={{ fontSize: 12, fill: '#6b7280' }}
-                        axisLine={{ stroke: '#d1d5db' }}
+                        tick={{ fontSize: 12, fill: TICK_FILL }}
+                        axisLine={{ stroke: AXIS_STROKE }}
                       />
                       <YAxis
-                        tick={{ fontSize: 12, fill: '#6b7280' }}
-                        axisLine={{ stroke: '#d1d5db' }}
+                        tick={{ fontSize: 12, fill: TICK_FILL }}
+                        axisLine={{ stroke: AXIS_STROKE }}
                       />
                       <ChartTooltip
                         content={<ChartTooltipContent
@@ -396,7 +405,7 @@ export function AnalyticsTab() {
                                 <>
                                   <div className="h-2.5 w-2.5 rounded-[2px] bg-[var(--color-sessions)]" />
                                   <div className="flex flex-1 justify-between leading-none items-center">
-                                    <span className="text-muted-foreground">Sessions</span>
+                                    <span className="text-muted-foreground">Conversations</span>
                                     <span className="text-foreground font-mono font-medium tabular-nums">
                                       {value}
                                     </span>
@@ -427,8 +436,8 @@ export function AnalyticsTab() {
                         verticalAlign="top"
                         layout="horizontal"
                         formatter={(value) => {
-                          if (value === 'sessions') return 'Sessions'
-                          if (value === 'minutes') return 'Minutes'
+                          if (value === 'sessions' || value === 'Sessions') return 'Conversations'
+                          if (value === 'minutes' || value === 'Minutes') return 'Minutes'
                           return value
                         }}
                       />
@@ -455,13 +464,13 @@ export function AnalyticsTab() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Student Engagement</CardTitle>
-                    <CardDescription>Individual student activity levels</CardDescription>
+                    <CardTitle>Employee Engagement</CardTitle>
+                    <CardDescription>Activity for an individual new hire</CardDescription>
                   </div>
                   {analytics && analytics.studentEngagement.length > 0 && (
                     <Select value={selectedStudent} onValueChange={setSelectedStudent}>
                       <SelectTrigger className="w-[200px]">
-                        <SelectValue placeholder="Select a student" />
+                        <SelectValue placeholder="Select an employee" />
                       </SelectTrigger>
                       <SelectContent>
                         {analytics.studentEngagement.map((student) => (
@@ -479,7 +488,7 @@ export function AnalyticsTab() {
                   <ChartContainer
                     config={{
                       sessions: {
-                        label: "Sessions",
+                        label: "Conversations",
                         color: CHART_COLORS.success,
                       },
                       minutes: {
@@ -494,15 +503,15 @@ export function AnalyticsTab() {
                         data={[analytics.studentEngagement.find(s => s.name === selectedStudent) || { name: selectedStudent, sessions: 0, minutes: 0 }]}
                         margin={{ top: 50, right: 30, left: 20, bottom: 5 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
                         <XAxis
                           dataKey="name"
-                          tick={{ fontSize: 12, fill: '#6b7280' }}
-                          axisLine={{ stroke: '#d1d5db' }}
+                          tick={{ fontSize: 12, fill: TICK_FILL }}
+                          axisLine={{ stroke: AXIS_STROKE }}
                         />
                         <YAxis
-                          tick={{ fontSize: 12, fill: '#6b7280' }}
-                          axisLine={{ stroke: '#d1d5db' }}
+                          tick={{ fontSize: 12, fill: TICK_FILL }}
+                          axisLine={{ stroke: AXIS_STROKE }}
                         />
                         <ChartTooltip
                           content={<ChartTooltipContent
@@ -512,7 +521,7 @@ export function AnalyticsTab() {
                                   <>
                                     <div className="h-2.5 w-2.5 rounded-[2px] bg-[var(--color-sessions)]" />
                                     <div className="flex flex-1 justify-between leading-none items-center">
-                                      <span className="text-muted-foreground">Sessions</span>
+                                      <span className="text-muted-foreground">Conversations</span>
                                       <span className="text-foreground font-mono font-medium tabular-nums">
                                         {value}
                                       </span>
@@ -543,8 +552,8 @@ export function AnalyticsTab() {
                           verticalAlign="top"
                           layout="horizontal"
                           formatter={(value) => {
-                            if (value === 'sessions') return 'Sessions'
-                            if (value === 'minutes') return 'Minutes'
+                            if (value === 'sessions' || value === 'Sessions') return 'Conversations'
+                            if (value === 'minutes' || value === 'Minutes') return 'Minutes'
                             return value
                           }}
                         />
@@ -565,7 +574,7 @@ export function AnalyticsTab() {
                   </ChartContainer>
                 ) : (
                   <div className="h-[350px] flex items-center justify-center text-muted-foreground">
-                    Select a student to view their engagement
+                    Select an employee to view their activity
                   </div>
                 )}
               </CardContent>

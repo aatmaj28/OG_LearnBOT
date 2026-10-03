@@ -91,16 +91,16 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
   const deleteIndexedFile = async (filename: string) => {
     if (!selectedClassId) return
-    if (!confirm(`Delete ${filename}?\n\nThis will remove the file and its embeddings from the index.`)) return
+    if (!confirm(`Remove ${filename}?\n\nThis document and everything indexed from it will be deleted, and the AI will stop answering from it.`)) return
     try {
       const { corpusApi } = await import("@/lib/flask-api-client")
       await corpusApi.deleteFile(selectedClassId, filename, materialType)
-      toast.success("File and embeddings removed")
+      toast.success("Document removed from the library")
       await loadServerFiles()
       await loadIndexStats()
     } catch (e) {
       console.error("Delete error", e)
-      toast.error("Delete error")
+      toast.error("Could not remove the document")
     }
   }
 
@@ -108,7 +108,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
     fileInputRef.current?.click()
   }
 
-  // Supported file types for corpus indexing
+  // Supported file types for document indexing
   const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt']
   const ACCEPT_STRING = '.pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain'
 
@@ -125,7 +125,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
       }
     }
     if (rejected.length > 0) {
-      toast.error(`Unsupported file type. Only accepts .pdf, .docx, .doc, .txt`)
+      toast.error(`Unsupported file type. Documents must be .pdf, .docx, .doc or .txt`)
     }
     if (supported.length > 0) {
       setSelectedFiles(prev => [...prev, ...supported])
@@ -141,18 +141,18 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
     try {
       // Step 1: Upload files (PDF, Word, TXT)
-      const materialLabel = materialType === "syllabus" ? "Syllabus/Schedule" : "Class Material"
-      toast.info(`Uploading ${selectedFiles.length} ${materialLabel} file(s)...`)
+      const materialLabel = materialType === "syllabus" ? "Policy" : "Training material"
+      toast.info(`Uploading ${selectedFiles.length} ${materialLabel} document(s)...`)
       const { corpusApi } = await import("@/lib/flask-api-client")
       await corpusApi.upload(selectedClassId, selectedFiles, materialType)
 
-      toast.success("Files uploaded. Starting indexing...")
+      toast.success("Documents uploaded. Indexing them now...")
 
       // Step 2: Index all files (including newly uploaded ones)
       const indexData = await corpusApi.index(selectedClassId, materialType)
 
       if (indexData.success) {
-        toast.success("Files indexed successfully")
+        toast.success("Documents indexed. The AI can now answer from them.")
         // Update stats from response
         if (indexData.pdfs !== undefined) {
           setIndexedPdfCount(indexData.pdfs)
@@ -168,7 +168,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
       }
     } catch (e) {
       console.error("Index error", e)
-      toast.error("Process failed")
+      toast.error("Upload and indexing failed")
     } finally {
       setIsIndexing(false)
       setIsUploading(false)
@@ -177,25 +177,25 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
   const onForceReindex = async () => {
     if (!selectedClassId) return
-    if (!confirm("Force Re-index will delete all existing chunks and re-process all files from scratch.\n\nThis is useful if the indexed data seems corrupted or incomplete.\n\nContinue?")) return
+    if (!confirm("Rebuilding the index clears everything indexed so far and re-processes every document from scratch.\n\nUse this if answers seem to be missing content or look out of date.\n\nContinue?")) return
 
     setIsIndexing(true)
     try {
       const { corpusApi } = await import("@/lib/flask-api-client")
-      toast.info("Force re-indexing all files from scratch...")
+      toast.info("Rebuilding the index from all documents...")
       const indexData = await corpusApi.index(selectedClassId, materialType, true)
       if (indexData.success) {
-        toast.success(`Re-indexed successfully: ${indexData.chunks} chunks from ${indexData.pdfs} file(s)`)
+        toast.success(`Index rebuilt: ${indexData.chunks} sections from ${indexData.pdfs} document(s)`)
         if (indexData.pdfs !== undefined) setIndexedPdfCount(indexData.pdfs)
         if (indexData.chunks !== undefined) setIndexedChunkCount(indexData.chunks)
         await loadServerFiles()
         await loadIndexStats()
       } else {
-        toast.error("Force re-index failed")
+        toast.error("Rebuilding the index failed")
       }
     } catch (e) {
       console.error("Force reindex error", e)
-      toast.error("Force re-index failed")
+      toast.error("Rebuilding the index failed")
     } finally {
       setIsIndexing(false)
     }
@@ -213,20 +213,20 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
             <Database className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Corpus Management</h2>
-            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Upload documents (PDF, Word, TXT) and build vector index for different content types</p>
+            <h2 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Document Library</h2>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Upload your company&apos;s training material and policies (PDF, Word, TXT). The AI answers employees only from the documents you index here.</p>
           </div>
         </div>
         {selectedClassId && (
           <div className="flex gap-4 items-center bg-indigo-50 dark:bg-indigo-950 px-4 py-2 rounded-lg">
             <div className="text-center">
               <div className="text-2xl font-bold text-indigo-600">{indexedPdfCount}</div>
-              <div className="text-xs text-muted-foreground">Files Indexed</div>
+              <div className="text-xs text-muted-foreground">Documents Indexed</div>
             </div>
             <div className="h-8 w-px bg-indigo-200"></div>
             <div className="text-center">
               <div className="text-2xl font-bold text-green-600">{indexedChunkCount}</div>
-              <div className="text-xs text-muted-foreground">Chunks</div>
+              <div className="text-xs text-muted-foreground">Searchable Sections</div>
             </div>
           </div>
         )}
@@ -239,11 +239,11 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
         <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="class_material" className="flex items-center gap-2">
             <BookOpen className="h-4 w-4" />
-            Class Material
+            Training Material
           </TabsTrigger>
           <TabsTrigger value="syllabus" className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
-            Syllabus/Schedule
+            Policies
           </TabsTrigger>
         </TabsList>
 
@@ -251,10 +251,10 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="p-4 col-span-1">
               <div className="space-y-3">
-                <label className="text-sm font-medium">Select Class</label>
+                <label className="text-sm font-medium">Select Sector</label>
                 <Select value={selectedClassId} onValueChange={setSelectedClassId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Choose a class..." />
+                    <SelectValue placeholder="Choose a sector..." />
                   </SelectTrigger>
                   <SelectContent>
                     {classes.map(c => (
@@ -274,12 +274,12 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                   />
                   <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
                     <Upload className="h-4 w-4 mr-2" />
-                    Upload Files
+                    Choose Documents
                   </Button>
 
                   {selectedFiles.length > 0 && (
                     <div className="space-y-2">
-                      <div className="text-xs font-medium">Selected Files ({selectedFiles.length}):</div>
+                      <div className="text-xs font-medium">Ready to upload ({selectedFiles.length}):</div>
                       <div className="max-h-[150px] overflow-y-auto space-y-1">
                         {selectedFiles.map((file, idx) => (
                           <div key={idx} className="flex items-center justify-between gap-2 text-xs bg-muted px-2 py-1 rounded">
@@ -303,7 +303,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                         className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
                       >
                         <PlayCircle className="h-4 w-4 mr-2" />
-                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''})`}
+                        {isIndexing ? "Processing..." : `Upload & Index (${selectedFiles.length} document${selectedFiles.length > 1 ? 's' : ''})`}
                       </Button>
                     </div>
                   )}
@@ -313,7 +313,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
             <Card className="p-4 col-span-1 lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-medium">Indexed Files in Corpus ({filesOnServer.length})</h3>
+                <h3 className="font-medium">Training Documents ({filesOnServer.length})</h3>
                 {selectedClassId && filesOnServer.length > 0 && (
                   <Button
                     size="sm"
@@ -323,39 +323,39 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                     disabled={isIndexing}
                   >
                     <RefreshCw className="h-3 w-3 mr-1" />
-                    Force Re-index
+                    Rebuild Index
                   </Button>
                 )}
               </div>
               {!selectedClassId ? (
-                <div className="text-sm text-muted-foreground">Select a class</div>
+                <div className="text-sm text-muted-foreground">Select a sector to see its documents</div>
               ) : filesOnServer.length === 0 ? (
                 <div className="space-y-2">
-                  <div className="text-sm text-muted-foreground">No files indexed yet. Upload and index documents to get started.</div>
+                  <div className="text-sm text-muted-foreground">No training documents yet. Upload onboarding guides, handbooks or process docs so the AI can answer from them.</div>
                   {indexedChunkCount > 0 && (
                     <div className="pt-2 border-t">
                       <div className="text-xs text-muted-foreground mb-2">
-                        Found {indexedChunkCount} orphaned chunk{indexedChunkCount !== 1 ? 's' : ''} from previous indexing.
+                        {indexedChunkCount} leftover section{indexedChunkCount !== 1 ? 's' : ''} from documents that are no longer here.
                       </div>
                       <Button
                         size="sm"
                         variant="outline"
                         className="w-full border-orange-300 text-orange-700 hover:bg-orange-50"
                         onClick={async () => {
-                          if (!confirm(`Clear all ${indexedChunkCount} chunks? This will remove all indexed data but keep uploaded PDFs.`)) return
+                          if (!confirm(`Clear all ${indexedChunkCount} leftover sections? This removes the indexed text but keeps the uploaded documents.`)) return
                           try {
                             const { corpusApi } = await import("@/lib/flask-api-client")
                             const data = await corpusApi.clearChunks(selectedClassId, materialType)
-                            toast.success(data.message || "All chunks cleared")
+                            toast.success(data.message || "Leftover sections cleared")
                             await loadIndexStats()
                           } catch (e) {
                             console.error("Clear chunks error", e)
-                            toast.error(e instanceof Error ? e.message : "Failed to clear chunks")
+                            toast.error(e instanceof Error ? e.message : "Could not clear leftover sections")
                           }
                         }}
                       >
                         <Trash2 className="h-3 w-3 mr-2" />
-                        Clear All Chunks ({indexedChunkCount})
+                        Clear Leftover Sections ({indexedChunkCount})
                       </Button>
                     </div>
                   )}
@@ -391,10 +391,10 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="p-4 col-span-1">
               <div className="space-y-3">
-                <label className="text-sm font-medium">Select Class</label>
+                <label className="text-sm font-medium">Select Sector</label>
                 <Select value={selectedClassId} onValueChange={setSelectedClassId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Choose a class..." />
+                    <SelectValue placeholder="Choose a sector..." />
                   </SelectTrigger>
                   <SelectContent>
                     {classes.map(c => (
@@ -414,12 +414,12 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                   />
                   <Button variant="outline" onClick={onPickFiles} disabled={!selectedClassId || isIndexing} className="w-full border-blue-300 text-blue-700 hover:bg-blue-50">
                     <Upload className="h-4 w-4 mr-2" />
-                    Upload Files
+                    Choose Documents
                   </Button>
 
                   {selectedFiles.length > 0 && (
                     <div className="space-y-2">
-                      <div className="text-xs font-medium">Selected Files ({selectedFiles.length}):</div>
+                      <div className="text-xs font-medium">Ready to upload ({selectedFiles.length}):</div>
                       <div className="max-h-[150px] overflow-y-auto space-y-1">
                         {selectedFiles.map((file, idx) => (
                           <div key={idx} className="flex items-center justify-between gap-2 text-xs bg-muted px-2 py-1 rounded">
@@ -443,7 +443,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                         className="w-full"
                       >
                         <PlayCircle className="h-4 w-4 mr-2" />
-                        {isIndexing ? "Processing..." : `Start Index (${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''})`}
+                        {isIndexing ? "Processing..." : `Upload & Index (${selectedFiles.length} document${selectedFiles.length > 1 ? 's' : ''})`}
                       </Button>
                     </div>
                   )}
@@ -453,7 +453,7 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
 
             <Card className="p-4 col-span-1 lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-medium">Indexed Syllabus/Schedule PDFs ({filesOnServer.length})</h3>
+                <h3 className="font-medium">Policy Documents ({filesOnServer.length})</h3>
                 {selectedClassId && filesOnServer.length > 0 && (
                   <Button
                     size="sm"
@@ -463,26 +463,26 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                     disabled={isIndexing}
                   >
                     <RefreshCw className="h-3 w-3 mr-1" />
-                    Force Re-index
+                    Rebuild Index
                   </Button>
                 )}
               </div>
               {!selectedClassId ? (
-                <div className="text-sm text-muted-foreground">Select a class</div>
+                <div className="text-sm text-muted-foreground">Select a sector to see its documents</div>
               ) : filesOnServer.length === 0 ? (
                 <div className="space-y-2">
-                  <div className="text-sm text-muted-foreground">No syllabus/schedule files indexed yet. Upload and index PDFs to get started.</div>
+                  <div className="text-sm text-muted-foreground">No policy documents yet. Upload company policies, benefits or compliance documents to get started.</div>
                   {indexedChunkCount > 0 && (
                     <div className="pt-2 border-t">
                       <div className="text-xs text-muted-foreground mb-2">
-                        Found {indexedChunkCount} orphaned chunk{indexedChunkCount !== 1 ? 's' : ''} from previous indexing.
+                        {indexedChunkCount} leftover section{indexedChunkCount !== 1 ? 's' : ''} from documents that are no longer here.
                       </div>
                       <Button
                         size="sm"
                         variant="outline"
                         className="w-full border-orange-300 text-orange-700 hover:bg-orange-50"
                         onClick={async () => {
-                          if (!confirm(`Clear all ${indexedChunkCount} chunks? This will remove all indexed data but keep uploaded PDFs.`)) return
+                          if (!confirm(`Clear all ${indexedChunkCount} leftover sections? This removes the indexed text but keeps the uploaded documents.`)) return
                           try {
                             // Clear all chunks - this would need a special endpoint
                             // For now, delete all files which should clear chunks
@@ -492,17 +492,17 @@ export function CorpusManagementTab({ isDarkMode = false }: CorpusManagementTabP
                             for (const filename of files.files || []) {
                               await corpusApi.deleteFile(selectedClassId, filename, materialType)
                             }
-                            toast.success("All chunks cleared")
+                            toast.success("Leftover sections cleared")
                             setIndexedChunkCount(0)
                             await loadIndexStats()
                           } catch (e) {
                             console.error("Clear chunks error", e)
-                            toast.error("Clear chunks error")
+                            toast.error("Could not clear leftover sections")
                           }
                         }}
                       >
                         <Trash2 className="h-3 w-3 mr-2" />
-                        Clear All Chunks ({indexedChunkCount})
+                        Clear Leftover Sections ({indexedChunkCount})
                       </Button>
                     </div>
                   )}

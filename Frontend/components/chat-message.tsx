@@ -343,11 +343,10 @@ export function ChatMessage({ role, content, timestamp, metadata, attachments, i
                   ? 'bg-white/10 text-white/60 border border-white/10'
                   : 'bg-purple-100 text-purple-700'
                 }`}>
-                {metadata.modelUsed === 'claude' ? '🧠 Claude' :
-                  metadata.modelUsed === 'remote-a6000' ? '🚀 A6000' :
-                    metadata.modelUsed === 'remote-blackwell' ? '⚡ Blackwell' :
-                      metadata.modelUsed === 'remote-ollama' ? '🚀 A6000' :
-                        metadata.modelUsed}
+                {metadata.modelUsed === 'local-nemotron' ? '⚡ Nemotron 3.5' :
+                  metadata.modelUsed === 'local-qwen' ? '🧠 Qwen3.6' :
+                    metadata.modelUsed === 'local-nano' ? '🍃 Nemotron Nano' :
+                      metadata.modelUsed}
               </span>
             )}
 
