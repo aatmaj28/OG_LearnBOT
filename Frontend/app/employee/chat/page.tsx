@@ -57,8 +57,12 @@ export default function ChatPage() {
   const [speak, setSpeak] = useState<string | null>(null)
   const bottom = useRef<HTMLDivElement>(null)
 
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [messages, busy])
-  useEffect(() => setMessages([]), [employeeId])
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages, busy])
+  useEffect(() => {
+    setMessages([])
+  }, [employeeId])
 
   async function send(text: string) {
     const message = text.trim()
