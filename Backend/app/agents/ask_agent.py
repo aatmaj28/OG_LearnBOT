@@ -160,8 +160,16 @@ def run(message, employee_id, project_id=None, think=False) -> dict:
     messages = [{"role": "system", "content": SYSTEM}, *memory.history(employee_id),
                 {"role": "user", "content": message}]
     try:
+        # Always start from a search on the question itself (the model sometimes answers from general knowledge
+        # without calling a tool); it can search again or read files from there.
+        first_text, first_hits = _make_tools(project_ids)["search_knowledge"](message)
+        seed_call = {"id": "seed_search", "type": "function",
+                     "function": {"name": "search_knowledge", "arguments": json.dumps({"query": message})}}
+        messages += [{"role": "assistant", "content": "", "tool_calls": [seed_call]},
+                     {"role": "tool", "tool_call_id": "seed_search", "content": first_text}]
         out = _build(project_ids, think).invoke(
-            {"messages": messages, "steps": [], "found": [], "gaps": [], "rounds": 0},
+            {"messages": messages, "steps": [f"search_knowledge({json.dumps(message)})"], "found": first_hits,
+             "gaps": [], "rounds": 1},
             {"recursion_limit": 2 * MAX_STEPS + 4})
         answer = out["messages"][-1]["content"].strip() or "I couldn't produce an answer."
         steps, found, gaps = out["steps"], out["found"], out["gaps"]
