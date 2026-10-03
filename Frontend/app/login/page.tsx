@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/dialog"
 import { Users, User, Bot, Brain, ShieldCheck, Zap, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
-import { authApi } from "@/lib/flask-api-client"
+import { api } from "@/src/lib/api"
+import { setSession, portalHome } from "@/src/lib/session"
 
 // UI labels are Manager / Employee; the backend still uses "faculty" / "student" role values.
 const ROLES = [
@@ -67,43 +68,16 @@ function LoginContent() {
     console.log("[v0] FRONTEND: Starting login for:", email, "role:", role)
 
     try {
-      // Use Flask API client instead of Next.js route
-      // Role is deliberately not sent: the account's own role decides the redirect below,
-      // so a wrong toggle can't block sign-in.
-      const data = await authApi.login(email, password)
-      console.log("[v0] FRONTEND: Login response data:", data)
-
-      // Store session
-      console.log("[v0] FRONTEND: Storing session in localStorage:", data.sessionId)
-      localStorage.setItem("sessionId", data.sessionId)
-      localStorage.setItem("userId", data.user.id)
-      localStorage.setItem("userRole", data.user.role)
-
-      console.log("[v0] FRONTEND: Login successful, session stored:", data.sessionId)
-      console.log("[v0] FRONTEND: Stored userId:", data.user.id)
-      console.log("[v0] FRONTEND: Stored userRole:", data.user.role)
-
-      // Add a small delay before redirect to ensure localStorage is set
-      await new Promise(resolve => setTimeout(resolve, 50))
-
-      console.log("[v0] FRONTEND: Redirecting to:", data.user.role === "student" ? "/student/chat" : "/faculty/dashboard")
-
-      // Redirect based on role
-      if (data.user.role === "student") {
-        router.push("/student/chat")
-      } else {
-        router.push("/faculty/dashboard")
-      }
+      const portal = role === "faculty" ? "manager" : "employee"
+      const data = await api.login({ email, password, role: portal })
+      setSession(data.token, data.user)
+      router.push(portalHome(data.user.role))
     } catch (err) {
-      console.error("[v0] FRONTEND: Login error:", err)
       const message = err instanceof Error ? err.message : "An error occurred. Please try again."
-      const otherRole = role === "faculty" ? "Employee" : "Manager"
       setError(
         message.includes("Cannot connect") || message === "Failed to fetch"
-          ? "Cannot connect to the login server. Make sure the backend is running on port 5050."
-          : message === "Invalid role"
-            ? `This account isn't a ${role === "faculty" ? "Manager" : "Employee"} account. Switch to ${otherRole} above and try again.`
-            : message
+          ? "Cannot reach the LearnBOT server. Check that it's running."
+          : message
       )
       setLoading(false)
     }
@@ -279,13 +253,7 @@ function LoginContent() {
               </Button>
 
               <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => setForgotOpen(true)}
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                >
-                  Forgot password?
-                </button>
+                {/* Password reset is handled by your manager in this version */}
               </div>
             </form>
 
@@ -348,10 +316,10 @@ function LoginContent() {
             {/* Register Link */}
             <div className="mt-4 text-center">
               <p className="text-sm text-gray-600">
-                Don't have an account?{" "}
-                <Link href={`/register?role=${role}`} className="text-blue-600 hover:text-blue-700 font-medium">
-                  Register here
-                </Link>
+                Accounts are created by your manager. Demo:{" "}
+                <span className="font-mono text-gray-800">
+                  {role === "faculty" ? "dana@learnbot.dev / manager123" : "alex@learnbot.dev / employee123"}
+                </span>
               </p>
             </div>
           </div>

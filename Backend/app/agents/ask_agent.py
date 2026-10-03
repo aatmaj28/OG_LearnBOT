@@ -15,7 +15,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from app.core import events, llm, memory
+from app.core import chats, events, llm, memory
 from app.rag import files as rag_files
 from app.rag import search as rag_search
 
@@ -190,4 +190,6 @@ def run(message, employee_id, project_id=None, think=False) -> dict:
                          details={"question": message, "reason": gaps[0].get("reason") if gaps else None})
     if citations and not answer.startswith(("I couldn't", "The model isn't")):
         memory.add_turn(employee_id, message, answer)
-    return {"answer": answer, "citations": citations, "unanswered": unanswered, "steps": steps}
+    reply = {"answer": answer, "citations": citations, "unanswered": unanswered, "steps": steps}
+    chats.append(employee_id, message, reply, project_id)
+    return reply

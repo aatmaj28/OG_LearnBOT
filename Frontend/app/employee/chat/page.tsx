@@ -60,8 +60,23 @@ export default function ChatPage() {
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, busy])
+  // Load this employee's saved conversation (every question and answer is kept on the server)
   useEffect(() => {
+    let cancelled = false
     setMessages([])
+    api
+      .history(employeeId)
+      .then((rows) => {
+        if (cancelled) return
+        setMessages(rows.flatMap((r): Message[] => [
+          { role: "user", text: r.question },
+          { role: "assistant", text: r.answer, reply: r },
+        ]))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [employeeId])
 
   async function send(text: string) {

@@ -6,7 +6,8 @@
 #
 # Project repos and their indexes (Backend/data/repos, Backend/data/index) are shipped from this machine:
 # the sandbox has no route to GitHub (default-deny policy), so repos are cloned and indexed here or on the host.
-# Runtime data in the sandbox (events.jsonl, memory/, learn sessions) is kept across deploys.
+# Runtime data in the sandbox (events, memory, chats, learn sessions, manager context, meetings, repos added in
+# the UI) is kept across deploys: code and the static build are replaced, data is only added or overwritten.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -29,6 +30,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/learnbot/Backend" "$TMP/learnbot/Frontend"
 rsync -a --exclude '__pycache__' Backend/app Backend/requirements-app.txt "$TMP/learnbot/Backend/"
 rsync -a --exclude 'events.jsonl' --exclude 'memory' --exclude 'learn_sessions.json' --exclude '.git' \
+  --exclude 'chats' --exclude 'context' --exclude 'meetings/mtg_*' --exclude '.auth_secret' --exclude 'index/ctx_*' \
   Backend/data "$TMP/learnbot/Backend/"
 rsync -a Frontend/out "$TMP/learnbot/Frontend/"
 cat > "$TMP/learnbot/.env" <<'EOF'
@@ -54,7 +56,7 @@ step "Uploading into sandbox $SANDBOX and installing dependencies offline"
 set -e
 export PATH="\$HOME/.local/bin:\$PATH"
 X="openshell sandbox exec -n $SANDBOX --no-tty --"
-\$X sh -c 'pkill -f "[u]vicorn app.main:app" || true; pkill -f "[u]vicorn server:app" || true; rm -rf $APP/Backend/app $APP/Frontend/out $APP/Backend/data/index $APP/Backend/data/repos' < /dev/null
+\$X sh -c 'pkill -f "[u]vicorn app.main:app" || true; pkill -f "[u]vicorn server:app" || true; rm -rf $APP/Backend/app $APP/Frontend/out' < /dev/null
 tmux kill-session -t learnbot 2>/dev/null || true
 tmux kill-session -t plan-a 2>/dev/null || true
 openshell sandbox upload $SANDBOX ~/$STAGE/learnbot /sandbox --no-git-ignore < /dev/null | tail -1

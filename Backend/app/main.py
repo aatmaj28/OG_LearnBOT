@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.core import config
-from app.routers import admin, analytics, chat, feedback, files, learn, projects, team
+from app.routers import admin, analytics, auth, chat, feedback, files, learn, projects, team, teams
 
 app = FastAPI(title="LearnBOT", version="0.1.0")
 app.add_middleware(
@@ -18,7 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (chat, files, admin, projects, learn, feedback, analytics, team):
+for module in (auth, chat, files, admin, projects, teams, learn, feedback, analytics, team):
     app.include_router(module.router, prefix="/api")
 
 

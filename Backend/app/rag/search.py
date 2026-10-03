@@ -14,7 +14,8 @@ from app.rag.sample import sample_chunks
 
 
 def search(query, k=6, sources=None, project_ids=None) -> list[dict]:
-    names = [n for n in index.names() if n.startswith("_") or project_ids is None or n in project_ids]
+    names = [n for n in index.names() if n.startswith("_") or project_ids is None or n in project_ids
+             or (n.startswith("ctx_") and n[4:] in project_ids)]  # manager-provided project context
     pool, vecs = [], []
     for n in names:
         chunks, v = index.load(n)

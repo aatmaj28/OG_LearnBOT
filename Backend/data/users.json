@@ -1,0 +1,142 @@
+[
+  {
+    "id": "mgr_dana",
+    "role": "manager",
+    "name": "Dana Whitfield",
+    "email": "dana@learnbot.dev",
+    "password_hash": "pbkdf2_sha256$200000$d215e23ff236c760ad3b21f7ceee11f3$0h4qL2CA5tKZiVhR7qio5CpiwQN16xP7evHmsZzjLNw="
+  },
+  {
+    "id": "mgr_rahul",
+    "role": "manager",
+    "name": "Rahul Menon",
+    "email": "rahul@learnbot.dev",
+    "password_hash": "pbkdf2_sha256$200000$618e4ff17e78c2cb80e0371a337eae37$WdAVvFW7azQnY7MqJ0M5mAqGdE8lI2lfBZse08ujUnI="
+  },
+  {
+    "id": "emp_demo",
+    "role": "employee",
+    "name": "Alex Rivera",
+    "email": "alex@learnbot.dev",
+    "employee_id": "emp_demo",
+    "title": "Backend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$c4e343f782868bf932c2d4f44caef210$FcW0FV1OEK/5ScsVc3dx9RmoAuT0+zAwnE1Hw1UC2Ys="
+  },
+  {
+    "id": "emp_001",
+    "role": "employee",
+    "name": "Priya Nair",
+    "email": "priya@learnbot.dev",
+    "employee_id": "emp_001",
+    "title": "Backend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$e58a9218ad8c3081307aa0e967542640$0pyHGiraItTgnsNH11xPYiP4R2SHbmQ9jOmA+E+OKuY="
+  },
+  {
+    "id": "emp_002",
+    "role": "employee",
+    "name": "Marcus Chen",
+    "email": "marcus@learnbot.dev",
+    "employee_id": "emp_002",
+    "title": "Frontend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$b7b15653c9de11a8b3ce31dd53cc9217$017IbooEz/slfFd7ZLyQcVTsVkWveQ6wGbLNqNtiiFI="
+  },
+  {
+    "id": "emp_003",
+    "role": "employee",
+    "name": "Sofia Alvarez",
+    "email": "sofia@learnbot.dev",
+    "employee_id": "emp_003",
+    "title": "QA Engineer",
+    "password_hash": "pbkdf2_sha256$200000$7e2b2d7f2a30a679786e1438928feaf7$Avi4C9+VtGPNX0Dms1KR0b/GBX8zJKof9Zf1OMrX5GE="
+  },
+  {
+    "id": "emp_004",
+    "role": "employee",
+    "name": "Jordan Lee",
+    "email": "jordan@learnbot.dev",
+    "employee_id": "emp_004",
+    "title": "Data Engineer",
+    "password_hash": "pbkdf2_sha256$200000$89f702f2e76622897f20b8e78186e9f7$VKg6HtmS1s7js5eAW3tmO5LR9wVJ5yZLFTUT2BCSB1Q="
+  },
+  {
+    "id": "emp_005",
+    "role": "employee",
+    "name": "Aisha Bello",
+    "email": "aisha@learnbot.dev",
+    "employee_id": "emp_005",
+    "title": "Backend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$4f90c27bd0ba58560fbd71d9416f3779$WlQ1EQdo6iOVsZlQJGNCLresGYL/7o5JI0evO5KK2ak="
+  },
+  {
+    "id": "emp_006",
+    "role": "employee",
+    "name": "Ravi Kulkarni",
+    "email": "ravi@learnbot.dev",
+    "employee_id": "emp_006",
+    "title": "Data Engineer",
+    "password_hash": "pbkdf2_sha256$200000$830421f0ea406a32ef8deac3d35aa67e$iTEXrsVQgLeaJF4552ByWLJ2JZoTVW8Kd9uotz5cyYU="
+  },
+  {
+    "id": "emp_007",
+    "role": "employee",
+    "name": "Emma Schultz",
+    "email": "emma@learnbot.dev",
+    "employee_id": "emp_007",
+    "title": "Frontend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$c6d9a9c8e367363987cb887d570a2da5$ckqxnN460No9S9SODQLuKXcpJPC3c9RePj9c6bJRFMo="
+  },
+  {
+    "id": "emp_008",
+    "role": "employee",
+    "name": "Daniel Okafor",
+    "email": "daniel@learnbot.dev",
+    "employee_id": "emp_008",
+    "title": "QA Engineer",
+    "password_hash": "pbkdf2_sha256$200000$a5e4c0d3d5b7a72029baa09104de6b3b$GNZH8lBEM/N2YVUN7vmUnsf6GxN6ZEijkNB10pQprjo="
+  },
+  {
+    "id": "emp_009",
+    "role": "employee",
+    "name": "Mei Tanaka",
+    "email": "mei@learnbot.dev",
+    "employee_id": "emp_009",
+    "title": "Backend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$9312aad22e82dc83fd7a92990c54f828$gQVToSZwyt5FGLA/QGA0+dixYqtrJ50urD79CS48LH0="
+  },
+  {
+    "id": "emp_010",
+    "role": "employee",
+    "name": "Lucas Moreau",
+    "email": "lucas@learnbot.dev",
+    "employee_id": "emp_010",
+    "title": "Frontend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$4700666cd026273937144f579fd9cbf8$IAv2wTVdEJ5XHbB/zID+xD0OjhprZShCThU75G1pF58="
+  },
+  {
+    "id": "emp_011",
+    "role": "employee",
+    "name": "Fatima Zahra",
+    "email": "fatima@learnbot.dev",
+    "employee_id": "emp_011",
+    "title": "Data Engineer",
+    "password_hash": "pbkdf2_sha256$200000$dba992cf3d252f6a42a9f62429ee62d0$bBJV+5mSES83Oe4zo69p4cc8jT5yCIpVmVpBHQWPET4="
+  },
+  {
+    "id": "emp_012",
+    "role": "employee",
+    "name": "Noah Patel",
+    "email": "noah@learnbot.dev",
+    "employee_id": "emp_012",
+    "title": "QA Engineer",
+    "password_hash": "pbkdf2_sha256$200000$11fe4dcb6c645069981735e0f42b8966$ToQojYEWHD1GYw6xiPPmf5yItZp2rwCURQxGtNBDGe0="
+  },
+  {
+    "id": "emp_013",
+    "role": "employee",
+    "name": "Hannah Berg",
+    "email": "hannah@learnbot.dev",
+    "employee_id": "emp_013",
+    "title": "Backend Engineer",
+    "password_hash": "pbkdf2_sha256$200000$393fa57c047057b82a9f05af62aaf5a7$7oyw+4UbrOkU2pdlX4npk/iE/U+Mt+vjLzIEMBwpqUs="
+  }
+]

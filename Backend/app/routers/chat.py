@@ -4,6 +4,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app.agents import ask_agent
+from app.core import chats
 
 router = APIRouter(tags=["chat"])
 
@@ -18,3 +19,9 @@ class ChatRequest(BaseModel):
 @router.post("/chat")
 async def chat(req: ChatRequest):
     return await run_in_threadpool(ask_agent.run, req.message, req.employee_id, req.project_id, req.think)
+
+
+@router.get("/chat/history")
+def history(employee_id: str, limit: int = 200):
+    """Every question and answer of this employee, oldest first."""
+    return chats.history(employee_id, limit)

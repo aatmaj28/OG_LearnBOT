@@ -1,0 +1,56 @@
+[
+  {
+    "id": "team_backend",
+    "name": "Backend Platform",
+    "manager_id": "mgr_dana",
+    "description": "APIs, RAG pipeline and the GB10 deployment.",
+    "member_ids": [
+      "emp_demo",
+      "emp_001",
+      "emp_005",
+      "emp_009",
+      "emp_013"
+    ],
+    "project_ids": [
+      "proj_og_learnbot"
+    ]
+  },
+  {
+    "id": "team_data",
+    "name": "Data Engineering",
+    "manager_id": "mgr_dana",
+    "description": "Ingestion, embeddings and analytics data.",
+    "member_ids": [
+      "emp_004",
+      "emp_006",
+      "emp_011"
+    ],
+    "project_ids": []
+  },
+  {
+    "id": "team_web",
+    "name": "Web Frontend",
+    "manager_id": "mgr_rahul",
+    "description": "The Next.js employee and manager portals.",
+    "member_ids": [
+      "emp_002",
+      "emp_007",
+      "emp_010"
+    ],
+    "project_ids": [
+      "proj_og_learnbot"
+    ]
+  },
+  {
+    "id": "team_qa",
+    "name": "Quality Engineering",
+    "manager_id": "mgr_rahul",
+    "description": "Test plans, load tests and release checks.",
+    "member_ids": [
+      "emp_003",
+      "emp_008",
+      "emp_012"
+    ],
+    "project_ids": []
+  }
+]

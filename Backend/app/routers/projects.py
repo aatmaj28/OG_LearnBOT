@@ -5,17 +5,19 @@ A project is cloned with `git clone --depth 1` into Backend/data/repos/{project_
 path), then indexed. An access token is used only inside the clone URL: it is removed from the stored remote and
 from error messages, and is never logged or sent to the model.
 """
+import os
 import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.core import store
+from app.core import auth, store
+from app.core.config import data_dir
 from app.rag import index
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -109,9 +111,76 @@ def create(req: ProjectIn, project_id: str | None = None, members: list[str] | N
 
 
 def project_ids_for(employee_id: str) -> list[str] | None:
-    """Projects the employee is assigned to; None (all projects) when they have no assignment."""
-    ids = [p["id"] for p in _projects() if employee_id in p.get("members", [])]
-    return ids or None
+    """Projects the employee can use: assigned directly or through one of their teams. None (all projects) when
+    they have no assignment."""
+    ids = {p["id"] for p in _projects() if employee_id in p.get("members", [])}
+    for t in store.read_json("teams.json", []):
+        if employee_id in t.get("member_ids", []):
+            ids.update(t.get("project_ids", []))
+    return sorted(ids) or None
+
+
+# ---------------------------------------------------------------- project context (manager-provided docs)
+CONTEXT_EXT = {".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".csv", ".py", ".ts", ".tsx", ".js", ".sql", ".sh"}
+
+
+def context_dir(project_id):
+    return data_dir() / "context" / project_id
+
+
+def list_context(project_id) -> list[dict]:
+    d = context_dir(project_id)
+    if not d.is_dir():
+        return []
+    return [{"name": f.name, "size": f.stat().st_size,
+             "updated": datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")}
+            for f in sorted(d.iterdir()) if f.is_file()]
+
+
+def _index_context(project_id):
+    return index.build(f"ctx_{project_id}", context_dir(project_id), project_id, "doc")
+
+
+@router.get("/{project_id}/context")
+def get_context(project_id: str):
+    _find(project_id)
+    return list_context(project_id)
+
+
+@router.get("/{project_id}/context/{name}")
+def read_context(project_id: str, name: str):
+    f = (context_dir(project_id) / name).resolve()
+    if not f.is_file() or not f.is_relative_to(context_dir(project_id).resolve()):
+        raise HTTPException(404, "Not found")
+    return {"name": name, "text": f.read_text(encoding="utf-8", errors="replace")}
+
+
+@router.post("/{project_id}/context")
+async def add_context(project_id: str, title: str = Form(""), text: str = Form(""),
+                      files: list[UploadFile] = File(default=[]), manager: dict = Depends(auth.require_manager)):
+    """Add context for a project: pasted text (title + text) and/or uploaded text files. Re-indexes the
+    project's context so the Ask Agent can cite it."""
+    _find(project_id)
+    d = context_dir(project_id)
+    d.mkdir(parents=True, exist_ok=True)
+    saved = []
+    if text.strip():
+        name = (re.sub(r"[^A-Za-z0-9_-]+", "-", title.strip()).strip("-") or "note") + ".md"
+        (d / name).write_text(f"# {title.strip() or 'Note'}\n\n{text.strip()}\n", encoding="utf-8")
+        saved.append(name)
+    for up in files:
+        name = re.sub(r"[^A-Za-z0-9_.-]+", "-", up.filename or "file").strip("-.") or "file"
+        if os.path.splitext(name)[1].lower() not in CONTEXT_EXT:
+            raise HTTPException(400, f"{name}: only text files ({', '.join(sorted(CONTEXT_EXT))})")
+        data = await up.read()
+        if len(data) > 2_000_000:
+            raise HTTPException(400, f"{name}: larger than 2 MB")
+        (d / name).write_bytes(data)
+        saved.append(name)
+    if not saved:
+        raise HTTPException(400, "Paste some text or choose a file")
+    counts = await run_in_threadpool(_index_context, project_id)
+    return {"saved": saved, "context": list_context(project_id), "chunks": counts["chunks"]}
 
 
 @router.get("")
@@ -119,9 +188,21 @@ def list_projects():
     return _projects()
 
 
+class NewProjectIn(ProjectIn):
+    team_id: str | None = None
+
+
 @router.post("")
-async def create_project(req: ProjectIn):
-    return await run_in_threadpool(create, req)
+async def create_project(req: NewProjectIn, manager: dict = Depends(auth.require_manager)):
+    """Clone + index a repository; optionally attach it to one of the manager's teams."""
+    p = await run_in_threadpool(create, req)
+    if req.team_id:
+        teams = store.read_json("teams.json", [])
+        for t in teams:
+            if t["id"] == req.team_id and t["manager_id"] == manager["id"] and p["id"] not in t["project_ids"]:
+                t["project_ids"].append(p["id"])
+        store.write_json("teams.json", teams)
+    return p
 
 
 @router.post("/{project_id}/members")

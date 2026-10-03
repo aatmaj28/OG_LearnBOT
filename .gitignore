@@ -19,3 +19,6 @@ Backend/.venv-app/
 
 # Customer data bundles: never commit
 harborline-bank-docs*.zip
+Backend/data/.auth_secret
+Backend/data/chats/
+Backend/data/context/

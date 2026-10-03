@@ -1,51 +1,37 @@
 "use client"
 
-// The employee the app is acting as (no login in the new app): chosen in the header switcher, remembered in
-// localStorage, defaulting to DEMO_EMPLOYEE_ID (emp_demo).
-import { createContext, useCallback, useContext, useEffect, useState } from "react"
-import { api, DEMO_EMPLOYEE_ID, type Employee } from "@/src/lib/api"
-
-const STORAGE_KEY = "learnbot.employee_id"
+// The signed-in user (from the login page's session). For employees, employeeId is their own id; for
+// managers it falls back to DEMO_EMPLOYEE_ID so shared pages keep working.
+import { createContext, useContext, useEffect, useState } from "react"
+import { DEMO_EMPLOYEE_ID } from "@/src/lib/api"
+import { getSession, type SessionUser } from "@/src/lib/session"
 
 type EmployeeContextValue = {
+  user: SessionUser | null
   employeeId: string
-  setEmployeeId: (id: string) => void
-  employees: Employee[]
-  employee: Employee | undefined
+  employee: { id: string; name: string; role: string } | undefined
+  ready: boolean
 }
 
 const EmployeeContext = createContext<EmployeeContextValue>({
+  user: null,
   employeeId: DEMO_EMPLOYEE_ID,
-  setEmployeeId: () => {},
-  employees: [],
   employee: undefined,
+  ready: false,
 })
 
 export function EmployeeProvider({ children }: { children: React.ReactNode }) {
-  const [employeeId, setId] = useState(DEMO_EMPLOYEE_ID)
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [user, setUser] = useState<SessionUser | null>(null)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) setId(saved)
-    } catch {}
-    api.employees().then(setEmployees).catch(() => {})
+    setUser(getSession()?.user ?? null)
+    setReady(true)
   }, [])
 
-  const setEmployeeId = useCallback((id: string) => {
-    setId(id)
-    try {
-      localStorage.setItem(STORAGE_KEY, id)
-    } catch {}
-  }, [])
-
-  const employee = employees.find((e) => e.id === employeeId)
-  return (
-    <EmployeeContext.Provider value={{ employeeId, setEmployeeId, employees, employee }}>
-      {children}
-    </EmployeeContext.Provider>
-  )
+  const employeeId = user?.employee_id ?? DEMO_EMPLOYEE_ID
+  const employee = user ? { id: employeeId, name: user.name, role: user.title ?? "" } : undefined
+  return <EmployeeContext.Provider value={{ user, employeeId, employee, ready }}>{children}</EmployeeContext.Provider>
 }
 
 export const useEmployee = () => useContext(EmployeeContext)
