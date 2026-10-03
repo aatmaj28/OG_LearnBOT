@@ -17,11 +17,19 @@ import type { Class } from "@/lib/types"
  * analyser while listening, and an analyser over the playback element while speaking.
  */
 
+// Voice-activity detection. The turn ends on its own when the speaker goes quiet, so the
+// conversation runs hands-free instead of needing a tap per sentence.
+const SILENCE_MS = 1300          // quiet for this long after speech -> end the turn
+const MIN_SPEECH_MS = 350        // ignore a click or cough as a whole turn
+const MAX_TURN_MS = 45000        // hard stop so a stuck mic can't record forever
+const CALIBRATE_MS = 400         // sample the room before deciding what counts as speech
+const MIN_SPEECH_RMS = 0.018     // floor, so a silent room doesn't set an absurdly low bar
+
 type VoiceState = "idle" | "listening" | "thinking" | "speaking" | "error"
 
 const STATE_LABEL: Record<VoiceState, string> = {
-  idle: "Tap the mic to speak",
-  listening: "Listening…",
+  idle: "Tap the mic to start talking",
+  listening: "Listening… pause when you are done",
   thinking: "Thinking…",
   speaking: "Speaking…",
   error: "Something went wrong",
@@ -51,6 +59,16 @@ export function VoiceMode() {
   const sessionRef = useRef<{ userId: string; conversationId: string; classId: string } | null>(null)
   // Read inside the animation loop so it doesn't restart on every state change.
   const stateRef = useRef<VoiceState>("idle")
+  // Hands-free loop state. Refs because the animation loop reads them every frame and must
+  // not be torn down and rebuilt on each React state change.
+  const conversationRef = useRef(false)
+  const hasSpokenRef = useRef(false)
+  const lastVoiceAtRef = useRef(0)
+  const turnStartedAtRef = useRef(0)
+  const noiseFloorRef = useRef<number[]>([])
+  const speechThresholdRef = useRef(MIN_SPEECH_RMS)
+  // The draw loop is created once, so it calls the latest handler through a ref.
+  const endTurnRef = useRef<() => void>(() => {})
   stateRef.current = state
 
   // --- Service health + conversation setup -------------------------------------------------
@@ -117,6 +135,8 @@ export function VoiceMode() {
 
   // --- Teardown ----------------------------------------------------------------------------
   const cleanup = useCallback(() => {
+    // Stop the hands-free loop first, or an in-flight turn would restart the mic after unmount.
+    conversationRef.current = false
     abortRef.current?.abort()
     recorderRef.current?.cancel()
     recorderRef.current = null
@@ -196,6 +216,42 @@ export function VoiceMode() {
       ctx2d.stroke()
       level = Math.min(1, (level / samples) * 6)
 
+      // --- voice activity detection -------------------------------------------------------
+      if (stateRef.current === "listening" && analyser) {
+        let sumSquares = 0
+        for (let i = 0; i < samples; i++) {
+          const d = (timeData[i] - 128) / 128
+          sumSquares += d * d
+        }
+        const rms = Math.sqrt(sumSquares / samples)
+        const now = Date.now()
+        const elapsed = now - turnStartedAtRef.current
+
+        if (elapsed < CALIBRATE_MS) {
+          // Learn the room's noise floor before judging anything as speech.
+          noiseFloorRef.current.push(rms)
+        } else {
+          if (noiseFloorRef.current.length) {
+            const ambient =
+              noiseFloorRef.current.reduce((a, b) => a + b, 0) / noiseFloorRef.current.length
+            speechThresholdRef.current = Math.max(MIN_SPEECH_RMS, ambient * 2.5)
+            noiseFloorRef.current = []
+          }
+
+          if (rms > speechThresholdRef.current) {
+            hasSpokenRef.current = true
+            lastVoiceAtRef.current = now
+          }
+
+          const quietFor = now - lastVoiceAtRef.current
+          const endedNaturally = hasSpokenRef.current && quietFor > SILENCE_MS
+          const ranTooLong = elapsed > MAX_TURN_MS
+          if (endedNaturally || ranTooLong) {
+            endTurnRef.current()
+          }
+        }
+      }
+
       if (bubbleRef.current) {
         const pulse = stateRef.current === "thinking" ? 0.05 * Math.sin(Date.now() / 260) : 0
         bubbleRef.current.style.transform = `scale(${1 + level * 0.35 + pulse})`
@@ -239,24 +295,29 @@ export function VoiceMode() {
     })
 
     URL.revokeObjectURL(url)
+    audioElRef.current = null
     playbackAnalyserRef.current = null
     playbackCtxRef.current?.close().catch(() => {})
     playbackCtxRef.current = null
-    setState("idle")
   }, [])
 
   // --- One full turn -------------------------------------------------------------------------
   const startListening = useCallback(async () => {
     if (!sessionRef.current) return
     setError("")
-    setTranscript("")
-    setReply("")
     try {
       const recorder = new WavRecorder()
       await recorder.start()
       recorderRef.current = recorder
+      // Fresh VAD window: nothing said yet, and the noise floor is re-measured each turn
+      // because the room (and the laptop fan) can change between turns.
+      hasSpokenRef.current = false
+      turnStartedAtRef.current = Date.now()
+      lastVoiceAtRef.current = Date.now()
+      noiseFloorRef.current = []
       setState("listening")
     } catch {
+      conversationRef.current = false
       setError("Microphone access was blocked. Allow it in your browser to use voice mode.")
       setState("error")
     }
@@ -281,11 +342,13 @@ export function VoiceMode() {
     try {
       const heard = await transcribe(wav, controller.signal)
       if (!heard.text) {
-        setError("I didn't catch that — try again.")
+        // Nothing intelligible — don't interrupt the conversation over it, just listen again.
+        if (conversationRef.current) { await startListening(); return }
         setState("idle")
         return
       }
       setTranscript(heard.text)
+      setReply("")
 
       const answer = await askAgent({
         userId: session.userId,
@@ -298,12 +361,46 @@ export function VoiceMode() {
 
       const speech = await synthesize(stripForSpeech(answer), { signal: controller.signal })
       await playReply(speech)
+
+      // Hand the turn straight back rather than making them tap to speak again.
+      if (conversationRef.current) {
+        await startListening()
+      } else {
+        setState("idle")
+      }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") return
+      conversationRef.current = false
       setError(err instanceof Error ? err.message : "Something went wrong.")
       setState("error")
     }
-  }, [playReply])
+  }, [playReply, startListening])
+
+  // The draw loop was created once on mount, so point it at the current handler.
+  useEffect(() => {
+    endTurnRef.current = () => {
+      // Guard: the loop fires every frame, so only the first call should take the turn.
+      if (stateRef.current !== "listening") return
+      stateRef.current = "thinking"
+      void stopAndSend()
+    }
+  }, [stopAndSend])
+
+  const startConversation = useCallback(async () => {
+    conversationRef.current = true
+    setTranscript("")
+    setReply("")
+    await startListening()
+  }, [startListening])
+
+  const pauseConversation = useCallback(() => {
+    conversationRef.current = false
+    abortRef.current?.abort()
+    recorderRef.current?.cancel()
+    recorderRef.current = null
+    audioElRef.current?.pause()
+    setState("idle")
+  }, [])
 
   const endSession = () => {
     cleanup()
@@ -366,22 +463,22 @@ export function VoiceMode() {
       </div>
 
       <div className="flex items-center gap-4">
-        {state === "listening" ? (
+        {conversationRef.current || state === "listening" || busy ? (
           <Button
-            onClick={stopAndSend}
+            onClick={pauseConversation}
             className="h-16 w-16 rounded-full bg-red-500 hover:bg-red-600 text-white"
-            title="Stop and send"
-            aria-label="Stop and send"
+            title="Pause the conversation"
+            aria-label="Pause the conversation"
           >
             <Square className="h-6 w-6 fill-current" />
           </Button>
         ) : (
           <Button
-            onClick={startListening}
-            disabled={!ready || busy}
+            onClick={startConversation}
+            disabled={!ready}
             className="h-16 w-16 rounded-full bg-white text-gray-900 hover:bg-white/90 disabled:opacity-40"
-            title="Start speaking"
-            aria-label="Start speaking"
+            title="Start talking"
+            aria-label="Start talking"
           >
             <Mic className="h-6 w-6" />
           </Button>
