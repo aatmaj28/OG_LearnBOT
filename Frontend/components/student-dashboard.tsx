@@ -10,8 +10,12 @@ import { StudentClassesTab } from "@/components/student-classes-tab"
 
 export function StudentDashboard() {
   const [userName, setUserName] = useState("")
-  const [activeTab, setActiveTab] = useState("chat")
+  // Teams-first: the employee starts on their assigned teams, not an empty chat box.
+  const [activeTab, setActiveTab] = useState("classes")
   const [isDarkMode, setIsDarkMode] = useState(false)
+  // The team + document the chat is scoped to when the employee opens one from My Teams.
+  // null means "no explicit scope" — the chat then behaves exactly as it always has.
+  const [chatScope, setChatScope] = useState<{ classId: string; document: string } | null>(null)
 
   useEffect(() => {
     loadUserData()
@@ -36,6 +40,13 @@ export function StudentDashboard() {
   const handleTabChange = (value: string) => {
     setActiveTab(value)
     localStorage.setItem("studentActiveTab", value)
+  }
+
+  // Opening a document from My Teams drops the employee into the chat already pointed at
+  // that team + document. An empty fileName means every document in the team.
+  const openDocumentInChat = (classId: string, fileName: string) => {
+    setChatScope({ classId, document: fileName })
+    handleTabChange("chat")
   }
 
   const toggleDarkMode = () => {
@@ -81,28 +92,37 @@ export function StudentDashboard() {
           <div className={`border-b px-4 shadow-sm ${isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white"}`}>
             <TabsList className="h-12 bg-transparent">
               <TabsTrigger
+                value="classes"
+                className={`gap-2 ${isDarkMode ? "data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" : "data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"}`}
+              >
+                <BookOpen className="h-4 w-4" />
+                My Teams
+              </TabsTrigger>
+              <TabsTrigger
                 value="chat"
                 className={`gap-2 ${isDarkMode ? "data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" : "data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"}`}
               >
                 <MessageSquare className="h-4 w-4" />
                 Chat
               </TabsTrigger>
-              <TabsTrigger
-                value="classes"
-                className={`gap-2 ${isDarkMode ? "data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" : "data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"}`}
-              >
-                <BookOpen className="h-4 w-4" />
-                Teams
-              </TabsTrigger>
             </TabsList>
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            <TabsContent value="chat" className="h-full m-0">
-              <StudentChatInterface showHeader={false} sidebarLayout="full" isDarkMode={isDarkMode} />
-            </TabsContent>
             <TabsContent value="classes" className="h-full m-0">
-              <StudentClassesTab isDarkMode={isDarkMode} />
+              <StudentClassesTab isDarkMode={isDarkMode} onOpenDocument={openDocumentInChat} />
+            </TabsContent>
+            <TabsContent value="chat" className="h-full m-0">
+              {/* Keyed on the scope so picking a different document re-opens the chat on it;
+                  with no scope this is the same standalone chat as before. */}
+              <StudentChatInterface
+                key={chatScope ? `${chatScope.classId}::${chatScope.document}` : "unscoped"}
+                showHeader={false}
+                sidebarLayout="full"
+                isDarkMode={isDarkMode}
+                initialClassId={chatScope?.classId}
+                initialDocument={chatScope?.document}
+              />
             </TabsContent>
           </div>
         </Tabs>
