@@ -243,24 +243,34 @@ interface StudentChatInterfaceProps {
   showHeader?: boolean
   sidebarLayout?: 'minimal' | 'full'
   isDarkMode?: boolean
+  // Optional starting scope. When the employee opens a document from the My Teams tab we mount
+  // the chat already pointed at that team + document. Omit both and the chat behaves exactly as
+  // before: it falls back to the employee's first team and "all documents".
+  initialClassId?: string
+  initialDocument?: string
 }
 
-export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minimal', isDarkMode: isDarkModeProp }: StudentChatInterfaceProps = {}) {
+export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minimal', isDarkMode: isDarkModeProp, initialClassId, initialDocument }: StudentChatInterfaceProps = {}) {
   const router = useRouter()
   const [conversations, setConversations] = useState<RAGConversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<RAGConversation | null>(null)
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [userName, setUserName] = useState("")
-  const [selectedClassId, setSelectedClassId] = useState<string>("")
+  const [selectedClassId, setSelectedClassId] = useState<string>(initialClassId ?? "")
+  // Captured once so a re-render never re-applies the caller's starting scope over the
+  // employee's own picks inside the chat.
+  const initialClassIdRef = useRef<string | undefined>(initialClassId)
   const [chatType, setChatType] = useState<ChatType>("class_material")
-  const [preferredModel, setPreferredModel] = useState<ModelBackend>("local-nemotron")
+  // No picker for this any more: the manager sets the model per team and the backend
+  // overrides whatever the client sends, so employees all get the team's configured model.
+  const [preferredModel] = useState<ModelBackend>("local-nemotron")
   const [classes, setClasses] = useState<Class[]>([])
   // Every document across the teams this employee belongs to.
   const [documents, setDocuments] = useState<CorpusDocument[]>([])
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
   // "" means all documents; otherwise the file the chat is scoped to.
-  const [selectedDocument, setSelectedDocument] = useState<string>("")
+  const [selectedDocument, setSelectedDocument] = useState<string>(initialDocument ?? "")
   const [ragStatus, setRagStatus] = useState<{
     isAvailable: boolean
   }>({ isAvailable: false })
@@ -444,13 +454,16 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
   // A document picked under one chat type may not exist under the other.
   useEffect(() => {
     if (!selectedDocument) return
+    // Teams haven't arrived yet, so the document list is empty for that reason alone — don't
+    // read it as "the file is gone" and clear a starting document handed in by the caller.
+    if (classes.length === 0) return
     const stillExists = documents.some(
       (doc) => doc.classId === selectedClassId && doc.fileName === selectedDocument
     )
     if (!isLoadingDocuments && !stillExists) {
       setSelectedDocument("")
     }
-  }, [documents, isLoadingDocuments, selectedDocument, selectedClassId])
+  }, [documents, isLoadingDocuments, selectedDocument, selectedClassId, classes.length])
 
   useEffect(() => {
     if (selectedClassId) {
@@ -737,9 +750,12 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
       const { classesApi } = await import("@/lib/flask-api-client")
       const data = (await classesApi.getClasses(undefined, userId)) as { classes?: Class[] }
       setClasses(data.classes || [])
-      // Auto-select first class if available
+      // Auto-select first class if available, unless the caller asked to start on a specific
+      // team and the employee is actually assigned to it.
       if (data.classes && data.classes.length > 0) {
-        setSelectedClassId(data.classes[0].id)
+        const requested = initialClassIdRef.current
+        const requestedIsAssigned = !!requested && data.classes.some((c) => c.id === requested)
+        setSelectedClassId(requestedIsAssigned ? (requested as string) : data.classes[0].id)
       }
     } catch (error) {
       console.error("[Student Chat] Failed to load classes:", error)
@@ -2174,28 +2190,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
                 <div className={`min-w-0 p-3 border-b space-y-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
                   <div className="space-y-2">
                     <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
-                      <Zap className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
-                      Select Model
-                    </label>
-                    <Select value={normalizeModelBackend(preferredModel)} onValueChange={(v) => setPreferredModel(v as ModelBackend)}>
-                      <SelectTrigger className={`h-8 text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                        <SelectItem value="local-nemotron" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          ⚡ Nemotron 3.5 Lightning (30B)
-                        </SelectItem>
-                        <SelectItem value="local-qwen" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          🧠 Qwen3.6 (35B-A3B)
-                        </SelectItem>
-                        <SelectItem value="local-nano" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                          🍃 Nemotron 3 Nano (4B)
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className={`text-sm font-medium flex items-center gap-2 ${isDarkMode ? 'text-white/80' : 'text-gray-700'}`}>
                       <FileText className={`h-4 w-4 ${isDarkMode ? 'text-white/60' : 'text-gray-600'}`} />
                       Select Document
                     </label>
@@ -2356,23 +2350,6 @@ export function StudentChatInterface({ showHeader = true, sidebarLayout = 'minim
             <div className="flex items-center gap-3 flex-1 min-w-0">
               {sidebarLayout !== 'full' && (
                 <>
-                  {/* Model Selector */}
-                  <Select value={normalizeModelBackend(preferredModel)} onValueChange={(value) => setPreferredModel(value as ModelBackend)}>
-                    <SelectTrigger className={`h-8 w-[210px] text-sm ${isDarkMode ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className={isDarkMode ? 'bg-black border-white/10 text-white' : ''}>
-                      <SelectItem value="local-nemotron" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">⚡ Nemotron 3.5 Lightning (30B)</span>
-                      </SelectItem>
-                      <SelectItem value="local-qwen" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">🧠 Qwen3.6 (35B-A3B)</span>
-                      </SelectItem>
-                      <SelectItem value="local-nano" className={isDarkMode ? 'focus:bg-white/10 focus:text-white' : ''}>
-                        <span className="text-sm">🍃 Nemotron 3 Nano (4B)</span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
                   <Select
                     value={encodeDocValue(selectedClassId, selectedDocument)}
                     onValueChange={(value) => {

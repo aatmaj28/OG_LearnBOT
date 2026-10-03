@@ -218,6 +218,7 @@ def ai_response():
             stream_param = request.form.get("stream", "true")  # Default to "true" string
             stream = stream_param.lower() == "true" if stream_param else True  # Default to True
             deep_thinking = request.form.get("deepThinking") == "true"
+            voice_mode = request.form.get("voice") == "true"
             flow_type = request.form.get("flowType", "teach")
         elif "application/json" in content_type:
             data = request.get_json()
@@ -232,6 +233,7 @@ def ai_response():
             preferred_model = data.get("preferredModel", "local-nemotron")
             stream = data.get("stream", True)  # Default to streaming for better UX
             deep_thinking = data.get("deepThinking", False)
+            voice_mode = bool(data.get("voice", False))
             flow_type = data.get("flowType", "teach")  # "teach" (pedagogical) or "informative" (direct Q&A)
         else:
             return jsonify({
@@ -297,6 +299,27 @@ def ai_response():
 
         # "All" mode: build paths for all 6 category collections
         all_vector_store_paths = None
+        # A team with no indexed documents has no Qdrant collection, and retrieval used to fail
+        # with a raw "Qdrant collection not found: <folder>" leaked straight to the user. Answer
+        # plainly instead — there is genuinely nothing to search.
+        try:
+            material_type = "syllabus" if resolved_chat_type == "syllabus" else "class_material"
+            indexed = [f for f in (db_service.get_corpus_files_by_class(conv_class_id, material_type) or [])
+                       if f.get("isIndexed")]
+            if not indexed:
+                team_name = cls.get("name") or "this team"
+                msg = (f"No documents have been uploaded for {team_name} yet, so I don't have anything "
+                       f"to answer from. Ask your manager to add documents to this team.")
+                print(f"[CHAT] No indexed documents for class {conv_class_id} ({material_type}) — returning guidance", flush=True)
+                return jsonify({
+                    "response": msg,
+                    "modelUsed": "none",
+                    "timeTaken": 0,
+                    "noDocuments": True,
+                })
+        except Exception as e:
+            print(f"[CHAT] Could not check indexed documents (continuing): {e}", flush=True)
+
         base_folder = cls.get("vectorStoreFolder") or db_service.generate_vector_store_folder_name(cls["name"])
         if resolved_chat_type == "all":
             syllabus_folder = cls.get("syllabusVectorStoreFolder") or (base_folder + "_syllabus")
@@ -336,6 +359,7 @@ def ai_response():
             "chat_type": chat_type,
             "checkpoint_state": conversation.get('checkpointState', {}),
             "deep_thinking": deep_thinking,
+            "voice_mode": voice_mode,
             "ta_mode": ta_mode,
             "flow_type": flow_type,
             "attachments": []
