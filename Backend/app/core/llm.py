@@ -29,6 +29,14 @@ def _complete(messages, think=False, **kwargs):
                                           extra_body=_think_options(think), **kwargs)
 
 
+def complete(messages, tools=None, think=False):
+    """One raw completion (for agent tool loops): returns the OpenAI message, with .tool_calls when the model
+    calls tools. Thinking text is stripped from .content."""
+    msg = _complete(messages, think, **({"tools": tools} if tools else {})).choices[0].message
+    msg.content = _THINK_TAGS.sub("", msg.content or "").strip()
+    return msg
+
+
 def chat(messages, think=False) -> str:
     msg = _complete(messages, think).choices[0].message
     return _THINK_TAGS.sub("", msg.content or "").strip()

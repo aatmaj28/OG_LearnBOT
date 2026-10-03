@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from app.core import config, store
+from app.rag import index
 
 router = APIRouter(tags=["admin"])
 
@@ -20,4 +21,13 @@ def employees():
 
 @router.post("/admin/reindex")
 def reindex():
-    return {"ok": True, "projects": 0, "chunks": 0}  # SKELETON
+    """Rebuilds every project index plus data/docs and data/meetings."""
+    projects = store.read_json("projects.json", [])
+    chunks = 0
+    for p in projects:
+        counts = index.build_project(p["id"])
+        p.update(file_count=counts["files"], chunk_count=counts["chunks"])
+        chunks += counts["chunks"]
+    store.write_json("projects.json", projects)
+    extras = index.build_extras()
+    return {"ok": True, "projects": len(projects), "chunks": chunks + sum(e["chunks"] for e in extras.values())}

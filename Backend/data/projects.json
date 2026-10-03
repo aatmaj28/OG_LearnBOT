@@ -1,0 +1,24 @@
+[
+  {
+    "id": "proj_og_learnbot",
+    "name": "OG_LearnBOT",
+    "git_url": "https://github.com/aatmaj28/OG_LearnBOT.git",
+    "local_path": null,
+    "branch": "ui",
+    "members": [
+      "emp_demo"
+    ],
+    "last_sha": "f43794a8e126605e85ddd21d97332f028d485363",
+    "last_commit": {
+      "sha": "f43794a8e126605e85ddd21d97332f028d485363",
+      "message": "Surface team documents and settings; fix the model choice to the team",
+      "author": "Vijwal Mahendrakar",
+      "date": "2026-10-03T16:29:24-04:00"
+    },
+    "last_synced": "2026-10-03T20:34:49Z",
+    "file_count": 186,
+    "chunk_count": 1280,
+    "status": "ready",
+    "error": null
+  }
+]
